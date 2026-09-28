@@ -22,7 +22,7 @@ require (
 	github.com/prometheus/node_exporter v1.12.1
 	github.com/prometheus/procfs v0.22.0
 	github.com/prometheus/prometheus v0.315.0
-	github.com/ulikunitz/xz v0.5.15
+	github.com/ulikunitz/xz v0.5.17
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/sys v0.48.0
 	google.golang.org/protobuf v1.36.12
