@@ -478,3 +478,41 @@ func TestConcurrentObservers(t *testing.T) {
 		t.Fatalf("count %d", total)
 	}
 }
+
+func TestStagedRollbackUndoesUncommittedTransitions(t *testing.T) {
+	e := newEnv(t, Options{})
+	e.tr.Stage()
+	e.observe(t, fire(pod("a"), t0))
+	if err := e.tr.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if e.tr.OpenCount() != 0 || len(e.tr.Summary(0, 100)) != 0 {
+		t.Fatal("rolled back episode still open")
+	}
+	if reopened := e.open(t, Options{}); reopened.OpenCount() != 0 {
+		t.Fatal("rolled back episode still persisted")
+	}
+	e.observe(t, fire(pod("a"), t0.Add(time.Second)))
+	if f := e.sink.last(); f.Transition != protocol.TransitionFiring {
+		t.Fatalf("after rollback the next observation must fire again, got %s", f.Transition)
+	}
+	e.tr.Stage()
+	e.observe(t, Observation{Kind: Resolved, RuleID: "oom-logs", Labels: pod("a"), EvalTime: t0.Add(2 * time.Second)})
+	e.observe(t, fire(pod("a"), t0.Add(3*time.Second)))
+	if err := e.tr.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if e.tr.OpenCount() != 1 {
+		t.Fatal("rollback must restore the firing episode that the uncommitted resolve closed")
+	}
+	sum := e.tr.Summary(0, 100)
+	if len(sum) != 1 || sum[0].State != protocol.LifecycleFiring {
+		t.Fatalf("summary after rollback %+v", sum)
+	}
+	e.tr.Stage()
+	e.observe(t, Observation{Kind: Resolved, RuleID: "oom-logs", Labels: pod("a"), EvalTime: t0.Add(4 * time.Second)})
+	e.tr.Release()
+	if e.tr.OpenCount() != 0 {
+		t.Fatal("released changes must stay")
+	}
+}

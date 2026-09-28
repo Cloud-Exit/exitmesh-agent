@@ -29,7 +29,9 @@ type Error struct {
 	StatusCode int
 	Message    string
 	Retryable  bool
-	Err        error
+	// Malformed is set when the request content itself is refused (HTTP 400 or 413) or cannot be encoded.
+	Malformed bool
+	Err       error
 }
 
 func (e *Error) Error() string {
@@ -45,6 +47,16 @@ func (e *Error) Unwrap() error { return e.Err }
 func IsRetryable(err error) bool {
 	e, ok := errors.AsType[*Error](err)
 	return ok && e.Retryable
+}
+
+// IsMalformed reports whether the request content was refused; authentication, authorization, and transport failures never are.
+func IsMalformed(err error) bool {
+	e, ok := errors.AsType[*Error](err)
+	return ok && e.Malformed
+}
+
+func malformedStatus(code int) bool {
+	return code == http.StatusBadRequest || code == http.StatusRequestEntityTooLarge
 }
 
 func retryableStatus(code int) bool {
@@ -134,7 +146,7 @@ func (c *Client) do(ctx context.Context, op, method, path string, timeout time.D
 	if in != nil {
 		b, err := Marshal(in)
 		if err != nil {
-			return false, &Error{Op: op, Err: err}
+			return false, &Error{Op: op, Malformed: true, Err: err}
 		}
 		body = bytes.NewReader(b)
 	}
@@ -167,7 +179,8 @@ func (c *Client) do(ctx context.Context, op, method, path string, timeout time.D
 	case http.StatusOK:
 	default:
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return false, &Error{Op: op, StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(msg)), Retryable: retryableStatus(resp.StatusCode)}
+		return false, &Error{Op: op, StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(msg)), Retryable: retryableStatus(resp.StatusCode),
+			Malformed: malformedStatus(resp.StatusCode)}
 	}
 	if out == nil {
 		return true, nil
@@ -196,10 +209,10 @@ func (c *Client) Register(ctx context.Context, req RegisterRequest) (RegisterRes
 	return resp, err
 }
 
-// Submit sends items in ascending sequence order and returns the highest durably acknowledged sequence.
-func (c *Client) Submit(ctx context.Context, items []Item) (uint64, error) {
+// Submit sends items of the queue in ascending sequence order and returns the highest durably acknowledged sequence.
+func (c *Client) Submit(ctx context.Context, queue string, items []Item) (uint64, error) {
 	var resp SubmitResponse
-	_, err := c.do(ctx, "submit", http.MethodPost, "/v1/node/records", c.timeout, SubmitRequest{Node: c.node, Items: items}, &resp)
+	_, err := c.do(ctx, "submit", http.MethodPost, "/v1/node/records", c.timeout, SubmitRequest{Node: c.node, Queue: queue, Items: items}, &resp)
 	return resp.AckedThrough, err
 }
 

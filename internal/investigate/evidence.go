@@ -28,7 +28,7 @@ func (s *Service) evidenceQuery(ctx context.Context, c *call) (*Result, error) {
 	}
 	src := s.liveSource()
 	res := c.newResult(src, LangEvidence, a.RuleID, src)
-	tq := TaskQuery{Query: a.RuleID, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), Namespaces: ts.namespaces, Nodes: ts.nodes, Limits: c.lim}
+	tq := TaskQuery{Query: a.RuleID, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), Namespaces: ts.namespaces, Pods: ts.pods, Nodes: ts.nodes, Limits: c.lim}
 	data, _, _ := s.merge(res, s.live(ctx, c, nodeapi.TaskEvidence, tq, ts, false, 0), false)
 	s.redactTelemetry(&data)
 	res.Data = data

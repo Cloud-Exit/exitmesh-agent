@@ -18,12 +18,20 @@ import (
 // hooks connects the writer session to the chain head, findings, bundles, investigation, and health.
 type hooks struct{ c *Coordinator }
 
+// noteCheckpoint records a session checkpoint in the chain stats once the store transaction commits it.
 func (h hooks) noteCheckpoint(e *client.Entry) {
 	now := h.c.now()
-	h.c.statMu.Lock()
-	h.c.stats.LastCheckpoint = seqTime{Seq: e.Seq, Time: now}
-	h.c.stats.DeltasSinceAnchor, h.c.stats.LastAnchor = 0, now
-	h.c.statMu.Unlock()
+	note := func() {
+		h.c.statMu.Lock()
+		h.c.stats.LastCheckpoint = seqTime{Seq: e.Seq, Time: now}
+		h.c.stats.DeltasSinceAnchor, h.c.stats.LastAnchor = 0, now
+		h.c.statMu.Unlock()
+	}
+	if tx := h.c.captured; tx != nil {
+		tx.OnCommit(note)
+		return
+	}
+	note()
 }
 
 // CaptureReplay appends the replay anchor and returns the lifecycle summary at the same sequence (SPEC 8.4 step 3).
@@ -114,6 +122,9 @@ type Health struct {
 	Security    securityHealth    `json:"security"`
 	Findings    findingsHealth    `json:"findings"`
 	Errors      map[string]string `json:"errors,omitempty"`
+	// NodeRules rolls the node-local rule states of covered node agents up per rule version.
+	NodeRules          []nodeRuleRollup `json:"node_rules,omitempty"`
+	NodeRulesTruncated int              `json:"node_rules_truncated,omitempty"`
 }
 
 type sessionHealth struct {
@@ -225,6 +236,7 @@ func (c *Coordinator) health() Health {
 			LastEval: r.LastEval, Pending: r.Pending, Firing: r.Firing})
 	}
 	h.Nodes = c.nodes.list()
+	h.NodeRules, h.NodeRulesTruncated = rollupNodeRules(h.Nodes)
 	if ep, ok := c.sp.Epoch(); ok {
 		h.Chain.Head = ep.Chain.Head
 	}

@@ -202,7 +202,14 @@ func TestNamespaceScopedProfileRendersRoles(t *testing.T) {
 			}
 		}
 	}
-	for name, rs := range rules(t, m) {
+	nsRules := rules(t, m)
+	for _, ns := range []string{"team-a", "team-b"} {
+		if got := nsRules["Role/"+ns+"/"+nodeDS+"-pods"]; len(got) != 1 || !reflect.DeepEqual(got[0].Verbs, []string{"list", "watch"}) ||
+			!reflect.DeepEqual(got[0].Resources, []string{"pods"}) || !reflect.DeepEqual(got[0].APIGroups, []string{""}) {
+			t.Errorf("node pods Role in %s = %+v, want list and watch on pods for the per-namespace pod watch", ns, got)
+		}
+	}
+	for name, rs := range nsRules {
 		if !strings.HasPrefix(name, "ClusterRole/") {
 			continue
 		}

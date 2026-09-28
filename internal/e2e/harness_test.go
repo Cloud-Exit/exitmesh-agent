@@ -436,7 +436,8 @@ func (e *env) stopCoordinator() {
 	}
 }
 
-func (e *env) startNode(name string) *agent {
+// startNode starts a node agent on a fresh state directory; extra is appended to its configuration.
+func (e *env) startNode(name string, extra ...string) *agent {
 	t := e.t
 	t.Helper()
 	p := podOf[name]
@@ -469,7 +470,7 @@ node:
 investigation:
   maxConcurrency: 4
   timeout: 10s
-`, a.dir, e.listen, e.cert, token, e.tr.rootEntry(), name, a.logs)
+`, a.dir, e.listen, e.cert, token, e.tr.rootEntry(), name, a.logs) + strings.Join(extra, "")
 	cfg, err := config.Parse([]byte(y))
 	if err != nil {
 		t.Fatal(err)

@@ -15,8 +15,10 @@ import (
 	"cel.dev/cel-go/common/types"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/kv"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/bundle"
@@ -454,8 +456,126 @@ func (e *Engine) evalPromQL(ctx context.Context, cr *compiledRule, rt *ruleRunti
 	}
 	if len(missing) > 0 {
 		in.incompleteRest, in.flagged, in.reason = true, true, "no input series for "+strings.Join(missing, ", ")
+		return in, nil
+	}
+	gone, err := e.goneInstances(ctx, cr, rt, in.observed, now)
+	if err != nil {
+		return evalInput{}, err
+	}
+	if len(gone) > 0 {
+		in.incomplete, in.reason = gone, fmt.Sprintf("input series gone for %d instances", len(gone))
 	}
 	return in, nil
+}
+
+// probeSeries bounds the series read per input when checking one instance.
+const probeSeries = 16
+
+// goneInstances returns the unobserved active instances left without a live input series matching their labels.
+func (e *Engine) goneInstances(ctx context.Context, cr *compiledRule, rt *ruleRuntime, observed []observation, now time.Time) (map[string]bool, error) {
+	if len(cr.inputs) == 0 || len(rt.alerts.active) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]bool, len(observed))
+	for _, o := range observed {
+		seen[o.key] = true
+	}
+	var keys []string
+	for _, k := range rt.alerts.sortedKeys() {
+		if !seen[k] {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	start, end := now.Add(-e.opts.LookbackDelta).UnixMilli(), now.UnixMilli()
+	q, err := e.opts.Queryable.Querier(start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer q.Close()
+	carried := make(map[string]map[string]bool, len(cr.inputs))
+	for _, n := range cr.inputs {
+		names, _, err := q.LabelNames(ctx, nil, labels.MustNewMatcher(labels.MatchEqual, model.MetricNameLabel, n))
+		if err != nil {
+			return nil, err
+		}
+		set := make(map[string]bool, len(names))
+		for _, ln := range names {
+			if _, ruleLabel := cr.labels[ln]; !ruleLabel && !cr.derived[ln] && ln != model.MetricNameLabel && ln != labels.AlertName {
+				set[ln] = true
+			}
+		}
+		carried[n] = set
+	}
+	gone := map[string]bool{}
+	for i, k := range keys {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("%w: %w", errBudget, err)
+		}
+		// Beyond the series budget an instance is not checked and stays unresolved this cycle.
+		if i >= cr.budget.MaxSeries {
+			gone[k] = true
+			continue
+		}
+		live, err := instanceLive(ctx, q, cr.inputs, carried, rt.alerts.active[k].Labels, start, end)
+		if err != nil {
+			return nil, err
+		}
+		if !live {
+			gone[k] = true
+		}
+	}
+	return gone, nil
+}
+
+// instanceLive reports whether any input has a live series carrying the instance's values for the labels it has.
+func instanceLive(ctx context.Context, q storage.Querier, inputs []string, carried map[string]map[string]bool, lbls map[string]string, start, end int64) (bool, error) {
+	for _, n := range inputs {
+		ms := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, model.MetricNameLabel, n)}
+		for ln, v := range lbls {
+			if carried[n][ln] {
+				ms = append(ms, labels.MustNewMatcher(labels.MatchEqual, ln, v))
+			}
+		}
+		live, err := liveSeries(ctx, q, start, end, ms)
+		if err != nil || live {
+			return live, err
+		}
+	}
+	return false, nil
+}
+
+// liveSeries reports whether a matching series has a latest sample in [start, end] that is not a staleness marker.
+func liveSeries(ctx context.Context, q storage.Querier, start, end int64, ms []*labels.Matcher) (bool, error) {
+	set := q.Select(ctx, false, &storage.SelectHints{Start: start, End: end, Limit: probeSeries}, ms...)
+	var it chunkenc.Iterator
+	for n := 0; n < probeSeries && set.Next(); n++ {
+		it = set.At().Iterator(it)
+		found, stale := false, false
+		for vt := it.Seek(start); vt != chunkenc.ValNone && it.AtT() <= end; vt = it.Next() {
+			found = true
+			switch vt {
+			case chunkenc.ValFloat:
+				_, f := it.At()
+				stale = value.IsStaleNaN(f)
+			case chunkenc.ValHistogram:
+				_, h := it.AtHistogram(nil)
+				stale = value.IsStaleNaN(h.Sum)
+			case chunkenc.ValFloatHistogram:
+				_, h := it.AtFloatHistogram(nil)
+				stale = value.IsStaleNaN(h.Sum)
+			}
+		}
+		if err := it.Err(); err != nil {
+			return false, err
+		}
+		if found && !stale {
+			return true, nil
+		}
+	}
+	return false, set.Err()
 }
 
 // missingInputs lists input metric names with no series in the lookback window (PRD G8: absence of

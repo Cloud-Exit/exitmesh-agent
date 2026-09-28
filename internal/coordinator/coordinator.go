@@ -187,6 +187,9 @@ type Coordinator struct {
 	kick        chan struct{}
 	fatalOnce   sync.Once
 	cancel      context.CancelFunc
+	spoolFault  func() error
+	// captured is the spool transaction of the session store's Do in progress, set and read under the sequence lock.
+	captured *spool.Tx
 }
 
 type chainStats struct {
@@ -320,7 +323,7 @@ func (c *Coordinator) Run(ctx context.Context) (err error) {
 	defer cancel()
 	sp, err := spool.Open(spool.Options{
 		Dir: filepath.Join(c.cfg.StateDir, "spool"), CapacityBytes: int64(c.cfg.Spool.Capacity),
-		WindowBytes: int64(c.cfg.Spool.Window), CoalesceAt: c.cfg.Spool.CoalesceAt, Clock: c.now,
+		WindowBytes: int64(c.cfg.Spool.Window), CoalesceAt: c.cfg.Spool.CoalesceAt, Clock: c.now, CommitFault: c.spoolFault,
 	})
 	if err != nil {
 		if errors.Is(err, spool.ErrLocked) {

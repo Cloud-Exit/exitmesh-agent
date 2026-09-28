@@ -44,8 +44,8 @@ type AuditEvent struct {
 // Backend is the coordinator side of the API; node is always the authenticated node.
 type Backend interface {
 	Register(ctx context.Context, node string, req RegisterRequest) (RegisterResponse, error)
-	// Submit returns only after the items are durably stored.
-	Submit(ctx context.Context, node string, items []Item) (ackedThrough uint64, err error)
+	// Submit returns only after the items are durably stored; queue names the sequence space of the item sequences.
+	Submit(ctx context.Context, node, queue string, items []Item) (ackedThrough uint64, err error)
 	// Bundle returns nil when have is current; changed is closed once the answer may differ.
 	Bundle(ctx context.Context, node, have string) (*BundlePayload, <-chan struct{}, error)
 	// Kube reports nothing new while the revision is at most since.
@@ -242,7 +242,7 @@ func (s *server) records(w http.ResponseWriter, r *http.Request, id Identity) {
 			return
 		}
 	}
-	acked, err := s.o.Backend.Submit(r.Context(), id.Node, req.Items)
+	acked, err := s.o.Backend.Submit(r.Context(), id.Node, req.Queue, req.Items)
 	if err != nil {
 		s.backendError(w, r, err)
 		return

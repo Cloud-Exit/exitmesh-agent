@@ -225,3 +225,95 @@ func TestUnmarshalStrict(t *testing.T) {
 		t.Fatalf("unknown key should be ignored: %v %+v", err, withUnknown)
 	}
 }
+
+// Message shapes of the previous release, for rolling upgrades in both directions.
+type prevFact struct {
+	Namespace, Pod, Container, Node string
+	Fields                          map[string]any
+}
+
+type prevItem struct {
+	Seq   uint64     `cbor:"1,keyasint"`
+	Kind  ItemKind   `cbor:"2,keyasint"`
+	Facts []prevFact `cbor:"4,keyasint,omitempty"`
+}
+
+type prevSubmit struct {
+	Node  string     `cbor:"1,keyasint"`
+	Items []prevItem `cbor:"2,keyasint,omitempty"`
+}
+
+type prevRegister struct {
+	Node         string     `cbor:"1,keyasint"`
+	AgentVersion string     `cbor:"2,keyasint,omitempty"`
+	QueueUsage   QueueUsage `cbor:"7,keyasint"`
+}
+
+func TestWireCompatibleAcrossOneRelease(t *testing.T) {
+	facts := []metricfacts.Fact{{Namespace: "shop", Pod: "web-1", Container: "app", Node: "node-1", UID: "pod-1", Fields: map[string]any{metricfacts.MemP95: int64(7)}}}
+	sub := SubmitRequest{Node: "node-1", Queue: "0123456789abcdef0123456789abcdef", Items: []Item{{Seq: 3, Kind: KindMetricFacts, Facts: facts}}}
+	check(t, sub)
+	reg := RegisterRequest{Node: "node-1", AgentVersion: "2", QueueUsage: QueueUsage{Items: 1}, Rules: []RuleStatus{
+		{RuleID: "r1", Version: 2, State: engine.StateBudgetLimited, Reason: "too many samples", LastEvalMs: 1_700_000_000_000, BudgetLimited: true},
+		{RuleID: "r2", Version: 1, State: engine.StateActive, EvidenceLimited: true},
+	}}
+	check(t, reg)
+
+	b, err := Marshal(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var old prevSubmit
+	if err := Unmarshal(b, &old); err != nil || old.Node != "node-1" || len(old.Items) != 1 || old.Items[0].Facts[0].Pod != "web-1" {
+		t.Fatalf("previous release decoding a submission: %+v %v", old, err)
+	}
+	if b, err = Marshal(reg); err != nil {
+		t.Fatal(err)
+	}
+	var oldReg prevRegister
+	if err := Unmarshal(b, &oldReg); err != nil || oldReg.Node != "node-1" || oldReg.QueueUsage.Items != 1 {
+		t.Fatalf("previous release decoding a registration: %+v %v", oldReg, err)
+	}
+
+	b, err = protocol.Marshal(prevSubmit{Node: "node-1", Items: []prevItem{{Seq: 1, Kind: KindMetricFacts, Facts: []prevFact{{Namespace: "shop", Pod: "web-1", Container: "app",
+		Fields: map[string]any{metricfacts.MemP95: int64(7)}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cur SubmitRequest
+	if err := Unmarshal(b, &cur); err != nil || cur.Queue != "" || cur.Items[0].Facts[0].UID != "" || cur.Items[0].Facts[0].Pod != "web-1" {
+		t.Fatalf("decoding a previous release submission: %+v %v", cur, err)
+	}
+	if b, err = protocol.Marshal(prevRegister{Node: "node-1", AgentVersion: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	var curReg RegisterRequest
+	if err := Unmarshal(b, &curReg); err != nil || curReg.Rules != nil || curReg.AgentVersion != "1" {
+		t.Fatalf("decoding a previous release registration: %+v %v", curReg, err)
+	}
+
+	plain := metricfacts.Fact{Namespace: "shop", Pod: "web-1", Container: "app", Fields: map[string]any{"metric.x": int64(1)}}
+	nb, err := protocol.Marshal(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ob, err := protocol.Marshal(prevFact{Namespace: "shop", Pod: "web-1", Container: "app", Fields: map[string]any{"metric.x": int64(1)}})
+	if err != nil || !bytes.Equal(nb, ob) {
+		t.Fatal("a fact without a UID no longer encodes like the previous release, so queued items would change")
+	}
+
+	for name, v := range map[string]any{
+		"queue id":     SubmitRequest{Node: "n", Queue: "a/b", Items: []Item{{Seq: 1, Kind: KindSeries, Part: &Part{RuleID: "r"}}}},
+		"rule id":      RegisterRequest{Node: "n", Rules: []RuleStatus{{State: "active"}}},
+		"rule state":   RegisterRequest{Node: "n", Rules: []RuleStatus{{RuleID: "r"}}},
+		"long reason":  RegisterRequest{Node: "n", Rules: []RuleStatus{{RuleID: "r", State: "failed", Reason: strings.Repeat("x", MaxRuleReason+1)}}},
+		"rule records": RegisterRequest{Node: "n", Rules: make([]RuleStatus, MaxRuleStatuses+1)},
+	} {
+		if _, err := Marshal(v); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+	if RuleStateRank(engine.StateFailed) >= RuleStateRank(engine.StateBudgetLimited) || RuleStateRank(engine.StateDisabled) >= RuleStateRank(engine.StateActive) {
+		t.Fatal("rule state ranks out of order")
+	}
+}

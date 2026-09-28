@@ -44,6 +44,7 @@ type Options struct {
 	SegmentBytes  int64         // default 64 MiB
 	CoalesceAt    float64       // default 0.90 of capacity
 	Clock         func() time.Time
+	CommitFault   func() error  // tests only: fails a transaction's metadata commit after its bodies were written
 }
 
 func Open(opts Options) (*Spool, error) // takes flock on Dir/LOCK (ErrLocked if held), creates the writer ID on first open, increments and fsyncs the incarnation
@@ -57,8 +58,11 @@ func (s *Spool) OpenEpoch(reason string, prev *protocol.EpochID, prevHead *uint6
 func (s *Spool) MarkRegistered() error
 func (s *Spool) Do(fn func(tx *Tx) error) error // holds the sequence lock; every append happens inside Do
 func (tx *Tx) Append(t protocol.RecordType, build func(env protocol.Envelope) (*protocol.Record, error), opts ...AppendOption) (*Entry, error)
+func (tx *Tx) OnCommit(f func())                    // runs after the durable commit, still under the sequence lock; never when Do fails
+func (tx *Tx) DeleteCursor(key string)              // removed atomically with the transaction
 func WithCursor(key string, value uint64) AppendOption // persisted atomically with the record (node submission idempotency)
 func (s *Spool) Cursor(key string) uint64
+func (s *Spool) Cursors(prefix string) map[string]uint64
 func (s *Spool) Entries(fromSeq uint64) []*Entry    // spooled records above the committed head in chain order
 func (s *Spool) MarkTransmitted(seqs ...uint64) error // durable before the first byte is sent
 func (s *Spool) Commit(epoch protocol.EpochID, seq uint64, chainHash protocol.Hash) error
@@ -81,6 +85,7 @@ type Entry struct {
 }
 
 func OpenQueue(dir string, capacityBytes int64) (*Queue, error) // node agent queue under /var/lib/exitmesh/queue
+func (q *Queue) ID() string                                     // random identity created with the queue (QUEUE_ID); a lost state directory yields a new one
 func (q *Queue) Append(b []byte) (uint64, error)               // fsync before return
 func (q *Queue) Peek(fromSeq uint64, maxBytes int) []QueueItem
 func (q *Queue) Ack(seq uint64) error
@@ -152,8 +157,8 @@ HTTPS on the coordinator ClusterIP Service, port 8443, TLS from the chart, beare
 
 |Method and path|Purpose|
 |---|---|
-|`POST /v1/node/register`|Node name, agent version, bundle version, capabilities, coverage.|
-|`POST /v1/node/records`|CBOR batch of node queue items (findings, metric facts, pre-aggregated series) with node sequences; acknowledged after fsync to the coordinator spool.|
+|`POST /v1/node/register`|Node name, agent version, bundle version, capabilities, coverage, rule states.|
+|`POST /v1/node/records`|CBOR batch of node queue items (findings, metric facts, pre-aggregated series) with node sequences and the queue identity; acknowledged after fsync to the coordinator spool.|
 |`GET /v1/node/bundle?have=`|Long-poll for the target bundle.|
 |`GET /v1/node/kube?since=`|Long-poll for `kube_node_*` and non-pod `kube_*` series for this node.|
 |`GET /v1/node/tasks`|Long-poll for investigation and aggregation tasks.|
@@ -162,6 +167,20 @@ HTTPS on the coordinator ClusterIP Service, port 8443, TLS from the chart, beare
 Task kinds: `promql_query`, `logql_query`, `log_read`, `evidence_read`. Bundle payloads forward the control plane's key manifest chain unchanged so node agents verify bundles against the deployment's trust roots themselves.
 
 Every submission for a node other than the token's authenticated node is rejected and audited.
+
+The coordinator publishes a transaction's changes to its in-memory chain head (collector deltas, metric facts, checkpoint statistics, node finding index) only from `Tx.OnCommit`, after the spool committed the records durably. A failed write or fsync leaves the head as it was, so the resynchronization that follows emits the net difference, including the change that failed.
+
+Submissions carry the node queue identity (`SubmitRequest.Queue`, CBOR key 3). The coordinator keeps one idempotency cursor per node and queue (`node/<node>/<queue>`); items at or below it are acknowledged without being spooled again. A queue identity the coordinator has not seen is a new sequence space: a reimaged node restarts at sequence 1 and its records are spooled, and the node's other cursors (including the per-node cursor of agents that predate queue identities) are deleted in the same transaction. Cursors of nodes that stayed uncovered past the node timeout and left the cluster state are pruned. Upgrading a node agent creates a queue identity for its existing queue, so at most the items whose acknowledgement was lost before the upgrade are spooled a second time.
+
+Node agents retry every submission failure with backoff, rereading the token file on each attempt, and keep the queue intact: authentication (401), authorization (403), and transport failures never drop items. Only a request refused as malformed (400, or 413 for an oversized batch) is resent item by item, and only an item refused on its own is dropped and counted as rejected.
+
+Pod metric facts carry the pod UID the node observed in its pod watch when it computed them (`Fact.UID`). The coordinator applies a fact only to the pod with that UID on the submitting node and drops facts whose pod no longer exists, counting them in `facts_dropped` of the node's health entry, so facts delayed across a pod recreation never reach the replacement. Facts from agents without UIDs resolve by namespace and name and apply only while exactly one live pod of the node has that name; during a rolling upgrade such a fact queued for a pod that was recreated can still reach its replacement, which is the previous behavior.
+
+Registrations carry the node's rule states (`RegisterRequest.Rules`, CBOR key 8, at most 1024, reasons redacted and at most 512 bytes): rule ID, version, state, reason, last evaluation, and budget-limited and evidence-limited flags. The coordinator keeps the latest per node; coordinator health lists, per node, the rules that are not plainly active (at most 64, most severe first) with counts per state, and `node_rules` rolls the states of covered nodes up per rule version (at most 2048 entries).
+
+Node agents apply the administrator's namespace scope (`kubernetes.scope: namespaces` with `kubernetes.namespaces`, and `kubernetes.excludeNamespaces`) before any stream is read: the pod watch tracks only in-scope pods (one `spec.nodeName` watch per namespace in the namespaces profile), the tailer filter rejects out-of-scope streams, and `logql_query` and `log_read` tasks get the scope ANDed into every stream selector before the executor opens a file, so aggregates never count out-of-scope lines. `evidence_read` results are filtered by namespace as well.
+
+New CBOR keys are optional and unknown keys are ignored, so node agents and the coordinator can differ by one release in either direction.
 
 ## internal/admin
 

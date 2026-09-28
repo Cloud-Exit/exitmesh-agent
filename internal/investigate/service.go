@@ -275,7 +275,10 @@ func (s *Service) telemetry(c *call) (telemetryScope, time.Time, time.Time, erro
 	if err != nil {
 		return telemetryScope{}, start, end, err
 	}
-	ts := telemetryScope{namespaces: c.scope.telemetryNamespaces(), nodes: c.scope.telemetryNodes()}
+	ts, err := c.scope.telemetryBinding(c.state)
+	if err != nil {
+		return ts, start, end, err
+	}
 	if len(ts.namespaces)+len(ts.nodes) == 0 && !c.scope.cluster {
 		return ts, start, end, errorf(ClassUnauthorized, "scope binds no namespace or node for a telemetry query")
 	}

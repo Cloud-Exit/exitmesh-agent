@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +16,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	clienttesting "k8s.io/client-go/testing"
 
+	"github.com/cloud-exit/exitmesh-agent/internal/findings"
+	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
+	"github.com/cloud-exit/exitmesh-agent/pkg/protocol/client"
 )
 
 func copyTree(t *testing.T, src, dst string) {
@@ -391,4 +395,134 @@ func TestPermissionLossIsNotDeletionAcrossRestart(t *testing.T) {
 		return sc.State == protocol.ScopeComplete && r2.c.stateView().Equal(r2.c.tracker.Snapshot())
 	})
 	verifyReconstruction(t, e, r2, id)
+}
+
+func TestFailedSpoolCommitKeepsHeadAndResyncEmitsMissingDelta(t *testing.T) {
+	e := newEnv(t)
+	var fail atomic.Bool
+	var failures atomic.Int64
+	e.fault = func() error {
+		if fail.Load() {
+			failures.Add(1)
+			return errors.New("injected metadata commit failure")
+		}
+		return nil
+	}
+	r := e.start(e.config())
+	id, _ := e.committed(r)
+	ctx := context.Background()
+	n1 := e.nodeClient(t, r, "node-1", "node-1")
+	const p95 = "containers.app.metric.memory.p95_bytes"
+	facts := []nodeapi.Item{{Seq: 1, Kind: nodeapi.KindMetricFacts, Facts: []metricFact{{Namespace: "shop", Pod: "web-1", Container: "app",
+		Fields: map[string]any{"metric.memory.p95_bytes": int64(200 << 20)}}}}}
+	fail.Store(true)
+	if _, err := n1.Submit(ctx, "", facts); err == nil {
+		t.Fatal("metric facts acknowledged while the spool commit fails")
+	}
+	if v, ok := r.c.stateView().Resources["pod-1"].Fields[p95]; ok {
+		t.Fatalf("failed commit published metric fact %v to the chain head", v)
+	}
+	before := failures.Load()
+	e.cl.setImage(t, "web-1", "nginx:1.28")
+	eventually(t, "collector append failed", func() bool {
+		p := r.c.tracker.Snapshot().Resources["pod-1"]
+		return failures.Load() > before && p != nil && p.Fields["containers.app.image"] == "nginx:1.28" && r.c.health().Errors["append"] != ""
+	})
+	if img := r.c.stateView().Resources["pod-1"].Fields["containers.app.image"]; img != "nginx:1.27" {
+		t.Fatalf("failed commit advanced the chain head to image %v", img)
+	}
+	if _, err := n1.Submit(ctx, "", facts); err == nil {
+		t.Fatal("metric facts acknowledged while resynchronization cannot commit")
+	}
+	fail.Store(false)
+	eventually(t, "missing delta emitted by resync", func() bool { return hasFieldUpdate(e.records(id), "pod-1", "containers.app.image", "nginx:1.28") })
+	if acked, err := n1.Submit(ctx, "", facts); err != nil || acked != 1 {
+		t.Fatalf("retried metric facts: acked %d err %v", acked, err)
+	}
+	eventually(t, "metric fact delta after the retry", func() bool { return hasFieldUpdate(e.records(id), "pod-1", p95, int64(200<<20)) })
+	_, head := e.committed(r)
+	want, err := e.cp.StateHashAt(e.targetID, id, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.c.stateView().Hash() != want {
+		t.Fatal("reconstruction at the head differs from the coordinator state")
+	}
+}
+
+func TestRecoveryDeltaFailureKeepsRecoveredHead(t *testing.T) {
+	e := newEnv(t)
+	var fail atomic.Bool
+	e.fault = func() error {
+		if fail.Load() {
+			return errors.New("injected metadata commit failure")
+		}
+		return nil
+	}
+	cfg := e.config()
+	r := e.start(cfg)
+	id, head := e.committed(r)
+	if err := r.stop(); err != nil {
+		t.Fatal(err)
+	}
+	changeWhileDown(t, e, "nginx:1.29")
+	fail.Store(true)
+	r2 := e.start(cfg)
+	st := r2.c.stateView()
+	if st.Resources["pod-2"] == nil || st.Resources["pod-3"] != nil || st.Resources["pod-1"].Fields["containers.app.image"] != "nginx:1.27" {
+		t.Fatal("a failed recovery delta advanced the chain head")
+	}
+	r2.c.statMu.Lock()
+	ck := r2.c.stats.LastCheckpoint
+	r2.c.statMu.Unlock()
+	err := r2.c.store.Do(func(tx client.Tx) error {
+		ep, _ := r2.c.store.Epoch()
+		return hooks{r2.c}.Rebaseline(captureTx{tx: tx, reason: protocol.ReasonAnchor, epoch: ep})
+	})
+	if err == nil {
+		t.Fatal("checkpoint committed while the spool fails")
+	}
+	r2.c.statMu.Lock()
+	after := r2.c.stats.LastCheckpoint
+	r2.c.statMu.Unlock()
+	if after != ck {
+		t.Fatalf("failed checkpoint recorded in chain stats: %+v, was %+v", after, ck)
+	}
+	fail.Store(false)
+	eventually(t, "synthetic recovery delta after the fault", func() bool { return syntheticDelta(e.records(id), head) != nil })
+	verifyReconstruction(t, e, r2, id)
+}
+
+func TestFailedCommitRollsBackFindingEpisode(t *testing.T) {
+	e := newEnv(t)
+	var fail atomic.Bool
+	e.fault = func() error {
+		if fail.Load() {
+			return errors.New("injected metadata commit failure")
+		}
+		return nil
+	}
+	r := e.start(e.config())
+	id, _ := e.committed(r)
+	obs := findings.Observation{Kind: findings.Firing, Query: &findings.QueryProvenance{Hash: protocol.QueryHash("promql", "up", "live"), Requester: "tester"},
+		DedupKey: "q|up", Category: "investigation", Severity: protocol.SeverityLow, EvalTime: time.Now(), Summary: "saved"}
+	fail.Store(true)
+	if err := r.c.saveQueryFinding(obs); err == nil {
+		t.Fatal("finding saved while the spool commit fails")
+	}
+	if n := r.c.fnd.OpenCount(); n != 0 {
+		t.Fatalf("failed commit left %d open episodes in the tracker", n)
+	}
+	fail.Store(false)
+	if err := r.c.saveQueryFinding(obs); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "firing finding committed after the retry", func() bool {
+		for _, rec := range e.records(id) {
+			if rec.Finding != nil && rec.Finding.DedupKey == "q|up" && rec.Finding.Transition == protocol.TransitionFiring {
+				return true
+			}
+		}
+		return false
+	})
 }

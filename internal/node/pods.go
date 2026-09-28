@@ -31,10 +31,11 @@ const (
 	sourceCoordinator = "coordinator"
 )
 
-// podWatch keeps the pods scheduled on this node, from a spec.nodeName field-selected list and watch.
+// podWatch keeps the in-scope pods of this node from spec.nodeName field-selected watches, one per namespace in the namespaces profile.
 type podWatch struct {
 	client   kubernetes.Interface
 	node     string
+	scope    nsScope
 	onChange func()
 
 	mu    sync.RWMutex
@@ -43,34 +44,55 @@ type podWatch struct {
 	ready atomic.Bool
 }
 
-func newPodWatch(c kubernetes.Interface, node string, onChange func()) *podWatch {
-	return &podWatch{client: c, node: node, onChange: onChange, pods: map[string]*corev1.Pod{}, known: map[string]map[string]string{}}
+func newPodWatch(c kubernetes.Interface, node string, scope nsScope, onChange func()) *podWatch {
+	return &podWatch{client: c, node: node, scope: scope, onChange: onChange, pods: map[string]*corev1.Pod{}, known: map[string]map[string]string{}}
+}
+
+func (w *podWatch) selector() string {
+	sel := []fields.Selector{fields.OneTermEqualSelector("spec.nodeName", w.node)}
+	if w.scope.allow == nil {
+		for _, ns := range w.scope.exclude {
+			sel = append(sel, fields.OneTermNotEqualSelector("metadata.namespace", ns))
+		}
+	}
+	return fields.AndSelectors(sel...).String()
 }
 
 func (w *podWatch) run(ctx context.Context) {
-	sel := fields.OneTermEqualSelector("spec.nodeName", w.node).String()
-	f := informers.NewSharedInformerFactoryWithOptions(w.client, 0, informers.WithTweakListOptions(func(o *metav1.ListOptions) {
-		o.FieldSelector = sel
-	}))
-	inf := f.Core().V1().Pods().Informer()
-	_ = inf.SetTransform(func(obj any) (any, error) {
-		if p, ok := obj.(*corev1.Pod); ok {
-			p.ManagedFields = nil
-		}
-		return obj, nil
-	})
-	_, _ = inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    w.upsert,
-		UpdateFunc: func(_, obj any) { w.upsert(obj) },
-		DeleteFunc: w.remove,
-	})
-	f.Start(ctx.Done())
-	if cache.WaitForCacheSync(ctx.Done(), inf.HasSynced) {
+	sel := w.selector()
+	namespaces := []string{metav1.NamespaceAll}
+	if ns := w.scope.watched(); ns != nil {
+		namespaces = ns
+	}
+	var factories []informers.SharedInformerFactory
+	var synced []cache.InformerSynced
+	for _, ns := range namespaces {
+		f := informers.NewSharedInformerFactoryWithOptions(w.client, 0, informers.WithNamespace(ns), informers.WithTweakListOptions(func(o *metav1.ListOptions) {
+			o.FieldSelector = sel
+		}))
+		inf := f.Core().V1().Pods().Informer()
+		_ = inf.SetTransform(func(obj any) (any, error) {
+			if p, ok := obj.(*corev1.Pod); ok {
+				p.ManagedFields = nil
+			}
+			return obj, nil
+		})
+		_, _ = inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc:    w.upsert,
+			UpdateFunc: func(_, obj any) { w.upsert(obj) },
+			DeleteFunc: w.remove,
+		})
+		f.Start(ctx.Done())
+		factories, synced = append(factories, f), append(synced, inf.HasSynced)
+	}
+	if cache.WaitForCacheSync(ctx.Done(), synced...) {
 		w.ready.Store(true)
 		w.onChange()
 	}
 	<-ctx.Done()
-	f.Shutdown()
+	for _, f := range factories {
+		f.Shutdown()
+	}
 }
 
 func (w *podWatch) synced() bool { return w.ready.Load() }
@@ -80,7 +102,7 @@ func (w *podWatch) upsert(obj any) {
 	if !ok {
 		return
 	}
-	if p.Spec.NodeName != w.node {
+	if p.Spec.NodeName != w.node || !w.scope.allows(p.Namespace) {
 		w.remove(obj)
 		return
 	}

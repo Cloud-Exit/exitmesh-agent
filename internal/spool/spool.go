@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,8 @@ type Options struct {
 	SegmentBytes  int64   // segment file size before rollover
 	CoalesceAt    float64 // fraction of capacity that triggers relief
 	Clock         func() time.Time
+	// CommitFault injects faults for tests: a non-nil error fails a transaction's metadata commit after its bodies were written.
+	CommitFault func() error
 }
 
 func (o Options) withDefaults() Options {
@@ -525,6 +528,19 @@ func (s *Spool) Cursor(key string) uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cursors[key]
+}
+
+// Cursors returns the persisted idempotency cursors whose keys start with prefix.
+func (s *Spool) Cursors(prefix string) map[string]uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]uint64{}
+	for k, v := range s.cursors {
+		if strings.HasPrefix(k, prefix) {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // KV returns a durable store over its own bucket in the spool metadata database.

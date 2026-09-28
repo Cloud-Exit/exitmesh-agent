@@ -69,6 +69,7 @@ type TaskQuery struct {
 	StepMs     int64    `json:"step_ms,omitempty"`
 	Forward    bool     `json:"forward,omitempty"`
 	Namespaces []string `json:"namespaces,omitempty"`
+	Pods       []string `json:"pods,omitempty"`
 	Nodes      []string `json:"nodes,omitempty"`
 	Limits     Limits   `json:"limits"`
 }
@@ -151,7 +152,10 @@ func (e *Executor) execute(ctx context.Context, t nodeapi.Task) (*TaskResponse, 
 	case <-ctx.Done():
 		return nil, errorf(ClassBusy, "executor busy until the task deadline")
 	}
-	m := telemetryScope{namespaces: q.Namespaces, nodes: q.Nodes}.matchers()
+	if len(q.Pods) > 0 && len(q.Namespaces) != 1 {
+		return nil, errorf(ClassUnauthorized, "a pod scope needs exactly one namespace")
+	}
+	m := telemetryScope{namespaces: q.Namespaces, pods: q.Pods, nodes: q.Nodes}.matchers()
 	step := time.Duration(q.StepMs) * time.Millisecond
 	switch t.Kind {
 	case nodeapi.TaskPromQLQuery:
@@ -203,7 +207,7 @@ func (e *Executor) readEvidence(q TaskQuery, start, end time.Time, lim Limits) (
 		if s.Time.Before(start) || s.Time.After(end) {
 			continue
 		}
-		if len(q.Namespaces) > 0 && !slices.Contains(q.Namespaces, s.Labels["namespace"]) {
+		if (len(q.Namespaces) > 0 && !slices.Contains(q.Namespaces, s.Labels[NamespaceLabel])) || (len(q.Pods) > 0 && !slices.Contains(q.Pods, s.Labels[PodLabel])) {
 			continue
 		}
 		if len(resp.Data.Lines) >= lim.MaxLines || int64(bytes+len(s.Text)) > lim.MaxBytes {

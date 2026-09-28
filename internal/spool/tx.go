@@ -21,12 +21,15 @@ type Entry struct {
 
 // Tx appends under the sequence lock; its records and cursors persist only if Do returns nil.
 type Tx struct {
-	s       *Spool
-	chain   protocol.Chain
-	recs    []*protocol.Record
-	entries []*Entry
-	cursors map[string]uint64
-	done    bool
+	s        *Spool
+	chain    protocol.Chain
+	recs     []*protocol.Record
+	entries  []*Entry
+	cursors  map[string]uint64
+	drops    map[string]bool
+	onCommit []func()
+	onAbort  []func()
+	done     bool
 }
 
 // AppendOption modifies an append.
@@ -60,12 +63,22 @@ func (s *Spool) Do(fn func(tx *Tx) error) error {
 	tx := &Tx{s: s, chain: chain}
 	err = fn(tx)
 	tx.done = true
+	if err == nil && (len(tx.recs) > 0 || len(tx.cursors) > 0 || len(tx.drops) > 0) {
+		err = s.commitAndRelieve(tx)
+	}
 	if err != nil {
+		for i := len(tx.onAbort) - 1; i >= 0; i-- {
+			tx.onAbort[i]()
+		}
 		return err
 	}
-	if len(tx.recs) == 0 && len(tx.cursors) == 0 {
-		return nil
+	for _, f := range tx.onCommit {
+		f()
 	}
+	return nil
+}
+
+func (s *Spool) commitAndRelieve(tx *Tx) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.commitTx(tx); err != nil {
@@ -76,6 +89,32 @@ func (s *Spool) Do(fn func(tx *Tx) error) error {
 		_, s.lastReliefErr = s.relieveLocked()
 	}
 	return nil
+}
+
+// OnAbort runs f, in reverse registration order and still under the sequence lock, when fn fails or the commit fails.
+func (tx *Tx) OnAbort(f func()) {
+	if !tx.done {
+		tx.onAbort = append(tx.onAbort, f)
+	}
+}
+
+// OnCommit runs f after the transaction committed durably, still under the sequence lock; f never runs if Do fails.
+func (tx *Tx) OnCommit(f func()) {
+	if !tx.done {
+		tx.onCommit = append(tx.onCommit, f)
+	}
+}
+
+// DeleteCursor removes an idempotency cursor atomically with the transaction.
+func (tx *Tx) DeleteCursor(key string) {
+	if tx.done {
+		return
+	}
+	if tx.drops == nil {
+		tx.drops = map[string]bool{}
+	}
+	tx.drops[key] = true
+	delete(tx.cursors, key)
 }
 
 // Append builds, encodes if needed, and chains the next record; range records come only from Relieve.
@@ -128,6 +167,7 @@ func (tx *Tx) Append(t protocol.RecordType, build func(env protocol.Envelope) (*
 			tx.cursors = map[string]uint64{}
 		}
 		tx.cursors[k] = v
+		delete(tx.drops, k)
 	}
 	e := &Entry{Seq: rec.Seq, Type: rec.Type, State: NeverTransmitted, Bytes: rec.Bytes(), Hash: rec.Hash(), ChainHash: h}
 	tx.recs = append(tx.recs, rec)
@@ -184,6 +224,14 @@ func (s *Spool) commitTx(tx *Tx) error {
 				return err
 			}
 		}
+		for k := range tx.drops {
+			if err := cb.Delete([]byte(k)); err != nil {
+				return err
+			}
+		}
+		if s.opts.CommitFault != nil {
+			return s.opts.CommitFault()
+		}
 		return nil
 	})
 	if err != nil {
@@ -204,6 +252,9 @@ func (s *Spool) commitTx(tx *Tx) error {
 	}
 	for k, v := range tx.cursors {
 		s.cursors[k] = v
+	}
+	for k := range tx.drops {
+		delete(s.cursors, k)
 	}
 	return nil
 }

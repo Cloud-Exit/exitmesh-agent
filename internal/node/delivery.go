@@ -7,8 +7,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
+	"github.com/cloud-exit/exitmesh-agent/internal/rules/engine"
 	"github.com/cloud-exit/exitmesh-agent/internal/spool"
 )
 
@@ -134,7 +136,7 @@ func (a *Agent) ack(seq uint64) {
 	a.deliv.mu.Unlock()
 }
 
-// submit sends a batch; a batch the coordinator refuses as invalid is resent item by item and poison items are dropped.
+// submit sends a batch; only items the coordinator refuses as malformed are dropped, every other failure keeps the queue.
 func (a *Agent) submit(ctx context.Context, q []spool.QueueItem) (uint64, error) {
 	items := make([]nodeapi.Item, 0, len(q))
 	for _, qi := range q {
@@ -150,8 +152,8 @@ func (a *Agent) submit(ctx context.Context, q []spool.QueueItem) (uint64, error)
 		it.Seq = qi.Seq
 		items = append(items, it)
 	}
-	acked, err := a.client.Submit(ctx, items)
-	if err == nil || nodeapi.IsRetryable(err) || ctx.Err() != nil {
+	acked, err := a.client.Submit(ctx, a.queue.ID(), items)
+	if err == nil || !nodeapi.IsMalformed(err) || ctx.Err() != nil {
 		return acked, err
 	}
 	if len(items) == 1 {
@@ -161,11 +163,11 @@ func (a *Agent) submit(ctx context.Context, q []spool.QueueItem) (uint64, error)
 	}
 	var last uint64
 	for _, it := range items {
-		n, err := a.client.Submit(ctx, []nodeapi.Item{it})
+		n, err := a.client.Submit(ctx, a.queue.ID(), []nodeapi.Item{it})
 		switch {
 		case err == nil:
 			last = max(last, n)
-		case nodeapi.IsRetryable(err) || ctx.Err() != nil:
+		case !nodeapi.IsMalformed(err) || ctx.Err() != nil:
 			return last, err
 		default:
 			a.deliv.count(&a.deliv.rejected)
@@ -181,7 +183,7 @@ func (a *Agent) registerLoop(ctx context.Context) {
 		req := nodeapi.RegisterRequest{
 			Node: a.node, AgentVersion: a.deps.AgentVersion, BundleVersion: a.eng.BundleVersion(),
 			Capabilities: capList(a.cfg.Capabilities), Coverage: a.coverageReport(), Warming: a.warming(),
-			QueueUsage: queueUsage(a.queue.Usage()),
+			QueueUsage: queueUsage(a.queue.Usage()), Rules: a.ruleStatuses(),
 		}
 		rctx, cancel := context.WithTimeout(ctx, a.t.Register)
 		resp, err := a.client.Register(rctx, req)
@@ -200,6 +202,52 @@ func (a *Agent) registerLoop(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// ruleStatuses reports the local rule states for coordinator health, redacted, most severe first, within the wire bounds.
+func (a *Agent) ruleStatuses() []nodeapi.RuleStatus {
+	now := a.clock()
+	limited := map[string]bool{}
+	if set := a.logsSet.cur.Load(); set != nil {
+		for _, lr := range set.rules {
+			if lr.prog.Status().BudgetLimited {
+				for _, id := range lr.ids {
+					limited[id] = true
+				}
+			}
+		}
+	}
+	states := a.eng.RuleStates()
+	out := make([]nodeapi.RuleStatus, 0, len(states))
+	for _, r := range states {
+		rs := nodeapi.RuleStatus{
+			RuleID: r.RuleID, Version: r.Version, State: r.State, Reason: truncateUTF8(a.red.String(r.Reason), nodeapi.MaxRuleReason),
+			BudgetLimited:   r.State == engine.StateBudgetLimited || now.Before(r.BackoffUntil) || limited[r.RuleID],
+			EvidenceLimited: a.ring.Limited(r.RuleID),
+		}
+		if !r.LastEval.IsZero() {
+			rs.LastEvalMs = r.LastEval.UnixMilli()
+		}
+		out = append(out, rs)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if ri, rj := nodeapi.RuleStateRank(out[i].State), nodeapi.RuleStateRank(out[j].State); ri != rj {
+			return ri < rj
+		}
+		return out[i].RuleID < out[j].RuleID
+	})
+	return out[:min(len(out), nodeapi.MaxRuleStatuses)]
+}
+
+func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	s = s[:n]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 func capList(c []string) []string {

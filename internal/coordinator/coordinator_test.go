@@ -101,7 +101,7 @@ func TestNodeAgentSubmissionIdempotentAndImpersonation(t *testing.T) {
 		Fields: map[string]any{"metric.memory.p95_bytes": int64(1)}}}}
 	items := []nodeapi.Item{{Seq: 1, Kind: nodeapi.KindFinding, Finding: fb}, facts}
 	for i := 0; i < 2; i++ {
-		acked, err := n1.Submit(ctx, items)
+		acked, err := n1.Submit(ctx, "", items)
 		if err != nil || acked != 2 {
 			t.Fatalf("submit %d: acked %d err %v", i, acked, err)
 		}
@@ -132,7 +132,7 @@ func TestNodeAgentSubmissionIdempotentAndImpersonation(t *testing.T) {
 	if v := r.c.stateView().Resources["pod-1"].Fields["containers.app.metric.memory.p95_bytes"]; !protocol.ValueEqual(v, int64(200<<20)) {
 		t.Fatalf("metric fact field %v", v)
 	}
-	if acked, err := n1.Submit(ctx, []nodeapi.Item{{Seq: 3, Kind: nodeapi.KindMetricFacts, Facts: []metricFact{{Namespace: "shop", Pod: "web-1", Container: "app",
+	if acked, err := n1.Submit(ctx, "", []nodeapi.Item{{Seq: 3, Kind: nodeapi.KindMetricFacts, Facts: []metricFact{{Namespace: "shop", Pod: "web-1", Container: "app",
 		Fields: map[string]any{"metric.memory.p95_bytes": int64(201 << 20)}}}}}); err != nil || acked != 3 {
 		t.Fatalf("below-threshold submit %d %v", acked, err)
 	}
@@ -147,7 +147,7 @@ func TestNodeAgentSubmissionIdempotentAndImpersonation(t *testing.T) {
 		t.Fatalf("a change below the threshold produced a delta: %d metric fact deltas", n)
 	}
 	impostor := e.nodeClient(t, r, "node-1", "node-2")
-	_, err = impostor.Submit(ctx, []nodeapi.Item{{Seq: 1, Kind: nodeapi.KindFinding, Finding: fb}})
+	_, err = impostor.Submit(ctx, "", []nodeapi.Item{{Seq: 1, Kind: nodeapi.KindFinding, Finding: fb}})
 	var ae *nodeapi.Error
 	if !errors.As(err, &ae) || ae.StatusCode != http.StatusForbidden {
 		t.Fatalf("impersonation not rejected: %v", err)
@@ -246,5 +246,179 @@ func TestSecondCoordinatorRefusesLockedSpool(t *testing.T) {
 	}
 	if err := c.Run(context.Background()); err == nil || !contains(err.Error(), "locked") {
 		t.Fatalf("second coordinator ran: %v", err)
+	}
+}
+
+func TestReimagedNodeQueueIsNewSequenceSpace(t *testing.T) {
+	e := newEnv(t)
+	r := e.start(e.config())
+	id, _ := e.committed(r)
+	ctx := context.Background()
+	n1 := e.nodeClient(t, r, "node-1", "node-1")
+	itemOf := func(node string, seq uint64, key string) nodeapi.Item {
+		f := protocol.Finding{
+			ID: protocol.FindingID(e.targetID, key, 1000), DedupKey: key, Transition: protocol.TransitionFiring,
+			Provenance: protocol.Provenance{Kind: protocol.ProvenanceRule, RuleID: "oom-logs", RuleVersion: 1, BundleVersion: "2026.09.1"},
+			Category:   "errors", Severity: protocol.SeverityHigh, EvalTime: 1000, FirstSeen: 1000, LastSeen: 1000, Count: 1, Node: node,
+		}
+		b, err := protocol.EncodeFinding(&f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nodeapi.Item{Seq: seq, Kind: nodeapi.KindFinding, Finding: b}
+	}
+	item := func(seq uint64, key string) nodeapi.Item { return itemOf("node-1", seq, key) }
+	if acked, err := n1.Submit(ctx, "", []nodeapi.Item{item(1, "legacy")}); err != nil || acked != 1 {
+		t.Fatalf("submit without a queue identity: acked %d err %v", acked, err)
+	}
+	before := []nodeapi.Item{item(1, "a1"), item(2, "a2"), item(3, "a3")}
+	for i := 0; i < 2; i++ {
+		if acked, err := n1.Submit(ctx, "queue-a", before); err != nil || acked != 3 {
+			t.Fatalf("queue a submit %d: acked %d err %v", i, acked, err)
+		}
+	}
+	after := []nodeapi.Item{item(1, "b1"), item(2, "b2")}
+	for i := 0; i < 2; i++ {
+		if acked, err := n1.Submit(ctx, "queue-b", after); err != nil || acked != 2 {
+			t.Fatalf("queue b submit %d: acked %d err %v", i, acked, err)
+		}
+	}
+	e.committed(r)
+	count := map[string]int{}
+	for _, rec := range e.records(id) {
+		if rec.Finding != nil {
+			count[rec.Finding.DedupKey]++
+		}
+	}
+	for _, k := range []string{"legacy", "a1", "a2", "a3", "b1", "b2"} {
+		if count[k] != 1 {
+			t.Fatalf("finding %s spooled %d times (all %v)", k, count[k], count)
+		}
+	}
+	if cs := r.c.sp.Cursors("node/node-1"); len(cs) != 1 || cs["node/node-1/queue-b"] != 2 {
+		t.Fatalf("cursors after the reimage %v, want only queue b at 2", cs)
+	}
+	gone := e.nodeClient(t, r, "node-9", "node-9")
+	if _, err := gone.Submit(ctx, "queue-c", []nodeapi.Item{{Seq: 1, Kind: nodeapi.KindMetricFacts, Facts: []metricFact{{Node: "node-9",
+		Fields: map[string]any{"metric.node.memory_pressure": true}}}}, itemOf("node-9", 2, "c2")}); err != nil {
+		t.Fatal(err)
+	}
+	if r.c.sp.Cursor("node/node-9/queue-c") != 2 {
+		t.Fatal("cursor of the removed node not stored")
+	}
+	e.clock.Advance(2 * r.c.t.NodeTimeout)
+	eventually(t, "cursor of a node that left the cluster pruned", func() bool { return len(r.c.sp.Cursors("node/node-9")) == 0 })
+	if r.c.sp.Cursor("node/node-1/queue-b") != 2 {
+		t.Fatal("cursor of an uncovered node that still exists was pruned")
+	}
+}
+
+func TestDelayedMetricFactsNeverReachReplacementPod(t *testing.T) {
+	e := newEnv(t)
+	r := e.start(e.config())
+	id, _ := e.committed(r)
+	ctx := context.Background()
+	n1 := e.nodeClient(t, r, "node-1", "node-1")
+	const p95 = "containers.app.metric.memory.p95_bytes"
+	fact := func(uid string, v int64) []metricFact {
+		return []metricFact{{Namespace: "shop", Pod: "web-1", Container: "app", UID: uid, Fields: map[string]any{"metric.memory.p95_bytes": v}}}
+	}
+	if _, err := n1.Submit(ctx, "q", []nodeapi.Item{{Seq: 1, Kind: nodeapi.KindMetricFacts, Facts: fact("pod-1", 100<<20)}}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "fact applied to the observed pod", func() bool {
+		return protocol.ValueEqual(r.c.stateView().Resources["pod-1"].Fields[p95], int64(100<<20))
+	})
+	if err := e.cl.dyn.Tracker().Delete(podGVR, "shop", "web-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.cl.dyn.Tracker().Create(podGVR, toU(t, testPod("web-1", "pod-1b", "node-1", "nginx:1.27"), "v1", "Pod"), "shop"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "pod recreated in the chain head", func() bool {
+		st := r.c.stateView()
+		return st.Resources["pod-1"] == nil && st.Resources["pod-1b"] != nil
+	})
+	if acked, err := n1.Submit(ctx, "q", []nodeapi.Item{{Seq: 2, Kind: nodeapi.KindMetricFacts, Facts: fact("pod-1", 300<<20)}}); err != nil || acked != 2 {
+		t.Fatalf("delayed fact: acked %d err %v", acked, err)
+	}
+	e.committed(r)
+	if v, ok := r.c.stateView().Resources["pod-1b"].Fields[p95]; ok {
+		t.Fatalf("fact observed for the deleted pod updated its replacement: %v", v)
+	}
+	if hasFieldUpdate(e.records(id), "pod-1b", p95, int64(300<<20)) {
+		t.Fatal("delayed fact spooled for the replacement pod")
+	}
+	eventually(t, "dropped fact counted in health", func() bool {
+		for _, n := range r.c.health().Nodes {
+			if n.Name == "node-1" {
+				return n.FactsDropped == 1
+			}
+		}
+		return false
+	})
+	if _, err := n1.Submit(ctx, "q", []nodeapi.Item{{Seq: 3, Kind: nodeapi.KindMetricFacts, Facts: fact("pod-1b", 50<<20)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n1.Submit(ctx, "q", []nodeapi.Item{{Seq: 4, Kind: nodeapi.KindMetricFacts, Facts: fact("", 400<<20)}}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "fact of the replacement and the name fallback applied", func() bool {
+		return hasFieldUpdate(e.records(id), "pod-1b", p95, int64(50<<20)) && protocol.ValueEqual(r.c.stateView().Resources["pod-1b"].Fields[p95], int64(400<<20))
+	})
+}
+
+func TestNodeRuleStatesInHealth(t *testing.T) {
+	e := newEnv(t)
+	r := e.start(e.config())
+	e.committed(r)
+	ctx := context.Background()
+	now := e.clock.Now().UnixMilli()
+	regs := map[string][]nodeapi.RuleStatus{
+		"node-1": {
+			{RuleID: "mem-near-limit", Version: 2, State: "budget_limited", Reason: "query processing would load too many samples", LastEvalMs: now, BudgetLimited: true},
+			{RuleID: "app-errors", Version: 1, State: "failed", Reason: "boom", LastEvalMs: now, EvidenceLimited: true},
+			{RuleID: "oom-logs", Version: 1, State: "active", LastEvalMs: now},
+		},
+		"node-2": {
+			{RuleID: "mem-near-limit", Version: 2, State: "active", LastEvalMs: now},
+			{RuleID: "oom-logs", Version: 1, State: "active", LastEvalMs: now},
+		},
+	}
+	for node, rules := range regs {
+		if _, err := e.nodeClient(t, r, node, node).Register(ctx, nodeapi.RegisterRequest{AgentVersion: "test", Rules: rules}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := r.c.health()
+	var n1 *NodeStatus
+	for i := range h.Nodes {
+		if h.Nodes[i].Name == "node-1" {
+			n1 = &h.Nodes[i]
+		}
+	}
+	if n1 == nil || len(n1.Rules) != 2 || n1.Rules[0].ID != "app-errors" || n1.Rules[0].State != "failed" || !n1.Rules[0].EvidenceLimited ||
+		n1.Rules[1].ID != "mem-near-limit" || !n1.Rules[1].BudgetLimited || n1.Rules[1].LastEval.UnixMilli() != now {
+		t.Fatalf("node-1 rule detail %+v", n1)
+	}
+	if n1.RuleStates["active"] != 1 || n1.RuleStates["failed"] != 1 || n1.RuleStates["budget_limited"] != 1 {
+		t.Fatalf("node-1 rule state counts %v", n1.RuleStates)
+	}
+	roll := map[string]nodeRuleRollup{}
+	for _, x := range h.NodeRules {
+		roll[x.ID] = x
+	}
+	if m := roll["mem-near-limit"]; m.States["budget_limited"] != 1 || m.States["active"] != 1 || m.BudgetLimited != 1 || m.Version != 2 {
+		t.Fatalf("mem-near-limit rollup %+v", m)
+	}
+	if a := roll["app-errors"]; a.States["failed"] != 1 || a.EvidenceLimited != 1 {
+		t.Fatalf("app-errors rollup %+v", a)
+	}
+	if o := roll["oom-logs"]; o.States["active"] != 2 || len(h.NodeRules) != 3 {
+		t.Fatalf("rollup %+v", h.NodeRules)
+	}
+	raw, err := json.Marshal(h)
+	if err != nil || !contains(string(raw), `"node_rules"`) || !contains(string(raw), `"budget_limited":true`) {
+		t.Fatalf("health json %s %v", raw, err)
 	}
 }

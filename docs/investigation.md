@@ -17,7 +17,18 @@ Every tool call carries these fields; unknown fields are rejected.
 
 AI-generated queries take exactly this path: there is no separate validation mode, so an AI requester cannot widen scope, limits, or endpoints (PRD I9).
 
-Resources are resolved in the current state; a resource that is not in state is rejected. For telemetry queries a resource binds its namespace (a `Namespace` resource binds its own name, a `Node` resource binds a node), so resource scope is namespace-granular for metrics and logs and exact for `state.query` and `graph.query`.
+Resources are resolved in the current state; a resource that is not in state is rejected. `state.query` and `graph.query` filter by the exact resources. Telemetry tools map each resource to label matchers from the current state and change graph, and resource scope never widens beyond the mapped pods, nodes, or namespaces:
+
+|Resource|Telemetry binding|
+|---|---|
+|`Pod`|`namespace` and `pod`, exact.|
+|`Node`|`node`, exact.|
+|`Namespace`|`namespace`.|
+|Any other kind|`namespace` plus `pod` matching exactly the pods reached through the change graph: `owns` (Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, CronJob, and any other owner, transitively), `selects` (Service), `targets` (NetworkPolicy), `guards` (PodDisruptionBudget), `routes` (Ingress to Service), `scales` (HorizontalPodAutoscaler to its target), and `mounts` and `binds` followed backward (PersistentVolumeClaim and PersistentVolume to the pods that mount them). The walk stops at pods and goes at most four edges deep.|
+
+A resource that reaches no pods (a workload scaled to zero, a ConfigMap, a StorageClass) cannot be bound to telemetry labels and the telemetry call is rejected as `unauthorized`. Several pods are an anchored alternation of quoted exact names (`pod=~"api-1|api-2"`), at most 256.
+
+Scope entries combine per dimension and the dimensions intersect: namespaces are `scope.namespaces` plus `Namespace` resources, nodes are `scope.nodes` plus `Node` resources, and pods are the union of the pods of all other resources. A query is bound to every dimension present, so mixing them only narrows it (namespaces with nodes read those namespaces on those nodes; namespaces with pods read only the pods inside those namespaces). Because a PromQL or LogQL selector cannot pair a namespace with a pod name, the pods of one request must share one namespace; pods in several namespaces, or pods outside every scoped namespace, are rejected as `unauthorized`. `scope.cluster` never lifts a resource binding.
 
 ## Result
 
@@ -47,16 +58,16 @@ Resources are resolved in the current state; a resource that is not in state is 
 
 Every query is parsed with its language's parser, scope is added at the AST, the AST is re-serialized, and the result is re-parsed and verified. A query the parser rejects is rejected. Nothing is concatenated into the user's query text. Scope never replaces a matcher; it is always ANDed, so a query naming another namespace returns nothing.
 
-Scope labels are `namespace` and `node`. One value is an equality matcher; several are an anchored alternation of quoted literals (`namespace=~"a|b"`).
+Scope labels are `namespace`, `pod`, and `node`, the labels the node agent's scrape targets and pod log streams carry; lookback sources must use the same label and field names. One value is an equality matcher; several are an anchored alternation of quoted literals (`namespace=~"a|b"`).
 
 |Language|Parser|Injection|
 |---|---|---|
 |PromQL|`prometheus/promql/parser`|Matchers appended to every `VectorSelector`, which covers matrix selectors, subqueries, function arguments, and both binary operands. The `@` modifier is rejected. Offsets, ranges, and subquery ranges together may reach at most `maxWindow` before the evaluation time.|
 |MetricsQL|`metricsql.Parse` (lookback to VictoriaMetrics only)|Filters appended to every or-group of every metric expression after `WITH` expansion, re-serialized with `AppendString`.|
 |LogQL|`internal/rules/logql`|`logql.InjectScope` ANDs the matchers into every stream selector.|
-|LogsQL|`logstorage.ParseQuery`|Stream filters `{namespace in (...)}` and `{node in (...)}` are built from quoted literals, parsed with `logstorage.ParseFilter`, and attached with `AddExtraFilters`, which ANDs them with the whole query and every subquery (`in(...)`, `union`, `join`). The window is attached with `AddTimeFilter`. The serialization must be a parser fixpoint.|
+|LogsQL|`logstorage.ParseQuery`|Stream filters `{namespace in (...)}`, `{pod in (...)}`, and `{node in (...)}` are built from quoted literals, parsed with `logstorage.ParseFilter`, and attached with `AddExtraFilters`, which ANDs them with the whole query and every subquery (`in(...)`, `union`, `join`). The window is attached with `AddTimeFilter`. The serialization must be a parser fixpoint.|
 
-Node agents re-verify that every selector of a task carries the task's scope matchers and reject the task otherwise.
+Node agents re-verify that every selector of a task carries the task's scope matchers and reject the task otherwise; a task with pods and not exactly one namespace is rejected.
 
 On a host the only node is the host itself: `nodes` may name only the host (no node matcher is injected), and `namespaces` are rejected.
 
@@ -114,8 +125,8 @@ Every call, including rejected ones, produces one `AuditRecord` through `Options
 
 ## Node tasks
 
-The coordinator sends `nodeapi.Task` values of kind `promql_query`, `logql_query`, or `log_read` whose payload is JSON `TaskQuery` (`query`, `start_ms`, `end_ms`, `step_ms`, `forward`, `namespaces`, `nodes`, `limits`). The node agent answers with JSON `TaskResponse` (`data`, `truncated`, `limitations`, `retention_ms`) in `TaskResult.Payload`, or `TaskResult.Error`. `Executor.Execute` retains nothing after the response.
+The coordinator sends `nodeapi.Task` values of kind `promql_query`, `logql_query`, or `log_read` whose payload is JSON `TaskQuery` (`query`, `start_ms`, `end_ms`, `step_ms`, `forward`, `namespaces`, `pods`, `nodes`, `limits`). The node agent answers with JSON `TaskResponse` (`data`, `truncated`, `limitations`, `retention_ms`) in `TaskResult.Payload`, or `TaskResult.Error`. `Executor.Execute` retains nothing after the response.
 
 ## evidence.query
 
-Reads the redacted matched-line evidence that node agents (or the host agent) hold in memory for a rule (PRD I1), filtered by the request scope's namespaces and nodes and by the window, newest first, bounded by `max_lines` and `max_bytes`. The read never consumes the evidence a finding will carry. Arguments: `rule_id` plus the common fields; `window` is required.
+Reads the redacted matched-line evidence that node agents (or the host agent) hold in memory for a rule (PRD I1), filtered by the request scope's namespaces, pods, and nodes (bound as for telemetry queries) and by the window, newest first, bounded by `max_lines` and `max_bytes`. The read never consumes the evidence a finding will carry. Arguments: `rule_id` plus the common fields; `window` is required.

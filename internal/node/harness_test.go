@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,10 +81,12 @@ type fakeCoord struct {
 	tasks     []nodeapi.Task
 	tasksCh   chan struct{}
 	results   map[string]nodeapi.TaskResult
+	accepted  map[uint64]int
+	queueSeqs []string
 }
 
 func newFakeCoord() *fakeCoord {
-	return &fakeCoord{items: map[uint64]nodeapi.Item{}, results: map[string]nodeapi.TaskResult{},
+	return &fakeCoord{items: map[uint64]nodeapi.Item{}, results: map[string]nodeapi.TaskResult{}, accepted: map[uint64]int{},
 		bundleCh: make(chan struct{}), kubeCh: make(chan struct{}), tasksCh: make(chan struct{})}
 }
 
@@ -98,7 +101,7 @@ func (c *fakeCoord) Register(_ context.Context, node string, req nodeapi.Registe
 	return nodeapi.RegisterResponse{TargetBundle: target, ServerTimeMs: time.Now().UnixMilli()}, nil
 }
 
-func (c *fakeCoord) Submit(_ context.Context, node string, items []nodeapi.Item) (uint64, error) {
+func (c *fakeCoord) Submit(_ context.Context, node, queue string, items []nodeapi.Item) (uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.submitErr != nil {
@@ -111,6 +114,8 @@ func (c *fakeCoord) Submit(_ context.Context, node string, items []nodeapi.Item)
 	}
 	for _, it := range items {
 		c.items[it.Seq] = it
+		c.accepted[it.Seq]++
+		c.queueSeqs = append(c.queueSeqs, fmt.Sprintf("%s/%d", queue, it.Seq))
 	}
 	return items[len(items)-1].Seq, nil
 }
@@ -419,6 +424,8 @@ type options struct {
 	tsdbBlock time.Duration
 	tsdbWAL   int
 	extraNode string
+	// extraTop is appended to the configuration at the top level.
+	extraTop string
 }
 
 type harness struct {
@@ -439,6 +446,11 @@ type harness struct {
 	stop  context.CancelFunc
 	done  chan error
 	logb  *syncBuf
+
+	api       *jwksServer
+	tokenFile string
+	// intercept answers node API requests with its status code instead of the server while it returns non-zero.
+	intercept atomic.Pointer[func(*http.Request) int]
 }
 
 type syncBuf struct {
@@ -488,21 +500,31 @@ func newHarness(t *testing.T, o options) *harness {
 	if err := os.MkdirAll(h.logs, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	api := newJWKS(t)
+	h.api = newJWKS(t)
 	auth, err := nodeapi.NewAuthenticator(nodeapi.AuthOptions{
-		APIServer: api.srv.URL + "/", HTTPClient: &http.Client{Transport: bearer{rt: api.srv.Client().Transport}},
+		APIServer: h.api.srv.URL + "/", HTTPClient: &http.Client{Transport: bearer{rt: h.api.srv.Client().Transport}},
 		Namespace: testNS, ServiceAccount: testSA,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewUnstartedServer(nodeapi.NewServer(nodeapi.Options{Auth: auth, Backend: h.coord, LongPollMax: 500 * time.Millisecond,
-		Logger: slog.New(slog.NewTextHandler(h.logb, nil))}))
+	api := nodeapi.NewServer(nodeapi.Options{Auth: auth, Backend: h.coord, LongPollMax: 500 * time.Millisecond,
+		Logger: slog.New(slog.NewTextHandler(h.logb, nil))})
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if f := h.intercept.Load(); f != nil {
+			if code := (*f)(r); code != 0 {
+				http.Error(w, http.StatusText(code), code)
+				return
+			}
+		}
+		api.ServeHTTP(w, r)
+	}))
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	coordCA := writeCA(t, secrets, "coordinator-ca.crt", srv)
 	tokenFile := filepath.Join(secrets, "token")
-	if err := os.WriteFile(tokenFile, []byte(api.mint(t, testNode)+"\n"), 0o600); err != nil {
+	h.tokenFile = tokenFile
+	if err := os.WriteFile(tokenFile, []byte(h.api.mint(t, testNode)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	h.kubelet = &fakeKubelet{cadvisor: memFixture(900), metrics: "# TYPE kubelet_running_pods gauge\nkubelet_running_pods 2\n"}
@@ -536,7 +558,7 @@ node:
 %sinvestigation:
   maxConcurrency: 2
   timeout: 10s
-`, h.dir, o.caps, srv.URL, coordCA, tokenFile, h.trust.rootEntry(), testNode, h.logs, o.ring, o.diskCap, o.extraNode)
+`, h.dir, o.caps, srv.URL, coordCA, tokenFile, h.trust.rootEntry(), testNode, h.logs, o.ring, o.diskCap, o.extraNode) + o.extraTop
 	clock := h.clock.Now
 	if o.realClock {
 		clock = time.Now

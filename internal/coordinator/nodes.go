@@ -37,6 +37,106 @@ type NodeStatus struct {
 	Covered       bool               `json:"covered"`
 	// PartVersions is the bundle version of the latest part each cluster rule received from the node.
 	PartVersions map[string]string `json:"part_versions,omitempty"`
+	// FactsDropped counts pod metric facts not applied because the observed pod no longer exists on the node.
+	FactsDropped uint64 `json:"facts_dropped,omitempty"`
+	// Rules are the node's latest rule states other than plain active ones, most severe first, at most maxNodeRuleDetail.
+	Rules []NodeRule `json:"rules,omitempty"`
+	// RuleStates counts the node's rules per state.
+	RuleStates map[string]int `json:"rule_states,omitempty"`
+
+	rules []nodeapi.RuleStatus
+}
+
+// NodeRule is one node-local rule state as the node agent last registered it.
+type NodeRule struct {
+	ID              string    `json:"id"`
+	Version         int       `json:"version"`
+	State           string    `json:"state"`
+	Reason          string    `json:"reason,omitempty"`
+	LastEval        time.Time `json:"last_eval,omitempty"`
+	BudgetLimited   bool      `json:"budget_limited,omitempty"`
+	EvidenceLimited bool      `json:"evidence_limited,omitempty"`
+}
+
+// Health bounds for node rule states.
+const (
+	maxNodeRuleDetail = 64
+	maxNodeRuleRollup = 2048
+)
+
+func (n *NodeStatus) setRules(rules []nodeapi.RuleStatus) {
+	n.rules = append([]nodeapi.RuleStatus(nil), rules...)
+	sort.SliceStable(n.rules, func(i, j int) bool {
+		if ri, rj := nodeapi.RuleStateRank(n.rules[i].State), nodeapi.RuleStateRank(n.rules[j].State); ri != rj {
+			return ri < rj
+		}
+		return n.rules[i].RuleID < n.rules[j].RuleID
+	})
+	n.Rules, n.RuleStates = nil, map[string]int{}
+	for _, r := range n.rules {
+		n.RuleStates[r.State]++
+		if (r.State == engine.StateActive && !r.BudgetLimited && !r.EvidenceLimited) || len(n.Rules) >= maxNodeRuleDetail {
+			continue
+		}
+		nr := NodeRule{ID: r.RuleID, Version: r.Version, State: r.State, Reason: r.Reason, BudgetLimited: r.BudgetLimited, EvidenceLimited: r.EvidenceLimited}
+		if r.LastEvalMs > 0 {
+			nr.LastEval = time.UnixMilli(r.LastEvalMs).UTC()
+		}
+		n.Rules = append(n.Rules, nr)
+	}
+}
+
+// nodeRuleRollup counts the states one rule version has across covered node agents.
+type nodeRuleRollup struct {
+	ID              string         `json:"id"`
+	Version         int            `json:"version"`
+	Nodes           int            `json:"nodes"`
+	States          map[string]int `json:"states"`
+	BudgetLimited   int            `json:"budget_limited,omitempty"`
+	EvidenceLimited int            `json:"evidence_limited,omitempty"`
+}
+
+func rollupNodeRules(nodes []NodeStatus) (out []nodeRuleRollup, truncated int) {
+	type key struct {
+		id      string
+		version int
+	}
+	by := map[key]*nodeRuleRollup{}
+	for _, n := range nodes {
+		if !n.Covered {
+			continue
+		}
+		for _, r := range n.rules {
+			k := key{r.RuleID, r.Version}
+			x := by[k]
+			if x == nil {
+				x = &nodeRuleRollup{ID: r.RuleID, Version: r.Version, States: map[string]int{}}
+				by[k] = x
+			}
+			x.Nodes++
+			x.States[r.State]++
+			if r.BudgetLimited {
+				x.BudgetLimited++
+			}
+			if r.EvidenceLimited {
+				x.EvidenceLimited++
+			}
+		}
+	}
+	for _, x := range by {
+		out = append(out, *x)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ID != out[j].ID {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Version < out[j].Version
+	})
+	if len(out) > maxNodeRuleRollup {
+		truncated = len(out) - maxNodeRuleRollup
+		out = out[:maxNodeRuleRollup]
+	}
+	return out, truncated
 }
 
 type registry struct {
@@ -106,15 +206,72 @@ func (b nodeBackend) Register(_ context.Context, node string, req nodeapi.Regist
 		for k, v := range req.Coverage {
 			n.Coverage[k] = v
 		}
+		n.setRules(req.Rules)
 	})
 	c.log.Info("node agent registered", "node", node, "version", req.AgentVersion, "bundle", req.BundleVersion, "warming", req.Warming)
 	return nodeapi.RegisterResponse{TargetBundle: c.bundles.version()}, nil
 }
 
-func cursorKey(node string) string { return "node/" + node }
+// cursorKey names the idempotency cursor of one node queue; agents that predate queue identities share one per node.
+func cursorKey(node, queue string) string {
+	if queue == "" {
+		return "node/" + node
+	}
+	return "node/" + node + "/" + queue
+}
 
-// Submit spools node findings and metric facts before acknowledging them; the cursor makes retries idempotent (PRD S12).
-func (b nodeBackend) Submit(_ context.Context, node string, items []nodeapi.Item) (uint64, error) {
+// staleCursors lists the cursors of the node's other queues, which a queue identity replaces for good.
+func (c *Coordinator) staleCursors(node, queue string) []string {
+	if queue == "" {
+		return nil
+	}
+	var out []string
+	for k := range c.sp.Cursors(cursorKey(node, "") + "/") {
+		if k != cursorKey(node, queue) {
+			out = append(out, k)
+		}
+	}
+	if c.sp.Cursor(cursorKey(node, "")) != 0 {
+		out = append(out, cursorKey(node, ""))
+	}
+	sort.Strings(out)
+	return out
+}
+
+// pruneNodeCursors drops the cursors of nodes that stayed uncovered past the node timeout and left the cluster state.
+func (c *Coordinator) pruneNodeCursors(exists func(string) bool) {
+	if c.now().Sub(c.startedAt) <= c.t.NodeTimeout {
+		return
+	}
+	covered := map[string]bool{}
+	for _, n := range c.nodes.list() {
+		covered[n.Name] = n.Covered
+	}
+	c.sinkMu.Lock()
+	defer c.sinkMu.Unlock()
+	var drop []string
+	for k := range c.sp.Cursors("node/") {
+		name, _, _ := strings.Cut(strings.TrimPrefix(k, "node/"), "/")
+		if !covered[name] && !exists(name) {
+			drop = append(drop, k)
+		}
+	}
+	if len(drop) == 0 {
+		return
+	}
+	err := c.do(func(t *txn) error {
+		for _, k := range drop {
+			t.tx.DeleteCursor(k)
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errNotReady) {
+		c.log.Warn("pruning cursors of removed nodes", "err", err)
+	}
+}
+
+// Submit spools node findings and metric facts before acknowledging them; the cursor per node queue makes retries idempotent (PRD S12).
+func (b nodeBackend) Submit(_ context.Context, node, queue string, items []nodeapi.Item) (uint64, error) {
 	c := b.c
 	c.nodes.touch(node, func(n *NodeStatus) { n.LastSubmit = c.now() })
 	if c.headState() == nil {
@@ -128,11 +285,15 @@ func (b nodeBackend) Submit(_ context.Context, node string, items []nodeapi.Item
 			return 0, errors.New("coordinator: spool is not accepting records")
 		}
 	}
-	key := cursorKey(node)
+	key := cursorKey(node, queue)
 	cur := c.sp.Cursor(key)
+	stale := c.staleCursors(node, queue)
 	var acked uint64
 	var parts []nodeapi.Item
 	err := c.do(func(t *txn) error {
+		for _, k := range stale {
+			t.tx.DeleteCursor(k)
+		}
 		for _, it := range items {
 			acked = it.Seq
 			if it.Seq <= cur {
@@ -209,23 +370,28 @@ func isMetricField(k string) bool {
 // factOps turns metric facts into metric.* field updates on the node's pods and on the node itself when thresholds say changed.
 func (c *Coordinator) factOps(t *txn, node string, facts []metricfacts.Fact) []protocol.Op {
 	st := c.headState()
-	pods, nodes := map[string]string{}, map[string]string{}
+	pods, nodes := map[string][]string{}, map[string]string{}
 	for uid, r := range st.Resources {
 		switch r.Kind {
 		case state.KindPod:
 			if n, _ := r.Fields["nodeName"].(string); n == node {
-				pods[r.Namespace+"/"+r.Name] = uid
+				pods[r.Namespace+"/"+r.Name] = append(pods[r.Namespace+"/"+r.Name], uid)
 			}
 		case state.KindNode:
 			nodes[r.Name] = uid
 		}
 	}
+	var dropped uint64
 	changes := map[string]map[string]any{}
 	for _, f := range facts {
 		var uid, prefix string
 		switch {
 		case f.Pod != "":
-			uid = pods[f.Namespace+"/"+f.Pod]
+			uid = podFor(st, pods, node, f)
+			if uid == "" {
+				dropped++
+				continue
+			}
 			if f.Container != "" {
 				prefix = "containers." + f.Container + "."
 			}
@@ -276,12 +442,33 @@ func (c *Coordinator) factOps(t *txn, node string, facts []metricfacts.Fact) []p
 			changes[uid][k] = v
 		}
 	}
+	if dropped > 0 {
+		t.after = append(t.after, func() { c.nodes.touch(node, func(n *NodeStatus) { n.FactsDropped += dropped }) })
+	}
 	ops := make([]protocol.Op, 0, len(changes))
 	for uid, ch := range changes {
 		ops = append(ops, protocol.Update(uid, ch))
 	}
 	protocol.SortOps(ops)
 	return ops
+}
+
+// podFor resolves a pod fact to the observed live pod of the node, by name only for agents without UIDs; "" when it is gone.
+func podFor(st *protocol.State, pods map[string][]string, node string, f metricfacts.Fact) string {
+	if f.UID == "" {
+		if uids := pods[f.Namespace+"/"+f.Pod]; len(uids) == 1 {
+			return uids[0]
+		}
+		return ""
+	}
+	r := st.Resources[f.UID]
+	if r == nil || r.Kind != state.KindPod || r.Namespace != f.Namespace || r.Name != f.Pod {
+		return ""
+	}
+	if n, _ := r.Fields["nodeName"].(string); n != node {
+		return ""
+	}
+	return f.UID
 }
 
 // storePart keeps a node's part for a cluster rule only when it was evaluated under the active bundle (PRD R5).

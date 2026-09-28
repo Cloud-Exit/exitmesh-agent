@@ -51,10 +51,10 @@ func TestBundleActivationInvalidKeepsLastKnownGoodAndConvergence(t *testing.T) {
 		return []nodeapi.Item{{Seq: 1, Kind: nodeapi.KindSeries, Part: &nodeapi.Part{RuleID: "cluster-rule", RuleVersion: 1, BundleVersion: bv,
 			EvalTimeMs: e.clock.Now().UnixMilli(), Samples: []nodeapi.Sample{{Labels: map[string]string{"namespace": "shop"}, Value: 3, TimestampMs: e.clock.Now().UnixMilli()}}}}}
 	}
-	if _, err := n1.Submit(ctx, part("2026.09.1")); err != nil {
+	if _, err := n1.Submit(ctx, "", part("2026.09.1")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := n2.Submit(ctx, part("2026.08.9")); err != nil {
+	if _, err := n2.Submit(ctx, "", part("2026.08.9")); err != nil {
 		t.Fatal(err)
 	}
 	srcs := r.c.mem.Sources()

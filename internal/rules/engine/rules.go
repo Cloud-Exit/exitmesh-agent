@@ -47,6 +47,7 @@ type compiledRule struct {
 	cluster   bool
 	hasAbsent bool
 	inputs    []string
+	derived   map[string]bool
 	log       LogProgram
 
 	unsupported string
@@ -252,9 +253,30 @@ func (e *Engine) planPromQL(cr *compiledRule, ar bundle.AlertRule) error {
 		}
 	}
 	if !cr.cluster {
-		cr.inputs = promInputs(a.expr)
+		cr.inputs, cr.derived = promInputs(a.expr), derivedLabels(a.expr)
 	}
 	return nil
+}
+
+// derivedLabels lists labels the expression rewrites, whose values need not match any input series.
+func derivedLabels(expr parser.Expr) map[string]bool {
+	out := map[string]bool{}
+	parser.Inspect(expr, func(n parser.Node, _ []parser.Node) error {
+		switch x := n.(type) {
+		case *parser.Call:
+			if (x.Func.Name == "label_replace" || x.Func.Name == "label_join") && len(x.Args) > 1 {
+				if s, ok := x.Args[1].(*parser.StringLiteral); ok {
+					out[s.Val] = true
+				}
+			}
+		case *parser.AggregateExpr:
+			if s, ok := x.Param.(*parser.StringLiteral); ok && x.Op == parser.COUNT_VALUES {
+				out[s.Val] = true
+			}
+		}
+		return nil
+	})
+	return out
 }
 
 // promInputs returns the scraped metric names a rule reads outside absent calls; synthesized

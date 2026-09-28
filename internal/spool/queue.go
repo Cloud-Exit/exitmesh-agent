@@ -2,7 +2,9 @@ package spool
 
 import (
 	"bufio"
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -36,6 +38,7 @@ type QueueUsage struct {
 const (
 	qSuffix   = ".qlog"
 	qAckName  = "ACKED"
+	qIDName   = "QUEUE_ID"
 	qSeqBytes = 8
 )
 
@@ -60,6 +63,7 @@ type Queue struct {
 	hint     qhint
 	fault    error
 	closed   bool
+	id       string
 }
 
 // qhint remembers where the frame for seq starts, so sequential Peeks do not rescan.
@@ -93,6 +97,11 @@ func OpenQueue(dir string, capacityBytes int64) (*Queue, error) {
 func qsegName(id uint64) string { return fmt.Sprintf("%016x%s", id, qSuffix) }
 
 func (q *Queue) recover() error {
+	id, err := loadQueueID(filepath.Join(q.dir, qIDName))
+	if err != nil {
+		return err
+	}
+	q.id = id
 	acked, err := readAck(filepath.Join(q.dir, qAckName))
 	if err != nil {
 		return err
@@ -181,6 +190,30 @@ func (q *Queue) recover() error {
 	}
 	return nil
 }
+
+// loadQueueID reads the queue identity, creating a random one when the file is absent.
+func loadQueueID(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		var raw [16]byte
+		if _, err := rand.Read(raw[:]); err != nil {
+			return "", err
+		}
+		id := hex.EncodeToString(raw[:])
+		return id, writeFileAtomic(path, []byte(id))
+	}
+	if err != nil {
+		return "", err
+	}
+	id := string(b)
+	if _, err := hex.DecodeString(id); err != nil || len(id) != 32 {
+		return "", fmt.Errorf("%w: queue identity file", ErrCorrupt)
+	}
+	return id, nil
+}
+
+// ID is the random identity created with the queue; a queue recreated from nothing gets a new one.
+func (q *Queue) ID() string { return q.id }
 
 func readAck(path string) (uint64, error) {
 	b, err := os.ReadFile(path)

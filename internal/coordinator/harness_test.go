@@ -391,6 +391,7 @@ type env struct {
 	airgap   bool
 	capacity string
 	tune     func(*Tuning)
+	fault    func() error
 }
 
 type envOpt func(*env)
@@ -488,6 +489,7 @@ func (e *env) start(cfg *config.Config) *running {
 	if err != nil {
 		e.t.Fatal(err)
 	}
+	c.spoolFault = e.fault
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &running{c: c, cancel: cancel, done: make(chan error, 1)}
 	go func() { r.done <- c.Run(ctx) }()

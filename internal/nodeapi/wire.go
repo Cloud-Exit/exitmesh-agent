@@ -74,6 +74,58 @@ type RegisterRequest struct {
 	Coverage      map[string]string `cbor:"5,keyasint,omitempty"`
 	Warming       bool              `cbor:"6,keyasint,omitempty"`
 	QueueUsage    QueueUsage        `cbor:"7,keyasint"`
+	// Rules are the node-local rule states, at most MaxRuleStatuses, most severe first.
+	Rules []RuleStatus `cbor:"8,keyasint,omitempty"`
+}
+
+// Bounds of the rule states a registration carries.
+const (
+	MaxRuleStatuses = 1024
+	MaxRuleReason   = 512
+	maxRuleState    = 64
+)
+
+// RuleStatus is one node-local rule state.
+type RuleStatus struct {
+	RuleID          string `cbor:"1,keyasint"`
+	Version         int    `cbor:"2,keyasint,omitempty"`
+	State           string `cbor:"3,keyasint"`
+	Reason          string `cbor:"4,keyasint,omitempty"`
+	LastEvalMs      int64  `cbor:"5,keyasint,omitempty"`
+	BudgetLimited   bool   `cbor:"6,keyasint,omitempty"`
+	EvidenceLimited bool   `cbor:"7,keyasint,omitempty"`
+}
+
+func (r RuleStatus) validate() error {
+	if r.RuleID == "" || len(r.RuleID) > maxID || r.State == "" || len(r.State) > maxRuleState || len(r.Reason) > MaxRuleReason {
+		return invalid("rule status %q is malformed", r.RuleID)
+	}
+	return nil
+}
+
+// RuleStateRank orders rule states from the most to the least severe for reporting.
+func RuleStateRank(state string) int {
+	switch state {
+	case engine.StateFailed:
+		return 0
+	case engine.StateBudgetLimited:
+		return 1
+	case engine.StateEvidenceLimited:
+		return 2
+	case engine.StateStale:
+		return 3
+	case engine.StateUnsupported:
+		return 4
+	case engine.StateConverging:
+		return 5
+	case engine.StateWarmingUp:
+		return 6
+	case engine.StateDisabled:
+		return 7
+	case engine.StateActive:
+		return 9
+	}
+	return 8
 }
 
 // RegisterResponse answers a registration.
@@ -111,6 +163,8 @@ type Item struct {
 type SubmitRequest struct {
 	Node  string `cbor:"1,keyasint"`
 	Items []Item `cbor:"2,keyasint,omitempty"`
+	// Queue identifies the node queue whose sequence space Items belong to; empty from agents that predate it.
+	Queue string `cbor:"3,keyasint,omitempty"`
 }
 
 // SubmitResponse acknowledges items durably stored by the coordinator.
@@ -268,6 +322,14 @@ func (r RegisterRequest) validate() error {
 	if len(r.BundleVersion) > maxVersion || len(r.AgentVersion) > maxVersion {
 		return invalid("version too long")
 	}
+	if len(r.Rules) > MaxRuleStatuses {
+		return invalid("%d rule states exceed %d", len(r.Rules), MaxRuleStatuses)
+	}
+	for _, rs := range r.Rules {
+		if err := rs.validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -411,6 +473,9 @@ func (r SubmitRequest) claims() ([]string, error) {
 	}
 	if len(r.Items) == 0 {
 		return nil, invalid("no items")
+	}
+	if r.Queue != "" && !validID(r.Queue) {
+		return nil, invalid("queue id %q", r.Queue)
 	}
 	nodes := []string{r.Node}
 	var prev uint64

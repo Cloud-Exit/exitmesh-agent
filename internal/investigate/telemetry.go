@@ -225,7 +225,7 @@ func (s *Service) promqlRun(ctx context.Context, c *call, a queryArgs) (*Result,
 	}
 	src := s.liveSource()
 	res := c.newResult(src, LangPromQL, norm, src)
-	tq := TaskQuery{Query: norm, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), StepMs: a.StepMs, Namespaces: ts.namespaces, Nodes: ts.nodes, Limits: c.lim}
+	tq := TaskQuery{Query: norm, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), StepMs: a.StepMs, Namespaces: ts.namespaces, Pods: ts.pods, Nodes: ts.nodes, Limits: c.lim}
 	data, retention, ok := s.merge(res, s.live(ctx, c, nodeapi.TaskPromQLQuery, tq, ts, true, step), false)
 	if ok > 1 && promAggregates(norm) {
 		res.limit(limitationPerSource)
@@ -280,7 +280,7 @@ func (s *Service) logqlRun(ctx context.Context, c *call, a queryArgs) (*Result, 
 	}
 	src := s.liveSource()
 	res := c.newResult(src, LangLogQL, norm, src)
-	tq := TaskQuery{Query: norm, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), StepMs: a.StepMs, Forward: forward, Namespaces: ts.namespaces, Nodes: ts.nodes, Limits: c.lim}
+	tq := TaskQuery{Query: norm, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), StepMs: a.StepMs, Forward: forward, Namespaces: ts.namespaces, Pods: ts.pods, Nodes: ts.nodes, Limits: c.lim}
 	data, _, ok := s.merge(res, s.live(ctx, c, kind, tq, ts, false, step), forward)
 	if ok > 1 && logqlAggregates(norm) {
 		res.limit(limitationPerSource)
@@ -334,11 +334,11 @@ func (s *Service) logsqlRun(ctx context.Context, c *call, a queryArgs) (*Result,
 	if err != nil {
 		return nil, err
 	}
-	hashQ, err := InjectLogsQL(a.Query, ts.namespaces, ts.nodes, time.Time{}, time.Time{})
+	hashQ, err := InjectLogsQL(a.Query, ts.namespaces, ts.pods, ts.nodes, time.Time{}, time.Time{})
 	if err != nil {
 		return nil, err
 	}
-	execQ, err := InjectLogsQL(a.Query, ts.namespaces, ts.nodes, start, end)
+	execQ, err := InjectLogsQL(a.Query, ts.namespaces, ts.pods, ts.nodes, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -431,7 +431,7 @@ func (s *Service) lookbackRun(ctx context.Context, c *call, a queryArgs) (*Resul
 		if err != nil {
 			return nil, errorf(ClassInvalid, "logql cannot be translated to LogsQL: %v", err)
 		}
-		if q.query, err = InjectLogsQL(translated, ts.namespaces, ts.nodes, start, end); err != nil {
+		if q.query, err = InjectLogsQL(translated, ts.namespaces, ts.pods, ts.nodes, start, end); err != nil {
 			return nil, err
 		}
 		res.Executed = q.query

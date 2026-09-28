@@ -5,27 +5,36 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/kv"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
+	"github.com/cloud-exit/exitmesh-agent/internal/state"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/disk"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/metricfacts"
 )
 
 const maxFactsPerItem = 256
 
-// factState remembers the last sent summary per resource so only threshold changes are emitted.
+// factState remembers the last sent summary and pod UID per resource so only threshold changes and new pods are emitted.
 type factState struct {
-	mu    sync.Mutex
-	store kv.Store
-	last  map[string]map[string]any
-	th    metricfacts.Thresholds
+	mu      sync.Mutex
+	store   kv.Store
+	last    map[string]map[string]any
+	lastUID map[string]string
+	th      metricfacts.Thresholds
 }
 
+const factUIDPrefix = "uid/"
+
 func (f *factState) load(s kv.Store) error {
-	f.store, f.last, f.th = s, map[string]map[string]any{}, metricfacts.DefaultThresholds()
+	f.store, f.last, f.lastUID, f.th = s, map[string]map[string]any{}, map[string]string{}, metricfacts.DefaultThresholds()
 	return s.ForEach("", func(k string, v []byte) error {
+		if key, ok := strings.CutPrefix(k, factUIDPrefix); ok {
+			f.lastUID[key] = string(v)
+			return nil
+		}
 		var m map[string]any
 		if err := json.Unmarshal(v, &m); err != nil {
 			return fmt.Errorf("node: metric facts state %s: %w", k, err)
@@ -53,7 +62,14 @@ func (a *Agent) emitFacts(ctx context.Context) error {
 	defer a.facts.mu.Unlock()
 	var changed []metricfacts.Fact
 	for _, f := range facts {
-		if a.facts.th.Changed(a.facts.last[f.Key()], f.Fields) {
+		if f.Pod != "" {
+			uid, ok := a.pods.resolve(state.KindPod, f.Namespace, f.Pod)
+			if !ok {
+				continue
+			}
+			f.UID = uid
+		}
+		if f.UID != a.facts.lastUID[f.Key()] || a.facts.th.Changed(a.facts.last[f.Key()], f.Fields) {
 			changed = append(changed, f)
 		}
 	}
@@ -72,6 +88,10 @@ func (a *Agent) emitFacts(ctx context.Context) error {
 			}
 			ops[f.Key()] = b
 			a.facts.last[f.Key()] = f.Fields
+			if f.UID != "" {
+				ops[factUIDPrefix+f.Key()] = []byte(f.UID)
+				a.facts.lastUID[f.Key()] = f.UID
+			}
 		}
 		if err := a.facts.store.Batch(ops); err != nil {
 			return fmt.Errorf("persist metric facts state: %w", err)

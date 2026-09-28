@@ -46,6 +46,8 @@ type Fact struct {
 	Container string
 	Node      string
 	Fields    map[string]any
+	// UID is the pod the node agent observed under Namespace and Pod when it computed the fact.
+	UID string `cbor:",omitempty"`
 }
 
 // Key identifies the resource.

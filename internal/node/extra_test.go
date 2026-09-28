@@ -12,6 +12,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/labels"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/investigate"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
@@ -341,5 +342,42 @@ func TestRunOutsideClusterFails(t *testing.T) {
 	h := newHarness(t, options{})
 	if err := Run(context.Background(), h.config(), slog.Default()); err == nil || !strings.Contains(err.Error(), "in-cluster") {
 		t.Fatalf("Run outside a cluster: %v", err)
+	}
+}
+
+func TestMetricFactsCarryObservedPodUID(t *testing.T) {
+	const every = 300 * time.Millisecond
+	h := newHarness(t, options{caps: "metrics", realClock: true, facts: every})
+	h.start()
+	uids := func() []string {
+		var out []string
+		for _, it := range h.coord.received(nodeapi.KindMetricFacts) {
+			for _, f := range it.Facts {
+				if f.Pod == "web-1" && f.Container == "app" {
+					out = append(out, f.UID)
+				}
+			}
+		}
+		return out
+	}
+	h.waitFor("first metric facts", func() bool { return len(uids()) > 0 })
+	if got := uids(); got[0] != "uid-web-1" {
+		t.Fatalf("fact pod uid %q", got[0])
+	}
+	ctx := context.Background()
+	if err := h.kube.CoreV1().Pods("prod").Delete(ctx, "web-1", metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.kube.CoreV1().Pods("prod").Create(ctx, pod("prod", "web-1", "uid-web-1b", testNode, "app", "sidecar"), metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.waitFor("unchanged usage of the replacement pod sent with its uid", func() bool {
+		got := uids()
+		return got[len(got)-1] == "uid-web-1b"
+	})
+	for _, u := range uids() {
+		if u != "uid-web-1" && u != "uid-web-1b" {
+			t.Fatalf("fact names pod uid %q", u)
+		}
 	}
 }

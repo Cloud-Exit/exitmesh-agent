@@ -178,6 +178,62 @@ type Tracker struct {
 	volatile map[string]bool
 	byID     map[string]*episode
 	open     map[string]string
+	// staged journals prior episode state so Rollback can undo changes whose records never committed.
+	staged  bool
+	journal []undo
+	seen    map[string]bool
+}
+
+type undo struct {
+	id, key  string
+	prev     *episode
+	prevOpen string
+	hadOpen  bool
+}
+
+// Stage starts journaling episode changes; the caller must end it with Release after its records commit, or Rollback.
+func (t *Tracker) Stage() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.staged, t.journal, t.seen = true, nil, map[string]bool{}
+}
+
+// Release ends staging and keeps every change made since Stage.
+func (t *Tracker) Release() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.staged, t.journal, t.seen = false, nil, nil
+}
+
+// Rollback restores every episode changed since Stage, in memory and in the store.
+func (t *Tracker) Rollback() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var errs []error
+	for i := len(t.journal) - 1; i >= 0; i-- {
+		u := t.journal[i]
+		if u.hadOpen {
+			t.open[u.key] = u.prevOpen
+		} else {
+			delete(t.open, u.key)
+		}
+		if u.prev == nil {
+			delete(t.byID, u.id)
+			errs = append(errs, t.o.Store.Delete(keyPrefix+u.id))
+			continue
+		}
+		t.byID[u.id] = u.prev
+		b, err := cbor.Marshal(u.prev)
+		if err == nil {
+			err = t.o.Store.Put(keyPrefix+u.id, b)
+		}
+		errs = append(errs, err)
+	}
+	t.staged, t.journal, t.seen = false, nil, nil
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("findings: rollback: %w", err)
+	}
+	return nil
 }
 
 const keyPrefix = "ep/"
@@ -606,6 +662,11 @@ func (t *Tracker) transition(e *episode, tr protocol.Transition, eval uint64, em
 }
 
 func (t *Tracker) persist(e *episode) error {
+	if t.staged && !t.seen[e.ID] {
+		prevOpen, hadOpen := t.open[e.DedupKey]
+		t.journal = append(t.journal, undo{id: e.ID, key: e.DedupKey, prev: t.byID[e.ID], prevOpen: prevOpen, hadOpen: hadOpen})
+		t.seen[e.ID] = true
+	}
 	t.byID[e.ID] = e
 	if e.State == StateResolved {
 		if t.open[e.DedupKey] == e.ID {

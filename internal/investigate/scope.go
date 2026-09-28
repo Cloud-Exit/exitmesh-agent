@@ -275,7 +275,7 @@ func logsqlScopeFilters(t telemetryScope) ([]*logstorage.Filter, []string, error
 	for _, f := range []struct {
 		name   string
 		values []string
-	}{{NamespaceLabel, t.namespaces}, {NodeLabel, t.nodes}} {
+	}{{NamespaceLabel, t.namespaces}, {PodLabel, t.pods}, {NodeLabel, t.nodes}} {
 		if len(f.values) == 0 {
 			continue
 		}
@@ -293,9 +293,9 @@ func logsqlScopeFilters(t telemetryScope) ([]*logstorage.Filter, []string, error
 	return out, strs, nil
 }
 
-// InjectLogsQL ANDs namespace and node stream filters and the window (unless start is zero) with the whole LogsQL query, including subqueries.
-func InjectLogsQL(query string, namespaces, nodes []string, start, end time.Time) (string, error) {
-	t := telemetryScope{namespaces: namespaces, nodes: nodes}
+// InjectLogsQL ANDs namespace, pod, and node stream filters and the window (unless start is zero) with the whole LogsQL query, including subqueries.
+func InjectLogsQL(query string, namespaces, pods, nodes []string, start, end time.Time) (string, error) {
+	t := telemetryScope{namespaces: namespaces, pods: pods, nodes: nodes}
 	q, err := logstorage.ParseQuery(query)
 	if err != nil {
 		return "", parseErr(LangLogsQL, err)

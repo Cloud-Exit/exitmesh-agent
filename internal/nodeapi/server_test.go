@@ -29,6 +29,7 @@ type fakeBackend struct {
 	regs        []RegisterRequest
 	regNodes    []string
 	items       []Item
+	queues      []string
 	submitErr   error
 	bundle      *BundlePayload
 	bundleCh    chan struct{}
@@ -53,13 +54,14 @@ func (b *fakeBackend) Register(_ context.Context, node string, req RegisterReque
 	return RegisterResponse{TargetBundle: "b2", ServerTimeMs: 1}, nil
 }
 
-func (b *fakeBackend) Submit(_ context.Context, node string, items []Item) (uint64, error) {
+func (b *fakeBackend) Submit(_ context.Context, node, queue string, items []Item) (uint64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.submitErr != nil {
 		return 0, b.submitErr
 	}
 	b.items = append(b.items, items...)
+	b.queues = append(b.queues, queue)
 	return items[len(items)-1].Seq, nil
 }
 
@@ -233,6 +235,9 @@ func wantStatus(t *testing.T, err error, code int, retryable bool) {
 	if !ok || ae.StatusCode != code || ae.Retryable != retryable || IsRetryable(err) != retryable {
 		t.Fatalf("err = %v, want HTTP %d retryable=%v", err, code, retryable)
 	}
+	if want := code == http.StatusBadRequest || code == http.StatusRequestEntityTooLarge; IsMalformed(err) != want {
+		t.Fatalf("err = %v, malformed = %v, want %v", err, IsMalformed(err), want)
+	}
 }
 
 func waitFor(t *testing.T, cond func() bool) {
@@ -265,7 +270,7 @@ func TestRegisterAndSubmit(t *testing.T) {
 		}
 	})
 	items := testItems(t, "node-1")
-	acked, err := c.Submit(ctx, items)
+	acked, err := c.Submit(ctx, "q1", items)
 	if err != nil || acked != 5 {
 		t.Fatalf("acked = %d, err = %v", acked, err)
 	}
@@ -286,7 +291,7 @@ func TestImpersonationRejected(t *testing.T) {
 	other := e.client(t, "node-2", tok)
 	_, err := other.Register(ctx, RegisterRequest{})
 	wantStatus(t, err, http.StatusForbidden, false)
-	_, err = other.Submit(ctx, testItems(t, "node-2"))
+	_, err = other.Submit(ctx, "q1", testItems(t, "node-2"))
 	wantStatus(t, err, http.StatusForbidden, false)
 
 	own := e.client(t, "node-1", tok)
@@ -294,7 +299,7 @@ func TestImpersonationRejected(t *testing.T) {
 	fact := []Item{{Seq: 1, Kind: KindMetricFacts, Facts: []metricfacts.Fact{{Node: "node-2", Fields: map[string]any{"x": 1.0}}}}}
 	series := []Item{{Seq: 1, Kind: KindSeries, Part: &Part{RuleID: "r", Samples: []Sample{{Labels: map[string]string{engine.LabelNode: "node-2"}, Value: 1}}}}}
 	for _, items := range [][]Item{finding, fact, series} {
-		_, err := own.Submit(ctx, items)
+		_, err := own.Submit(ctx, "q1", items)
 		wantStatus(t, err, http.StatusForbidden, false)
 	}
 	audits := e.auditLog()
@@ -332,7 +337,7 @@ func TestUnauthenticated(t *testing.T) {
 		t.Fatalf("auth failure log lines = %d, want 1 inside the window:\n%s", n, e.logs)
 	}
 	e.clock.Advance(DefaultAuthLogEvery)
-	_, err := bad.Submit(ctx, testItems(t, "node-1"))
+	_, err := bad.Submit(ctx, "q1", testItems(t, "node-1"))
 	wantStatus(t, err, http.StatusUnauthorized, false)
 	if n := e.logs.count("node api authentication failed"); n != 2 || !strings.Contains(e.logs.String(), "suppressed=3") {
 		t.Fatalf("auth failure log lines = %d, want 2 with suppressed=3:\n%s", n, e.logs)
@@ -495,7 +500,7 @@ func TestRequestValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.Submit(ctx, []Item{{Seq: 1, Kind: KindFinding, Finding: b}})
+	_, err = c.Submit(ctx, "q1", []Item{{Seq: 1, Kind: KindFinding, Finding: b}})
 	wantStatus(t, err, http.StatusRequestEntityTooLarge, false)
 	body, _ := Marshal(SubmitRequest{Node: "node-1", Items: []Item{{Seq: 1, Kind: KindFinding, Finding: b}}})
 	req, _ := http.NewRequest(http.MethodPost, e.srv.URL+"/v1/node/records", io.MultiReader(bytes.NewReader(body)))
@@ -552,13 +557,13 @@ func TestBackendErrors(t *testing.T) {
 	c := e.client(t, "node-1", e.token(t))
 	ctx := context.Background()
 	e.backend.locked(func() { e.backend.submitErr = errors.New("spool fsync failed") })
-	_, err := c.Submit(ctx, testItems(t, "node-1"))
+	_, err := c.Submit(ctx, "q1", testItems(t, "node-1"))
 	wantStatus(t, err, http.StatusServiceUnavailable, true)
 	if !strings.Contains(e.logs.String(), "spool fsync failed") {
 		t.Fatalf("backend failure not logged:\n%s", e.logs)
 	}
 	e.backend.locked(func() { e.backend.submitErr = fmt.Errorf("%w: sequence regression", ErrInvalid) })
-	_, err = c.Submit(ctx, testItems(t, "node-1"))
+	_, err = c.Submit(ctx, "q1", testItems(t, "node-1"))
 	wantStatus(t, err, http.StatusBadRequest, false)
 	e.backend.change(func(b *fakeBackend) { b.bundle = &BundlePayload{Version: "no-archive"} }, &e.backend.bundleCh)
 	_, err = c.WaitBundle(ctx, "")
@@ -607,7 +612,7 @@ func TestClientErrors(t *testing.T) {
 	if _, err := c.Register(ctx, RegisterRequest{}); err != nil {
 		t.Fatalf("rotated token file is reread: %v", err)
 	}
-	if _, err := c.Submit(ctx, nil); !errors.Is(err, ErrInvalid) || IsRetryable(err) {
+	if _, err := c.Submit(ctx, "q1", nil); !errors.Is(err, ErrInvalid) || IsRetryable(err) || !IsMalformed(err) {
 		t.Fatalf("empty submit: %v", err)
 	}
 	untrusted, err := NewClient(ClientOptions{BaseURL: e.srv.URL, TokenFile: filepath.Join(e.dir, "token-node-1"), Node: "node-1"})

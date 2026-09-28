@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	scopeA  = telemetryScope{namespaces: []string{"shop"}}
-	scopeAB = telemetryScope{namespaces: []string{"shop", "pay"}, nodes: []string{"n1.example"}}
+	scopeA    = telemetryScope{namespaces: []string{"shop"}}
+	scopeAB   = telemetryScope{namespaces: []string{"shop", "pay"}, nodes: []string{"n1.example"}}
+	scopePods = telemetryScope{namespaces: []string{"shop"}, pods: []string{"api-1", "api-2"}}
 )
 
 func promSelectors(t *testing.T, q string) [][]*labels.Matcher {
@@ -53,8 +54,9 @@ func TestInjectPromQL(t *testing.T) {
 		{`absent(nothing{pod="p"})`, 1},
 		{`vector(1) + time()`, 0},
 		{`histogram_quantile(0.9, sum by (le) (rate(h_bucket[5m])))`, 1},
+		{`x{pod=~".+"} or y{pod!~"api-.*"} unless z{pod="web-1"}`, 3},
 	}
-	for _, sc := range []telemetryScope{scopeA, scopeAB} {
+	for _, sc := range []telemetryScope{scopeA, scopeAB, scopePods} {
 		want := sc.matchers()
 		for _, c := range cases {
 			out, err := InjectPromQL(c.q, want)
@@ -79,6 +81,10 @@ func TestInjectPromQL(t *testing.T) {
 	out, _ = InjectPromQL(`up`, scopeAB.matchers())
 	if out != `up{namespace=~"shop|pay",node="n1.example"}` {
 		t.Fatalf("regex scope not quoted: %q", out)
+	}
+	out, _ = InjectPromQL(`up`, scopePods.matchers())
+	if out != `up{namespace="shop",pod=~"api-1|api-2"}` {
+		t.Fatalf("pod scope: %q", out)
 	}
 	for _, bad := range []string{`sum(`, `x{`, `{}`, `rate(x)`, `x @ 1000`} {
 		if _, err := InjectPromQL(bad, scopeA.matchers()); err == nil && !strings.Contains(bad, "@") {
@@ -113,8 +119,6 @@ func TestPromReach(t *testing.T) {
 }
 
 func TestInjectMetricsQL(t *testing.T) {
-	sc := scopeAB
-	want := metricsqlFilters(sc.matchers())
 	cases := []string{
 		`up`,
 		`foo{a="b" or c="d"}`,
@@ -124,29 +128,33 @@ func TestInjectMetricsQL(t *testing.T) {
 		`topk_max(3, a) or b`,
 		`label_set(time(), "namespace", "other")`,
 		`histogram_quantile(0.9, sum(rate(h_bucket[5m])) by (vmrange))`,
+		`foo{pod=~".+" or pod="web-1"}`,
 	}
-	for _, q := range cases {
-		out, err := InjectMetricsQL(q, sc.matchers())
-		if err != nil {
-			t.Fatalf("%q: %v", q, err)
-		}
-		e, err := metricsql.Parse(out)
-		if err != nil {
-			t.Fatalf("re-parse %q: %v", out, err)
-		}
-		metricsql.VisitAll(e, func(x metricsql.Expr) {
-			me, ok := x.(*metricsql.MetricExpr)
-			if !ok {
-				return
+	for _, sc := range []telemetryScope{scopeAB, scopePods} {
+		want := metricsqlFilters(sc.matchers())
+		for _, q := range cases {
+			out, err := InjectMetricsQL(q, sc.matchers())
+			if err != nil {
+				t.Fatalf("%q: %v", q, err)
 			}
-			for _, g := range me.LabelFilterss {
-				for _, w := range want {
-					if !slices.Contains(g, w) {
-						t.Fatalf("%q: group %v lacks %v in %q", q, g, w, out)
+			e, err := metricsql.Parse(out)
+			if err != nil {
+				t.Fatalf("re-parse %q: %v", out, err)
+			}
+			metricsql.VisitAll(e, func(x metricsql.Expr) {
+				me, ok := x.(*metricsql.MetricExpr)
+				if !ok {
+					return
+				}
+				for _, g := range me.LabelFilterss {
+					for _, w := range want {
+						if !slices.Contains(g, w) {
+							t.Fatalf("%q: group %v lacks %v in %q", q, g, w, out)
+						}
 					}
 				}
-			}
-		})
+			})
+		}
 	}
 	out, err := InjectMetricsQL(`foo{a="b" or namespace="other"}`, scopeA.matchers())
 	if err != nil || out != `foo{a="b",namespace="shop" or namespace="other",namespace="shop"}` {
@@ -172,31 +180,35 @@ func TestInjectLogQL(t *testing.T) {
 		`sum by (pod) (count_over_time({app="api"} |= "x" [5m]))`,
 		`sum(rate({a="1"}[1m])) > 3`,
 		`topk(3, sum by (app) (bytes_over_time({app=~"a|b"}[10m])))`,
+		`{pod=~".+", pod!="api-1"} |= "x"`,
+	}
+	for _, sc := range []telemetryScope{scopeAB, scopePods} {
+		want := sc.matchers()
+		for _, q := range cases {
+			out, err := InjectLogQL(q, want)
+			if err != nil {
+				t.Fatalf("%q: %v", q, err)
+			}
+			e, err := logql.ParseExpr(out)
+			if err != nil {
+				t.Fatalf("re-parse %q: %v", out, err)
+			}
+			n := 0
+			walkLogQL(e, func(le *logql.LogExpr, _ time.Duration) {
+				n++
+				if !hasAllMatchers(le.Matchers, want) {
+					t.Fatalf("%q: selector lacks scope in %q", q, out)
+				}
+			})
+			if n == 0 {
+				t.Fatalf("%q: no selectors", q)
+			}
+			if err := verifyLogQLScope(out, want); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	want := scopeAB.matchers()
-	for _, q := range cases {
-		out, err := InjectLogQL(q, want)
-		if err != nil {
-			t.Fatalf("%q: %v", q, err)
-		}
-		e, err := logql.ParseExpr(out)
-		if err != nil {
-			t.Fatalf("re-parse %q: %v", out, err)
-		}
-		n := 0
-		walkLogQL(e, func(le *logql.LogExpr, _ time.Duration) {
-			n++
-			if !hasAllMatchers(le.Matchers, want) {
-				t.Fatalf("%q: selector lacks scope in %q", q, out)
-			}
-		})
-		if n == 0 {
-			t.Fatalf("%q: no selectors", q)
-		}
-		if err := verifyLogQLScope(out, want); err != nil {
-			t.Fatal(err)
-		}
-	}
 	out, err := InjectLogQL(`{namespace="other"}`, scopeA.matchers())
 	if err != nil || !strings.Contains(out, `namespace="other"`) || !strings.Contains(out, `namespace="shop"`) {
 		t.Fatalf("conflicting matcher must AND: %q %v", out, err)
@@ -224,7 +236,7 @@ func TestInjectLogsQL(t *testing.T) {
 	}
 	start, end := time.UnixMilli(1_700_000_000_000), time.UnixMilli(1_700_000_600_000)
 	for _, q := range cases {
-		out, err := InjectLogsQL(q, scopeAB.namespaces, scopeAB.nodes, start, end)
+		out, err := InjectLogsQL(q, scopeAB.namespaces, scopeAB.pods, scopeAB.nodes, start, end)
 		if err != nil {
 			t.Fatalf("%q: %v", q, err)
 		}
@@ -241,15 +253,19 @@ func TestInjectLogsQL(t *testing.T) {
 			t.Fatalf("%q: time range %d..%d", q, s, e)
 		}
 	}
-	out, _ := InjectLogsQL(`x | union (y)`, scopeA.namespaces, scopeA.nodes, time.Time{}, time.Time{})
+	out, _ := InjectLogsQL(`x | union (y)`, scopeA.namespaces, scopeA.pods, scopeA.nodes, time.Time{}, time.Time{})
 	if strings.Count(out, `{namespace=~"shop"}`) != 2 {
 		t.Fatalf("union subquery must be scoped: %q", out)
 	}
-	out, _ = InjectLogsQL(`_stream:{namespace="other"} error`, scopeA.namespaces, scopeA.nodes, time.Time{}, time.Time{})
+	out, _ = InjectLogsQL(`error or _stream:{pod="web-1"} | union (panic)`, scopePods.namespaces, scopePods.pods, scopePods.nodes, time.Time{}, time.Time{})
+	if strings.Count(out, `pod=~"api-1|api-2"`) != 2 || strings.Count(out, `namespace=~"shop"`) != 2 {
+		t.Fatalf("pod scope must bind the query and its subquery: %q", out)
+	}
+	out, _ = InjectLogsQL(`_stream:{namespace="other"} error`, scopeA.namespaces, scopeA.pods, scopeA.nodes, time.Time{}, time.Time{})
 	if !strings.Contains(out, `namespace=~"shop"`) || !strings.Contains(out, `namespace="other"`) {
 		t.Fatalf("conflicting stream filter must AND: %q", out)
 	}
-	if _, err := InjectLogsQL(`error |`, scopeA.namespaces, scopeA.nodes, time.Time{}, time.Time{}); err == nil {
+	if _, err := InjectLogsQL(`error |`, scopeA.namespaces, scopeA.pods, scopeA.nodes, time.Time{}, time.Time{}); err == nil {
 		t.Fatal("parse error must be rejected")
 	}
 	if !isLogsQLStats(`* | stats count()`, end) || isLogsQLStats(`error`, end) {

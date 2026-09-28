@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -32,6 +33,7 @@ const (
 // Scope label names injected into telemetry queries.
 const (
 	NamespaceLabel = "namespace"
+	PodLabel       = "pod"
 	NodeLabel      = "node"
 )
 
@@ -291,21 +293,111 @@ func lookupResource(st *protocol.State, ref ResourceRef) (*protocol.Resource, er
 	return nil, errorf(ClassUnauthorized, "resource %s %s/%s is not in current state", ref.Kind, ref.Namespace, ref.Name)
 }
 
-// telemetryNamespaces and telemetryNodes are the label values a telemetry query is bound to.
-func (rs *resolvedScope) telemetryNamespaces() []string {
-	set := map[string]bool{}
-	for ns := range rs.namespaces {
-		set[ns] = true
-	}
+// telemetryBinding maps the scope to label values; namespaces, nodes, and pods intersect, so the binding never widens.
+func (rs *resolvedScope) telemetryBinding(st *protocol.State) (telemetryScope, error) {
+	nsSet := maps.Clone(rs.namespaces)
+	var pods []*protocol.Resource
+	var g *podGraph
 	for _, r := range rs.resources {
-		switch {
-		case r.Namespace != "":
-			set[r.Namespace] = true
-		case r.Kind == kindNamespace:
-			set[r.Name] = true
+		switch r.Kind {
+		case kindNamespace:
+			nsSet[r.Name] = true
+		case kindNode:
+		case kindPod:
+			pods = append(pods, r)
+		default:
+			if g == nil {
+				g = newPodGraph(st)
+			}
+			related := g.pods(r)
+			if len(related) == 0 {
+				return telemetryScope{}, errorf(ClassUnauthorized, "resource %s %s/%s relates to no pods in current state, so its telemetry cannot be bound to labels", r.Kind, r.Namespace, r.Name)
+			}
+			pods = append(pods, related...)
 		}
 	}
-	return setKeys(set)
+	t := telemetryScope{namespaces: setKeys(nsSet), nodes: rs.telemetryNodes()}
+	if len(pods) == 0 {
+		return t, nil
+	}
+	byNS := map[string]map[string]bool{}
+	for _, p := range pods {
+		if len(nsSet) > 0 && !nsSet[p.Namespace] {
+			continue
+		}
+		if byNS[p.Namespace] == nil {
+			byNS[p.Namespace] = map[string]bool{}
+		}
+		byNS[p.Namespace][p.Name] = true
+	}
+	switch {
+	case len(byNS) == 0:
+		return telemetryScope{}, errorf(ClassUnauthorized, "scope namespaces %v contain none of the scoped resources' pods", t.namespaces)
+	case len(byNS) > 1:
+		return telemetryScope{}, errorf(ClassUnauthorized, "scoped resources have pods in namespaces %v; a telemetry query binds the pods of one namespace", slices.Sorted(maps.Keys(byNS)))
+	}
+	for ns, names := range byNS {
+		t.namespaces, t.pods = []string{ns}, setKeys(names)
+	}
+	if len(t.pods) > maxScopeEntries {
+		return telemetryScope{}, errorf(ClassInvalid, "scoped resources relate to %d pods, more than %d", len(t.pods), maxScopeEntries)
+	}
+	return t, nil
+}
+
+// podEdges lead from a scoped resource toward pods: true follows an edge forward, false against it.
+var podEdges = map[string]bool{
+	"owns": true, "selects": true, "targets": true, "guards": true, "routes": true, "scales": true,
+	"mounts": false, "binds": false,
+}
+
+const maxPodWalkDepth = 4
+
+type podGraph struct {
+	st  *protocol.State
+	adj map[string][]string
+}
+
+func newPodGraph(st *protocol.State) *podGraph {
+	g := &podGraph{st: st, adj: map[string][]string{}}
+	for k := range st.Edges {
+		forward, ok := podEdges[k.Type]
+		switch {
+		case !ok:
+		case forward:
+			g.adj[k.From] = append(g.adj[k.From], k.To)
+		default:
+			g.adj[k.To] = append(g.adj[k.To], k.From)
+		}
+	}
+	return g
+}
+
+// pods walks owners, selectors, policies, routes, scale targets, and volume claims from r to its pods, never past a pod.
+func (g *podGraph) pods(r *protocol.Resource) []*protocol.Resource {
+	seen := map[string]bool{r.UID: true}
+	frontier := []string{r.UID}
+	var out []*protocol.Resource
+	for d := 0; d < maxPodWalkDepth && len(frontier) > 0; d++ {
+		var next []string
+		for _, uid := range frontier {
+			for _, n := range g.adj[uid] {
+				if seen[n] {
+					continue
+				}
+				seen[n] = true
+				switch nr := g.st.Resources[n]; {
+				case nr == nil:
+				case nr.Kind == kindPod:
+					out = append(out, nr)
+				case nr.Kind != kindNamespace && nr.Kind != kindNode:
+					next = append(next, n)
+				}
+			}
+		}
+		frontier = next
+	}
+	return out
 }
 
 func (rs *resolvedScope) telemetryNodes() []string {
@@ -368,9 +460,10 @@ func scopeMatcher(name string, values []string) *labels.Matcher {
 	return labels.MustNewMatcher(labels.MatchRegexp, name, strings.Join(quoted, "|"))
 }
 
-// telemetryScope is the label binding for telemetry queries.
+// telemetryScope is the label binding for telemetry queries; pods are names within the one namespace.
 type telemetryScope struct {
 	namespaces []string
+	pods       []string
 	nodes      []string
 }
 
@@ -378,6 +471,9 @@ func (t telemetryScope) matchers() []*labels.Matcher {
 	var m []*labels.Matcher
 	if len(t.namespaces) > 0 {
 		m = append(m, scopeMatcher(NamespaceLabel, t.namespaces))
+	}
+	if len(t.pods) > 0 {
+		m = append(m, scopeMatcher(PodLabel, t.pods))
 	}
 	if len(t.nodes) > 0 {
 		m = append(m, scopeMatcher(NodeLabel, t.nodes))

@@ -273,11 +273,11 @@ func (a *Agent) compileLogQL(expr string, b bundle.Budget) (engine.LogProgram, e
 	return prog, nil
 }
 
-// streamFilter selects only streams some active LogQL rule references, never the agent's own pod.
+// streamFilter selects only streams inside the namespace scope that some active LogQL rule references, never the agent's own pod.
 func (a *Agent) streamFilter(set *logSet) func(map[string]string) bool {
 	self := a.deps.PodName
 	return func(l map[string]string) bool {
-		if self != "" && l["pod"] == self {
+		if self != "" && l["pod"] == self || !a.scope.allows(l["namespace"]) {
 			return false
 		}
 		for _, lr := range set.rules {

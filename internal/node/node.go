@@ -140,6 +140,7 @@ type Agent struct {
 	exec     TaskExecutor
 	pods     *podWatch
 	norm     *state.Normalizer
+	scope    nsScope
 
 	startTime time.Time
 	fresh     bool
@@ -205,7 +206,8 @@ func New(cfg *config.Config, d Deps) (*Agent, error) {
 	if len(roots.Keys) == 0 {
 		return nil, bundle.ErrNoRoots
 	}
-	a := &Agent{cfg: cfg, deps: d, t: withDefaults(d.Timing), log: log, clock: d.Clock, node: cfg.Node.Name, red: red, roots: roots, caps: map[string]bool{}}
+	a := &Agent{cfg: cfg, deps: d, t: withDefaults(d.Timing), log: log, clock: d.Clock, node: cfg.Node.Name, red: red, roots: roots, caps: map[string]bool{},
+		scope: newNSScope(cfg.Kubernetes)}
 	for _, c := range cfg.Capabilities {
 		a.caps[c] = true
 	}
@@ -394,7 +396,7 @@ func (a *Agent) open() error {
 		return fmt.Errorf("node: normalizer: %w", err)
 	}
 	a.ring = evidence.New(int64(a.cfg.Node.EvidenceRing))
-	a.pods = newPodWatch(a.deps.Kube, a.node, a.onPods)
+	a.pods = newPodWatch(a.deps.Kube, a.node, a.scope, a.onPods)
 	if a.caps[config.CapLogs] {
 		if a.tailer, err = logs.NewTailer(logs.Options{
 			Root: a.cfg.Node.LogsPath, Node: a.node, Store: a.stores[bucketOffsets], Sink: a.onLine, OnEvent: a.onLogEvent,
@@ -430,6 +432,7 @@ func (a *Agent) open() error {
 	if a.exec == nil {
 		a.exec = a.defaultExecutor()
 	}
+	a.exec = scopedExecutor{next: a.exec, scope: a.scope}
 	if err := a.loadLastKnownGood(); err != nil {
 		return err
 	}

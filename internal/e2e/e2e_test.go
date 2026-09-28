@@ -417,19 +417,18 @@ func TestInvestigationToolsThroughRefcp(t *testing.T) {
 	if !slices.Equal(pods, []string{"pod-1", "pod-2"}) {
 		t.Fatalf("state.query pods %v", pods)
 	}
-	audited := map[string]bool{}
-	for _, au := range e.cp.Audit(e.target) {
-		if au.Event == "investigation" {
-			for _, tool := range []string{"promql.query", "logql.query", "evidence.query", "state.query"} {
-				audited[tool] = audited[tool] || strings.Contains(au.Detail, tool)
+	// Audits are tunnel notifications handled apart from the tool response, so they can land after it.
+	e.waitFor("every investigation audited at refcp", func() bool {
+		audited := map[string]bool{}
+		for _, au := range e.cp.Audit(e.target) {
+			if au.Event == "investigation" {
+				for _, tool := range []string{"promql.query", "logql.query", "evidence.query", "state.query"} {
+					audited[tool] = audited[tool] || strings.Contains(au.Detail, tool)
+				}
 			}
 		}
-	}
-	for tool, ok := range audited {
-		if !ok {
-			t.Fatalf("%s not audited at refcp: %v", tool, audited)
-		}
-	}
+		return len(audited) == 4 && audited["promql.query"] && audited["logql.query"] && audited["evidence.query"] && audited["state.query"]
+	})
 }
 
 type findingKey struct {
@@ -534,11 +533,11 @@ func TestNodeImpersonationRejectedAndAudited(t *testing.T) {
 	}
 	items := []nodeapi.Item{{Seq: 1, Kind: nodeapi.KindFinding, Finding: fb}}
 	claimsB := e.nodeClient(t, nodeA, nodeB)
-	if _, err := claimsB.Submit(ctx, items); err == nil || !strings.Contains(err.Error(), "403") {
+	if _, err := claimsB.Submit(ctx, "", items); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("node A token submitting as node B: %v", err)
 	}
 	asA := e.nodeClient(t, nodeA, nodeA)
-	if _, err := asA.Submit(ctx, items); err == nil || !strings.Contains(err.Error(), "403") {
+	if _, err := asA.Submit(ctx, "", items); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("node A token submitting a finding naming node B: %v", err)
 	}
 	h := e.freshHealth(e.clk.Now(), "impersonation audited in health", func(h coordinator.Health) bool {
@@ -561,4 +560,48 @@ func TestNodeImpersonationRejectedAndAudited(t *testing.T) {
 			t.Fatalf("%s delivery disturbed: %q %q", n, st.DeliveryError, st.Dropped)
 		}
 	}
+}
+
+func TestNodeRuleStatesReachCoordinatorHealth(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.stopNode(nodeB)
+	b := e.startNode(nodeB, "policy:\n  maxRuleSamples: 1\n")
+	e.waitFor("node B scrapes", func() bool { return b.kubelet.count() > 0 })
+	e.waitFor("node B evaluates on the budget", func() bool {
+		for _, r := range b.a.Status().Rules {
+			if r.RuleID == "mem-near-limit" && r.State == "budget_limited" {
+				return true
+			}
+		}
+		return false
+	})
+	h := e.freshHealth(e.clk.Now(), "budget-limited node rule in coordinator health", func(h coordinator.Health) bool {
+		for _, n := range h.Nodes {
+			if n.Name != nodeB {
+				continue
+			}
+			for _, r := range n.Rules {
+				if r.ID == "mem-near-limit" && r.State == "budget_limited" && r.BudgetLimited && r.Reason != "" {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	for _, n := range h.Nodes {
+		if n.Name == nodeA {
+			for _, r := range n.Rules {
+				if r.ID == "mem-near-limit" {
+					t.Fatalf("node A reports %+v without a budget cap", r)
+				}
+			}
+		}
+	}
+	for _, x := range h.NodeRules {
+		if x.ID == "mem-near-limit" && x.States["budget_limited"] == 1 && x.BudgetLimited == 1 && x.Nodes == 2 {
+			return
+		}
+	}
+	t.Fatalf("node rule rollup %+v", h.NodeRules)
 }

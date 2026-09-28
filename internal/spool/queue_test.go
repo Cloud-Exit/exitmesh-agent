@@ -208,3 +208,25 @@ func TestQueueRejectsCorruption(t *testing.T) {
 		t.Fatal("zero capacity accepted")
 	}
 }
+
+func TestQueueIdentityPersistsWithTheQueue(t *testing.T) {
+	dir := t.TempDir()
+	q := openQueue(t, dir, 1<<20)
+	id := q.ID()
+	if len(id) != 32 {
+		t.Fatalf("queue id %q", id)
+	}
+	_, _ = q.Append(item(1))
+	_ = q.Close()
+	if q = openQueue(t, dir, 1<<20); q.ID() != id {
+		t.Fatalf("queue id changed across reopen: %s then %s", id, q.ID())
+	}
+	_ = q.Close()
+	if other := openQueue(t, t.TempDir(), 1<<20); other.ID() == id {
+		t.Fatal("a new queue reused an identity")
+	}
+	_ = os.WriteFile(filepath.Join(dir, qIDName), []byte("not hex"), 0o600)
+	if _, err := OpenQueue(dir, 1<<20); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("corrupt identity: %v", err)
+	}
+}

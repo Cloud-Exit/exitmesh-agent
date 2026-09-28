@@ -12,7 +12,7 @@ import (
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol/client"
 )
 
-// txn is one coordinator transaction under the spool sequence lock; head changes apply only when every append succeeded.
+// txn is one coordinator transaction under the spool sequence lock; head changes apply only after the spool committed it.
 type txn struct {
 	c       *Coordinator
 	tx      *spool.Tx
@@ -50,9 +50,15 @@ func (c *Coordinator) clientEpoch() (client.EpochState, bool) { return c.store.E
 
 // do runs fn under the spool lock; a new epoch without records first receives its opening checkpoint.
 func (c *Coordinator) do(fn func(t *txn) error) error {
-	return c.sp.Do(func(tx *spool.Tx) error {
+	var applyErr, rbErr error
+	err := c.sp.Do(func(tx *spool.Tx) error {
 		if c.headState() == nil {
 			return errNotReady
+		}
+		if c.fnd != nil {
+			c.fnd.Stage()
+			tx.OnCommit(c.fnd.Release)
+			tx.OnAbort(func() { rbErr = c.fnd.Rollback() })
 		}
 		t := &txn{c: c, tx: tx}
 		ep, ok := c.clientEpoch()
@@ -67,8 +73,13 @@ func (c *Coordinator) do(fn func(t *txn) error) error {
 		if err := fn(t); err != nil {
 			return err
 		}
-		return t.apply()
+		tx.OnCommit(func() { applyErr = t.apply() })
+		return nil
 	})
+	if err != nil {
+		return errors.Join(err, rbErr)
+	}
+	return applyErr
 }
 
 func (t *txn) apply() error {
@@ -673,6 +684,17 @@ func (w *commitStore) flush(force bool) {
 		return
 	}
 	w.c.setErr("commit", nil)
+}
+
+// Do exposes the spool transaction to the session hooks, which run inside it, so their bookkeeping waits for the commit.
+func (w *commitStore) Do(fn func(tx client.Tx) error) error {
+	return w.ClientStore.Do(func(tx client.Tx) error {
+		if ct, ok := tx.(spool.ClientTx); ok {
+			w.c.captured = ct.T
+			defer func() { w.c.captured = nil }()
+		}
+		return fn(tx)
+	})
 }
 
 func (w *commitStore) LastCommitted() (protocol.ChainPoint, bool) {

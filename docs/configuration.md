@@ -19,9 +19,9 @@ On Kubernetes the chart renders this file into ConfigMaps (`exitmesh-agent-coord
 
 |Key|Default|Meaning|
 |---|---|---|
-|`kubernetes.scope`|`cluster`|`cluster` or `namespaces` (namespace-scoped profile).|
-|`kubernetes.namespaces`|empty|Namespaces to collect; required when scope is `namespaces`.|
-|`kubernetes.excludeNamespaces`|empty|Namespaces to skip in the cluster profile.|
+|`kubernetes.scope`|`cluster`|`cluster` or `namespaces` (namespace-scoped profile). In the namespaces profile a node agent runs one `spec.nodeName` pod watch per listed namespace, which the chart's per-namespace Roles grant; the cluster profile uses one cluster-wide watch.|
+|`kubernetes.namespaces`|empty|Namespaces to collect; required when scope is `namespaces`. Node agents never tail, read on demand, or keep evidence from pods outside them.|
+|`kubernetes.excludeNamespaces`|empty|Namespaces to skip in either profile: not collected, and node agents never watch their pods, tail or read their logs on demand, or keep evidence from them.|
 |`kubernetes.labelAllowlist`|empty|Label keys recorded in state facts. Labels are never recorded without an allowlist.|
 |`kubernetes.annotationAllowlist`|empty|Annotation keys recorded in state facts.|
 |`kubernetes.resources`|empty (agent default set)|Resource kinds the coordinator collects; must be covered by `rbac.inventory`.|

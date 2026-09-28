@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -693,5 +694,95 @@ func TestUsageRateAndProjectedWindow(t *testing.T) {
 	}
 	if projectWindow(10, 0) != time.Duration(1<<63-1) {
 		t.Fatal("zero rate must project an unbounded window")
+	}
+}
+
+func TestCommitFaultRollsBackAndSkipsOnCommit(t *testing.T) {
+	var fail bool
+	w := newWriter(t, func(o *Options) {
+		o.CommitFault = func() error {
+			if fail {
+				return errors.New("injected")
+			}
+			return nil
+		}
+	})
+	build := func(env protocol.Envelope) (*protocol.Record, error) {
+		return &protocol.Record{Envelope: env, Finding: testFinding("n1", env.Time, nil)}, nil
+	}
+	fail = true
+	ran := false
+	err := w.s.Do(func(tx *Tx) error {
+		tx.OnCommit(func() { ran = true })
+		_, err := tx.Append(protocol.TypeFinding, build, WithCursor("node/a/q1", 3))
+		return err
+	})
+	if err == nil || ran {
+		t.Fatalf("faulted commit: err %v, commit hook ran %v", err, ran)
+	}
+	if ep, _ := w.s.Epoch(); ep.Chain.Head != 1 || w.s.Cursor("node/a/q1") != 0 || len(allEntries(w.s)) != 1 {
+		t.Fatalf("faulted commit persisted state: head %d cursor %d", ep.Chain.Head, w.s.Cursor("node/a/q1"))
+	}
+	fail = false
+	var order []int
+	err = w.s.Do(func(tx *Tx) error {
+		tx.OnCommit(func() { order = append(order, 1) })
+		tx.OnCommit(func() { order = append(order, 2) })
+		_, err := tx.Append(protocol.TypeFinding, build, WithCursor("node/a/q1", 3), WithCursor("node/a", 9))
+		return err
+	})
+	if err != nil || len(order) != 2 || order[0] != 1 {
+		t.Fatalf("commit hooks %v err %v", order, err)
+	}
+	if err := w.s.Do(func(tx *Tx) error { tx.OnCommit(func() { order = append(order, 3) }); return nil }); err != nil || len(order) != 3 {
+		t.Fatalf("hooks of a transaction without writes: %v %v", order, err)
+	}
+	if err := w.s.Do(func(tx *Tx) error { tx.DeleteCursor("node/a"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	w.reopen()
+	if got := w.s.Cursors("node/a"); len(got) != 1 || got["node/a/q1"] != 3 {
+		t.Fatalf("cursors after delete and reopen: %v", got)
+	}
+	replayHashes(t, w.s, allEntries(w.s))
+}
+
+func TestOnAbortRunsOnFailureOnly(t *testing.T) {
+	var fail bool
+	w := newWriter(t, func(o *Options) {
+		o.CommitFault = func() error {
+			if fail {
+				return errors.New("injected")
+			}
+			return nil
+		}
+	})
+	build := func(env protocol.Envelope) (*protocol.Record, error) {
+		return &protocol.Record{Envelope: env, Finding: testFinding("n1", env.Time, nil)}, nil
+	}
+	run := func() (aborted []int, committed bool, err error) {
+		err = w.s.Do(func(tx *Tx) error {
+			tx.OnAbort(func() { aborted = append(aborted, 1) })
+			tx.OnAbort(func() { aborted = append(aborted, 2) })
+			tx.OnCommit(func() { committed = true })
+			_, err := tx.Append(protocol.TypeFinding, build)
+			return err
+		})
+		return
+	}
+	fail = true
+	if ab, c, err := run(); err == nil || c || !slices.Equal(ab, []int{2, 1}) {
+		t.Fatalf("commit fault: err %v committed %v aborted %v", err, c, ab)
+	}
+	fail = false
+	if ab, c, err := run(); err != nil || !c || len(ab) != 0 {
+		t.Fatalf("clean commit: err %v committed %v aborted %v", err, c, ab)
+	}
+	var aborted bool
+	if err := w.s.Do(func(tx *Tx) error {
+		tx.OnAbort(func() { aborted = true })
+		return errors.New("fn failed")
+	}); err == nil || !aborted {
+		t.Fatal("OnAbort must run when fn fails")
 	}
 }

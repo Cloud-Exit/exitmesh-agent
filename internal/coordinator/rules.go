@@ -226,6 +226,7 @@ func (c *Coordinator) housekeep() {
 			}
 		}
 		c.nodes.prune(func(n string) bool { return names[n] })
+		c.pruneNodeCursors(func(n string) bool { return names[n] })
 	}
 }
 

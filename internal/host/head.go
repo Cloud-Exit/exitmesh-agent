@@ -112,8 +112,13 @@ func (t *hostTx) finding(f protocol.Finding) (uint64, error) {
 
 // do runs fn under the spool sequence lock and advances the head state with what it appended.
 func (h *Host) do(fn func(*hostTx) error) error {
-	var undo func()
+	var rbErr error
 	err := h.sp.Do(func(tx *spool.Tx) error {
+		if h.tracker != nil {
+			h.tracker.Stage()
+			tx.OnCommit(h.tracker.Release)
+			tx.OnAbort(func() { rbErr = h.tracker.Rollback() })
+		}
 		ht := &hostTx{tx: tx}
 		if err := fn(ht); err != nil {
 			return err
@@ -121,14 +126,17 @@ func (h *Host) do(fn func(*hostTx) error) error {
 		if ht.last == nil {
 			return nil
 		}
-		var err error
-		undo, err = h.head.advance(*ht.last, ht.ops)
-		return err
+		undo, err := h.head.advance(*ht.last, ht.ops)
+		if err != nil {
+			return err
+		}
+		tx.OnAbort(undo)
+		return nil
 	})
-	if err != nil && undo != nil {
-		undo()
+	if err != nil {
+		return errors.Join(err, rbErr)
 	}
-	return err
+	return nil
 }
 
 // recover loads the recovery snapshot and replays spooled records above it to the chain head.
