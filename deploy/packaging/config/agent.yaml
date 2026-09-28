@@ -1,0 +1,28 @@
+# ExitMesh host agent configuration; every key is described in docs/configuration.md.
+role: host
+# HTTPS endpoint shown on the ExitMesh connector page (not needed when airgap.enabled is true).
+endpoint: ""
+enrollmentTokenFile: /etc/exitmesh/enrollment-token
+stateDir: /var/lib/exitmesh
+capabilities: [inventory, metrics, logs]
+# Root public keys of your ExitMesh deployment, shown on the connector page next to the enrollment token.
+trust:
+  roots: []
+host:
+  diskCap: 2Gi
+  spoolReserve: 1Gi
+  tsdbMax: 768Mi
+  evidenceRing: 16Mi
+  scrapeInterval: 30s
+  logFiles: [/var/log]
+  journal: true
+  metricsEndpoints: []
+  allowNonLoopback: false
+lookback: []
+airgap:
+  enabled: false
+  bundleDir: ""
+  exportDir: /var/lib/exitmesh/export
+logging:
+  level: info
+  format: json

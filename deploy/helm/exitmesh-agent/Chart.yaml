@@ -1,0 +1,17 @@
+apiVersion: v2
+name: exitmesh-agent
+description: ExitMesh agent for Kubernetes, a node agent DaemonSet and a single-replica coordinator StatefulSet with read-only cluster access and outbound-only connectivity.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/cloud-exit/exitmesh-agent
+sources:
+  - https://github.com/cloud-exit/exitmesh-agent
+keywords:
+  - exitmesh
+  - kubernetes
+  - observability
+  - change-history
+annotations:
+  artifacthub.io/license: Apache-2.0

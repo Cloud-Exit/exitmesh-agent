@@ -1,0 +1,46 @@
+#!/bin/sh
+set -e
+
+UNIT=exitmesh-agent.service
+STATE=/var/lib/exitmesh
+DROPIN=/etc/systemd/system/exitmesh-agent.service.d
+
+create_user() {
+	getent passwd exitmesh >/dev/null && return 0
+	if command -v systemd-sysusers >/dev/null 2>&1; then
+		systemd-sysusers /usr/lib/sysusers.d/exitmesh-agent.conf
+	else
+		useradd --system --user-group --home-dir "$STATE" --no-create-home --shell /usr/sbin/nologin --comment "ExitMesh agent" exitmesh
+	fi
+}
+
+adm_dropin() {
+	if getent group adm >/dev/null; then
+		mkdir -p "$DROPIN"
+		printf '[Service]\nSupplementaryGroups=adm\n' >"$DROPIN/10-adm.conf"
+	else
+		rm -f "$DROPIN/10-adm.conf"
+	fi
+}
+
+case "$1" in
+configure)
+	create_user
+	install -d -m 0700 -o exitmesh -g exitmesh "$STATE"
+	rm -rf /usr/libexec/exitmesh-agent-purge
+	adm_dropin
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload
+		if [ -z "$2" ]; then
+			systemctl enable "$UNIT" >/dev/null
+			systemctl start "$UNIT" || true
+		else
+			systemctl try-restart "$UNIT" || true
+		fi
+	fi
+	if [ ! -e /etc/exitmesh/enrollment-token ] && [ -z "$(ls -A "$STATE" 2>/dev/null)" ]; then
+		echo "exitmesh-agent: set endpoint in /etc/exitmesh/agent.yaml, write the enrollment token to /etc/exitmesh/enrollment-token (mode 0640, group exitmesh), then run: systemctl start $UNIT"
+	fi
+	;;
+esac
+exit 0

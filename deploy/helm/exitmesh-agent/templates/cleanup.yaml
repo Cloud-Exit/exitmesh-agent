@@ -1,0 +1,79 @@
+{{- if .Values.cleanup.enabled }}
+{{- $v := .Values -}}
+{{- $uid := ternary 0 (int $v.node.uid) $v.node.runAsRootFallback -}}
+{{- $gid := ternary 0 (int $v.node.gid) $v.node.runAsRootFallback -}}
+{{- $sc := printf "allowPrivilegeEscalation: false\nprivileged: false\nreadOnlyRootFilesystem: true\nrunAsNonRoot: %t\nrunAsUser: %d\nrunAsGroup: %d\ncapabilities:\n  drop: [\"ALL\"]\nseccompProfile:\n  type: RuntimeDefault" (not $v.node.runAsRootFallback) $uid $gid -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "exitmesh.cleanupName" . }}
+  namespace: {{ $v.namespaces.node }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "cleanup") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-delete
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation
+    argocd.argoproj.io/hook: PostDelete
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  selector:
+    matchLabels:
+      {{- include "exitmesh.selectorLabels" (dict "ctx" . "component" "cleanup") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "exitmesh.labels" (dict "ctx" . "component" "cleanup") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 5
+      {{- with $v.node.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- include "exitmesh.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: cleanup
+          image: {{ include "exitmesh.image" . }}
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          args: ["cleanup", "--dir", "/var/lib/exitmesh"]
+          resources:
+            {{- toYaml $v.cleanup.resources | nindent 12 }}
+          securityContext:
+            {{- $sc | nindent 12 }}
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/exitmesh
+      containers:
+        - name: done
+          image: {{ include "exitmesh.image" . }}
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          args: ["cleanup", "--dir", "/var/lib/exitmesh", "--wait"]
+          resources:
+            {{- toYaml $v.cleanup.resources | nindent 12 }}
+          securityContext:
+            {{- $sc | nindent 12 }}
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/exitmesh
+      volumes:
+        - name: state
+          hostPath:
+            path: /var/lib/exitmesh
+            type: DirectoryOrCreate
+      {{- with $v.node.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.node.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.node.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

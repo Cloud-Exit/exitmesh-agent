@@ -1,0 +1,82 @@
+- id: event.warning_spike
+  version: 1
+  target: kubernetes
+  kinds: [Pod, Node, PersistentVolumeClaim, PersistentVolume, Service, apps/Deployment, apps/ReplicaSet, apps/StatefulSet, apps/DaemonSet, batch/Job, batch/CronJob, autoscaling/HorizontalPodAutoscaler, networking.k8s.io/Ingress, policy/PodDisruptionBudget]
+  expr: >-
+    [r.fields.filter(k, k.startsWith("events.warning.")).map(k, double(r.fields[k]))].exists(c,
+    (size(c) > 0 ? c[0] : 0.0) + (size(c) > 1 ? c[1] : 0.0) + (size(c) > 2 ? c[2] : 0.0) + (size(c) > 3 ? c[3] : 0.0) +
+    (size(c) > 4 ? c[4] : 0.0) + (size(c) > 5 ? c[5] : 0.0) + (size(c) > 6 ? c[6] : 0.0) + (size(c) > 7 ? c[7] : 0.0) +
+    (size(c) > 8 ? c[8] : 0.0) + (size(c) > 9 ? c[9] : 0.0) + (size(c) > 10 ? c[10] : 0.0) + (size(c) > 11 ? c[11] : 0.0) +
+    (size(c) > 12 ? c[12] : 0.0) + (size(c) > 13 ? c[13] : 0.0) + (size(c) > 14 ? c[14] : 0.0) + (size(c) > 15 ? c[15] : 0.0) +
+    (size(c) > 16 ? c[16] : 0.0) >= 20.0)
+  keep_firing_for: 10m
+- id: event.reason_spike
+  version: 1
+  target: kubernetes
+  kinds: [Pod, Node, PersistentVolumeClaim, PersistentVolume, Service, apps/Deployment, apps/ReplicaSet, apps/StatefulSet, apps/DaemonSet, batch/Job, batch/CronJob, autoscaling/HorizontalPodAutoscaler, networking.k8s.io/Ingress, policy/PodDisruptionBudget]
+  expr: >-
+    r.fields.exists(k, k.startsWith("events.warning.") && r.fields[k] >= 10)
+  keep_firing_for: 10m
+  labels:
+    reason: '=[r.fields.filter(k, k.startsWith("events.warning.") && r.fields[k] >= 10).map(k, k.substring(15))].map(l, l.filter(x, l.all(y, x <= y))[0])[0]'
+- id: event.new_reason
+  version: 1
+  target: kubernetes
+  kinds: [Pod, Node, PersistentVolumeClaim, PersistentVolume, Service, apps/Deployment, apps/ReplicaSet, apps/StatefulSet, apps/DaemonSet, batch/Job, batch/CronJob, autoscaling/HorizontalPodAutoscaler, networking.k8s.io/Ingress, policy/PodDisruptionBudget]
+  expr: >-
+    r.fields.exists(k, k.startsWith("events.warning."))
+  labels:
+    reason_count: '=string(size(r.fields.filter(k, k.startsWith("events.warning."))))'
+- id: event.backoff_loop
+  version: 1
+  target: kubernetes
+  kinds: [Pod]
+  expr: >-
+    field(r, "events.warning.BackOff", 0) >= 3 &&
+    r.fields.exists(k, k.endsWith(".waitingReason") && r.fields[k] in ["CrashLoopBackOff", "ImagePullBackOff"])
+  for: 5m
+  keep_firing_for: 5m
+  labels:
+    container: '=[r.fields.filter(k, k.endsWith(".waitingReason") && r.fields[k] in ["CrashLoopBackOff", "ImagePullBackOff"]).map(k, k.split(".")[1])].map(l, l.filter(c, l.all(d, c <= d))[0])[0]'
+- id: event.scheduling_failure
+  version: 1
+  target: kubernetes
+  kinds: [Pod]
+  expr: >-
+    field(r, "events.warning.FailedScheduling", 0) > 0 &&
+    field(r, "phase", "") == "Pending" &&
+    field(r, "conditions.PodScheduled.status", "False") != "True"
+  for: 15m
+- id: event.image_pull_failure
+  version: 1
+  target: kubernetes
+  kinds: [Pod]
+  expr: >-
+    (field(r, "events.warning.Failed", 0) > 0 || field(r, "events.warning.BackOff", 0) > 0 ||
+    field(r, "events.warning.ErrImageNeverPull", 0) > 0 || field(r, "events.warning.InspectFailed", 0) > 0) &&
+    r.fields.exists(k, k.endsWith(".waitingReason") &&
+    r.fields[k] in ["ErrImagePull", "ImagePullBackOff", "ErrImageNeverPull", "InvalidImageName"])
+  keep_firing_for: 5m
+  labels:
+    container: '=[r.fields.filter(k, k.endsWith(".waitingReason") && r.fields[k] in ["ErrImagePull", "ImagePullBackOff", "ErrImageNeverPull", "InvalidImageName"]).map(k, k.split(".")[1])].map(l, l.filter(c, l.all(d, c <= d))[0])[0]'
+- id: event.volume_failure
+  version: 1
+  target: kubernetes
+  kinds: [Pod, PersistentVolumeClaim]
+  expr: >-
+    field(r, "phase", "") == "Pending" && (r.kind == "Pod"
+    ? (field(r, "events.warning.FailedMount", 0) > 0 || field(r, "events.warning.FailedAttachVolume", 0) > 0 ||
+    field(r, "events.warning.FailedMapVolume", 0) > 0)
+    : (field(r, "events.warning.ProvisioningFailed", 0) > 0 || field(r, "events.warning.FailedBinding", 0) > 0))
+  for: 5m
+  keep_firing_for: 5m
+- id: event.node_pressure
+  version: 1
+  target: kubernetes
+  kinds: [Node]
+  expr: >-
+    ["MemoryPressure", "DiskPressure", "PIDPressure"].exists(c, field(r, "conditions." + c + ".status", "") == "True")
+  for: 2m
+  keep_firing_for: 5m
+  labels:
+    pressure: '=["MemoryPressure", "DiskPressure", "PIDPressure"].filter(c, field(r, "conditions." + c + ".status", "") == "True").join(",")'

@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+UNIT=exitmesh-agent.service
+STATE=/var/lib/exitmesh
+
+if [ "$1" -eq 0 ]; then
+	if [ -d /run/systemd/system ]; then
+		systemctl stop "$UNIT" || true
+	fi
+	systemctl disable "$UNIT" >/dev/null 2>&1 || true
+	if [ "${EXITMESH_PURGE:-0}" = "1" ] || [ -e /etc/exitmesh/purge-on-remove ]; then
+		if [ -d "$STATE" ] && ! /usr/bin/exitmesh-agent purge-state --dir "$STATE"; then
+			echo "exitmesh-agent: refusing to delete $STATE: its lock is held by a running agent. Stop it and remove the package again." >&2
+			exit 1
+		fi
+		rm -rf /etc/systemd/system/exitmesh-agent.service.d
+		rm -f /etc/exitmesh/enrollment-token /etc/exitmesh/purge-on-remove
+		echo "exitmesh-agent: state purged. Purge does not de-enroll; unless it was de-enrolled, this host shows as offline in ExitMesh until an administrator de-enrolls it there."
+	else
+		echo "exitmesh-agent: service stopped. /var/lib/exitmesh is kept; reinstalling resumes the same target."
+		echo "exitmesh-agent: to purge instead, run: EXITMESH_PURGE=1 dnf remove exitmesh-agent. To revoke the credential first, run: exitmesh-agent deenroll --config /etc/exitmesh/agent.yaml"
+	fi
+fi
+exit 0

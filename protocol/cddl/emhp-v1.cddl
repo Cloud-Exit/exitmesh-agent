@@ -1,0 +1,180 @@
+; ExitMesh History Protocol v1 (protocol/SPEC.md), RFC 8610 CDDL.
+; Every item uses core deterministic encoding (SPEC 3.1). Optional keys are omitted rather than
+; carrying a zero or empty value; a present optional key with a zero or empty value is rejected.
+
+; Records (SPEC 4.1)
+
+record = checkpoint-record / delta-record / range-record / finding-record
+
+checkpoint-record = { envelope, 1: 1, 11: checkpoint-body, * ext-key => any }
+delta-record      = { envelope, 1: 2, 11: delta-body, * ext-key => any }
+range-record      = { envelope, 1: 3, 11: range-body, * ext-key => any }
+finding-record    = { envelope, 1: 4, 11: finding-body, * ext-key => any }
+
+envelope = (
+  0: 1,                 ; protocol major version
+  2: target-id,
+  3: epoch,
+  4: seq,
+  5: writer-id,
+  6: incarnation,
+  7: parent,            ; sequence of the chain predecessor, 0 for the first record of an epoch
+  8: base,              ; sequence of the governing checkpoint
+  9: time,              ; emit time, ms since the Unix epoch
+  10: schema,           ; state schema version
+)
+
+record-type = 1 / 2 / 3 / 4   ; checkpoint, delta, range, finding
+target-id = tstr .regexp "[A-Za-z0-9._-]{1,128}"
+epoch = bstr .size 16         ; UUIDv7
+writer-id = bstr .size 16
+seq = uint .ge 1
+incarnation = uint .ge 1
+parent = uint
+base = uint .ge 1
+time = uint
+schema = uint
+ext-key = uint .ge 1000
+
+; Values (SPEC 3.3)
+
+value = tstr / bstr / int64-or-uint / bool / finite-float / [* value] / { * tstr => value }
+int64-or-uint = -9223372036854775808..18446744073709551615
+finite-float = float    ; NaN and infinities are rejected
+fields = { * tstr => value }
+interval = [start: uint, end: uint]   ; start <= end
+
+; Checkpoint body (SPEC 4.2)
+
+checkpoint-body = {
+  0: checkpoint-reason,
+  1: interval,              ; observation interval
+  2: [* resource],          ; sorted by uid, unique
+  3: [* edge],              ; sorted by edge key, unique
+  4: { * scope-key => scope-status },
+  5: [* tstr],              ; capabilities, sorted, unique
+  6: state-hash,
+  ? 7: epoch,               ; previous epoch (first checkpoint of an epoch only)
+  ? 8: uint,                ; committed head of the previous epoch (first checkpoint of an epoch only)
+  * ext-key => any
+}
+checkpoint-reason = 1 / 2 / 3 / 4 / 5
+  ; initial enrollment, periodic anchor, rebaseline, writer change, replay anchor
+resource = [uid: uid, kind: kind, ns: tstr, name: tstr, fields: fields]
+edge = [from: tstr, type: tstr, to: tstr, attrs: fields]   ; edge ops require non-empty elements
+uid = tstr .size (1..)
+kind = tstr .size (1..)
+scope-key = tstr .size (1..)
+scope-status = {
+  0: scope-state,
+  ? 1: tstr .size (1..),    ; reason code
+  ? 2: uint .ge 1,          ; since, ms
+  * ext-key => any
+}
+scope-state = 0 / 1 / 2     ; complete, partial, unavailable
+state-hash = bstr .size 32
+
+; Delta body (SPEC 4.3)
+
+delta-body = {
+  0: [+ op],                ; at most one op per uid, edge key, and scope key
+  ? 1: uint .ge 1,          ; flags: bit 0 synthetic, bit 1 metric facts
+  ? 2: interval,            ; uncertainty interval
+  * ext-key => any
+}
+
+; Op maps carry no extension keys, including the nested scope-status.
+op = create / update / delete / edge-add / edge-remove / edge-replace / scope-set
+create       = { 0: 1, 1: uid, 2: kind, 3: tstr, 4: tstr, 5: fields }
+update       = { 0: 2, 1: uid, 5: changes }
+delete       = { 0: 3, 1: uid, 6: delete-reason }
+edge-add     = { 0: 4, 1: from, 7: edge-type, 8: to, 9: fields }
+edge-remove  = { 0: 5, 1: from, 7: edge-type, 8: to, 9: fields }   ; the removed attributes
+edge-replace = { 0: 6, 1: from, 7: edge-type, 8: to, 9: fields, 10: fields }   ; attrs, prev-attrs
+scope-set    = { 0: 7, 11: scope-key, 12: op-scope-status }
+op-scope-status = { 0: scope-state, ? 1: tstr .size (1..), ? 2: uint .ge 1 }
+from = tstr .size (1..)
+to = tstr .size (1..)
+edge-type = tstr .size (1..)
+changes = { + tstr => value / null }    ; null removes the field
+delete-reason = 1 / 2                   ; deleted, scope removed
+
+; Range body (SPEC 4.4)
+
+range-body = {
+  0: [* op],                            ; folded ops in canonical order (SPEC 5.3), unique keys
+  1: [a: uint .ge 2, b: uint],          ; covered span, a <= b, record seq = b, parent = a - 1
+  2: [* [seq: uint, finding-body]],     ; preserved finding events, strictly ascending, a <= seq <= b
+  ? 3: uint .ge 1,                      ; OR of covered delta flags
+  ? 4: [+ interval],                    ; covered uncertainty intervals, in order
+  * ext-key => any
+}
+
+; Finding body (SPEC 4.5)
+
+finding-body = {
+  0: tstr .size (1..),      ; finding id (SPEC 7)
+  1: tstr .size (1..),      ; deduplication key
+  2: transition,
+  3: provenance,
+  4: tstr,                  ; category
+  5: severity,
+  6: uint,                  ; evaluation time, ms
+  7: uint,                  ; first seen, ms
+  8: uint,                  ; last seen, ms
+  9: uint,                  ; occurrence count
+  10: [* tstr],             ; affected resource uids, sorted, unique
+  ? 11: { + tstr => value },; matched condition and normalized facts
+  ? 12: [+ evidence],
+  ? 13: uint .ge 1,         ; flags: bit 0 truncated, 1 limited, 2 incomplete coverage, 3 compacted, 4 late
+  ? 14: tstr .size (1..),   ; source node
+  ? 15: { + tstr => tstr }, ; labels
+  ? 16: tstr .size (1..),   ; summary
+  ? 17: [+ suggestion],
+  ? 18: [+ tstr],           ; coverage limitations
+  * ext-key => any
+}
+transition = 1 / 2 / 3 / 4 / 5    ; firing, update, resolved, stale, fresh
+severity = 1 / 2 / 3 / 4 / 5      ; info, low, medium, high, critical
+provenance = rule-provenance / query-provenance
+rule-provenance = { 0: 1, 1: tstr .size (1..), 2: uint, 3: tstr .size (1..), * ext-key => any }
+query-provenance = { 0: 2, 4: bstr .size 32, 5: tstr .size (1..), * ext-key => any }
+evidence = {
+  0: tstr,                  ; source
+  1: uint,                  ; time, ms
+  2: tstr,                  ; redacted sample
+  ? 3: uint .ge 1,          ; repeat count
+  ? 4: { + tstr => tstr },  ; labels
+  ? 5: true,                ; truncated
+  ? 6: true,                ; non-matching context line
+  * ext-key => any
+}
+suggestion = { 0: tstr, 1: tstr, ? 2: tstr .size (1..), * ext-key => any }   ; language, query, source
+
+; Hash inputs (SPEC 6.2, 7)
+
+state-canon = [
+  [* resource],                       ; sorted by uid
+  [* edge],                           ; sorted by edge key
+  { * scope-key => op-scope-status },
+]
+genesis-input = [target-id, epoch, writer-id]
+finding-id-input = [target-id, dedup-key: tstr, first-seen: uint]
+query-hash-input = [language: tstr, normalized-query: tstr, source: tstr]
+
+; Record batch frame payload (SPEC 9.3), after decompression, at most 16 MiB
+
+frame-payload = [+ record-bytes]
+record-bytes = bstr .cbor record
+
+; Export file (SPEC 10): "EMHPX1" 0x0a followed by the CBOR sequence export-header, * record-bytes
+
+export-header = {
+  "target_id": target-id,
+  "writer_id": writer-id,
+  "incarnation": incarnation,
+  "epoch": epoch,
+  "last_committed": uint,
+  "exported_at": uint,
+  "agent_version": tstr,
+}

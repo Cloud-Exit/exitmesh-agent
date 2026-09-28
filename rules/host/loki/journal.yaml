@@ -1,0 +1,26 @@
+groups:
+  - name: journal
+    rules:
+      - alert: JournalOOMKill
+        expr: |
+          sum by (syslog_identifier) (count_over_time({syslog_identifier=~"kernel|systemd-oomd"}
+            |~ `(?i)(out of memory: killed process|oom-kill:|invoked oom-killer|killed .* due to memory pressure)`
+            [5m])) > 0
+        keep_firing_for: 10m
+        annotations:
+          summary: "The kernel or systemd-oomd killed a process for lack of memory"
+      - alert: JournalProcessFailure
+        expr: |
+          sum by (unit, syslog_identifier) (count_over_time({transport=~".+"}
+            |~ `(?i)(segfault at|general protection fault|traps: |dumped core|\bpanic:|\bfatal error\b)`
+            [5m])) > 0
+        keep_firing_for: 10m
+        annotations:
+          summary: "A process crashed ({{ $labels.syslog_identifier }})"
+      - alert: JournalErrorRateSpike
+        expr: |
+          sum by (unit, syslog_identifier) (rate({priority=~"[0-3]"}[5m])) > 0.5
+        for: 5m
+        keep_firing_for: 5m
+        annotations:
+          summary: "{{ $labels.syslog_identifier }} logs error-priority journal entries at an elevated rate"

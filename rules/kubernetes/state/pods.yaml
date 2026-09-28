@@ -1,0 +1,43 @@
+- id: manifest.pod_status_failure.crashloop
+  version: 1
+  target: kubernetes
+  kinds: [Pod]
+  expr: >-
+    r.fields.exists(k, k.endsWith(".waitingReason") && r.fields[k] == "CrashLoopBackOff")
+  for: 2m
+  keep_firing_for: 10m
+  labels:
+    container: '=[r.fields.filter(k, k.endsWith(".waitingReason") && r.fields[k] == "CrashLoopBackOff").map(k, k.split(".")[1])].map(l, l.filter(c, l.all(d, c <= d))[0])[0]'
+- id: manifest.pod_status_failure.image_pull
+  version: 1
+  target: kubernetes
+  kinds: [Pod]
+  expr: >-
+    r.fields.exists(k, k.endsWith(".waitingReason") &&
+    r.fields[k] in ["ErrImagePull", "ImagePullBackOff", "ErrImageNeverPull", "InvalidImageName"])
+  for: 5m
+  keep_firing_for: 5m
+  labels:
+    container: '=[r.fields.filter(k, k.endsWith(".waitingReason") && r.fields[k] in ["ErrImagePull", "ImagePullBackOff", "ErrImageNeverPull", "InvalidImageName"]).map(k, k.split(".")[1])].map(l, l.filter(c, l.all(d, c <= d))[0])[0]'
+- id: manifest.pod_status_failure.create_container
+  version: 1
+  target: kubernetes
+  kinds: [Pod]
+  expr: >-
+    r.fields.exists(k, k.endsWith(".waitingReason") &&
+    r.fields[k] in ["CreateContainerError", "CreateContainerConfigError"])
+  for: 5m
+  keep_firing_for: 5m
+  labels:
+    container: '=[r.fields.filter(k, k.endsWith(".waitingReason") && r.fields[k] in ["CreateContainerError", "CreateContainerConfigError"]).map(k, k.split(".")[1])].map(l, l.filter(c, l.all(d, c <= d))[0])[0]'
+- id: manifest.pod_status_failure.oom_killed
+  version: 1
+  target: kubernetes
+  kinds: [Pod]
+  expr: >-
+    r.fields.exists(k,
+    ((k.endsWith(".terminatedReason") || k.endsWith(".lastTerminatedReason")) && r.fields[k] == "OOMKilled") ||
+    ((k.endsWith(".terminatedExitCode") || k.endsWith(".lastTerminatedExitCode")) && r.fields[k] == 137))
+  keep_firing_for: 5m
+  labels:
+    container: '=[r.fields.filter(k, ((k.endsWith(".terminatedReason") || k.endsWith(".lastTerminatedReason")) && r.fields[k] == "OOMKilled") || ((k.endsWith(".terminatedExitCode") || k.endsWith(".lastTerminatedExitCode")) && r.fields[k] == 137)).map(k, k.split(".")[1])].map(l, l.filter(c, l.all(d, c <= d))[0])[0]'

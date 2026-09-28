@@ -1,0 +1,20 @@
+#!/bin/sh
+set -e
+
+UNIT=exitmesh-agent.service
+HELPER_DIR=/usr/libexec/exitmesh-agent-purge
+
+case "$1" in
+remove | deconfigure)
+	if [ -d /run/systemd/system ]; then
+		systemctl stop "$UNIT" || true
+	fi
+	systemctl disable "$UNIT" >/dev/null 2>&1 || true
+	# A root-owned copy lets a later purge take the state lock after the package files are gone.
+	install -d -m 0755 -o root -g root "$HELPER_DIR"
+	install -m 0755 -o root -g root /usr/bin/exitmesh-agent "$HELPER_DIR/exitmesh-agent"
+	echo "exitmesh-agent: service stopped. /var/lib/exitmesh is kept; reinstalling resumes the same target."
+	echo "exitmesh-agent: removal never revokes the credential. To de-enroll before purging, run: $HELPER_DIR/exitmesh-agent deenroll --config /etc/exitmesh/agent.yaml"
+	;;
+esac
+exit 0

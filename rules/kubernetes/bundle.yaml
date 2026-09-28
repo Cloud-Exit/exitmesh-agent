@@ -1,0 +1,330 @@
+version: "2026.09.1"
+engine_version: 1
+schema_version: 1
+target_type: kubernetes
+created_at: 2026-09-28T00:00:00Z
+rules:
+  - id: manifest.pod_status_failure.crashloop
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: manifest.pod_status_failure
+    severity: high
+    capabilities: [inventory]
+    required_fields: [phase]
+    dedup_key: kind,namespace,name
+    budget: {max_samples: 5000000, max_complexity: 400}
+    summary: "Pod {{ $labels.namespace }}/{{ $labels.name }} container {{ $labels.container }} is in CrashLoopBackOff"
+  - id: manifest.pod_status_failure.image_pull
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: manifest.pod_status_failure
+    severity: high
+    capabilities: [inventory]
+    required_fields: [phase]
+    dedup_key: kind,namespace,name
+    budget: {max_samples: 5000000, max_complexity: 400}
+    summary: "Pod {{ $labels.namespace }}/{{ $labels.name }} container {{ $labels.container }} cannot pull its image"
+  - id: manifest.pod_status_failure.create_container
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: manifest.pod_status_failure
+    severity: high
+    capabilities: [inventory]
+    required_fields: [phase]
+    dedup_key: kind,namespace,name
+    budget: {max_samples: 5000000, max_complexity: 400}
+    summary: "Pod {{ $labels.namespace }}/{{ $labels.name }} container {{ $labels.container }} cannot be created"
+  - id: manifest.pod_status_failure.oom_killed
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: manifest.pod_status_failure
+    severity: high
+    capabilities: [inventory]
+    required_fields: [phase]
+    dedup_key: kind,namespace,name
+    budget: {max_samples: 5000000, max_complexity: 400}
+    summary: "Pod {{ $labels.namespace }}/{{ $labels.name }} container {{ $labels.container }} was OOM killed"
+  - id: event.warning_spike
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: event.warning_spike
+    severity: medium
+    capabilities: [inventory]
+    dedup_key: kind,namespace,name
+    budget: {max_samples: 5000000, max_complexity: 400}
+    summary: "Burst of Warning events on {{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }}"
+  - id: event.reason_spike
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: event.reason_spike
+    severity: medium
+    capabilities: [inventory]
+    dedup_key: kind,namespace,name
+    budget: {max_samples: 5000000, max_complexity: 400}
+    summary: "Warning event {{ $labels.reason }} repeats on {{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }}"
+  - id: event.new_reason
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: event.new_reason
+    severity: info
+    capabilities: [inventory]
+    dedup_key: kind,namespace,name
+    budget: {max_samples: 5000000, max_complexity: 400}
+    summary: "{{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }} has {{ $labels.reason_count }} Warning event reasons"
+  - id: event.backoff_loop
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: event.backoff_loop
+    severity: high
+    capabilities: [inventory]
+    required_fields: [phase]
+    dedup_key: kind,namespace,name
+    budget: {max_samples: 5000000, max_complexity: 400}
+    summary: "Pod {{ $labels.namespace }}/{{ $labels.name }} container {{ $labels.container }} is in a BackOff loop"
+  - id: event.scheduling_failure
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: event.scheduling_failure
+    severity: high
+    capabilities: [inventory]
+    required_fields: [phase]
+    dedup_key: kind,namespace,name
+    summary: "Pod {{ $labels.namespace }}/{{ $labels.name }} cannot be scheduled"
+  - id: event.image_pull_failure
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: event.image_pull_failure
+    severity: high
+    capabilities: [inventory]
+    required_fields: [phase]
+    dedup_key: kind,namespace,name
+    budget: {max_samples: 5000000, max_complexity: 400}
+    summary: "Image pulls fail for pod {{ $labels.namespace }}/{{ $labels.name }} container {{ $labels.container }}"
+  - id: event.volume_failure
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: event.volume_failure
+    severity: high
+    capabilities: [inventory]
+    required_fields: [phase]
+    dedup_key: kind,namespace,name
+    summary: "Volume setup fails for {{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }}"
+  - id: event.node_pressure
+    version: 1
+    class: state
+    target: kubernetes
+    scope: cluster
+    category: event.node_pressure
+    severity: high
+    capabilities: [inventory]
+    dedup_key: kind,name
+    summary: "Node {{ $labels.name }} reports {{ $labels.pressure }}"
+  - id: metric.saturation.cpu.high
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/containers.yaml
+    group: container-saturation
+    alert: ContainerCPUSaturation
+    match: {severity: high}
+    category: metric.saturation
+    severity: high
+    capabilities: [metrics]
+    dedup_key: namespace,pod,container
+    resource_labels: {kind: Pod, namespace: namespace, name: pod}
+    summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} uses at least 90% of its CPU limit"
+  - id: metric.saturation.cpu.critical
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/containers.yaml
+    group: container-saturation
+    alert: ContainerCPUSaturation
+    match: {severity: critical}
+    category: metric.saturation
+    severity: critical
+    capabilities: [metrics]
+    dedup_key: namespace,pod,container
+    resource_labels: {kind: Pod, namespace: namespace, name: pod}
+    summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} uses at least 97% of its CPU limit"
+  - id: metric.saturation.memory.high
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/containers.yaml
+    group: container-saturation
+    alert: ContainerMemorySaturation
+    match: {severity: high}
+    category: metric.saturation
+    severity: high
+    capabilities: [metrics]
+    dedup_key: namespace,pod,container
+    resource_labels: {kind: Pod, namespace: namespace, name: pod}
+    summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} uses at least 90% of its memory limit"
+  - id: metric.saturation.memory.critical
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/containers.yaml
+    group: container-saturation
+    alert: ContainerMemorySaturation
+    match: {severity: critical}
+    category: metric.saturation
+    severity: critical
+    capabilities: [metrics]
+    dedup_key: namespace,pod,container
+    resource_labels: {kind: Pod, namespace: namespace, name: pod}
+    summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} uses at least 97% of its memory limit"
+  - id: metric.slope_change.memory
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/containers.yaml
+    group: container-trends
+    alert: ContainerMemoryGrowthChange
+    category: metric.slope_change
+    severity: medium
+    capabilities: [metrics]
+    dedup_key: namespace,pod,container
+    resource_labels: {kind: Pod, namespace: namespace, name: pod}
+    budget: {max_samples: 2000000}
+    summary: "Memory growth of {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} accelerated beyond its recent trend"
+  - id: metric.volume_saturation
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/volumes.yaml
+    group: volumes
+    alert: PersistentVolumeSaturation
+    category: metric.volume_saturation
+    severity: high
+    capabilities: [metrics]
+    dedup_key: namespace,persistentvolumeclaim
+    resource_labels: {kind: PersistentVolumeClaim, namespace: namespace, name: persistentvolumeclaim}
+    summary: "Volume {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is at least 90% full"
+  - id: metric.volume_fill_trend
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/volumes.yaml
+    group: volumes
+    alert: PersistentVolumeFillingUp
+    category: metric.volume_fill_trend
+    severity: high
+    capabilities: [metrics]
+    dedup_key: namespace,persistentvolumeclaim
+    resource_labels: {kind: PersistentVolumeClaim, namespace: namespace, name: persistentvolumeclaim}
+    budget: {max_samples: 2000000}
+    summary: "Volume {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is predicted to fill within 4 hours"
+  - id: metric.active_series_spike
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/scrape.yaml
+    group: scrape-targets
+    alert: ScrapeTargetSeriesSpike
+    category: metric.active_series_spike
+    severity: medium
+    capabilities: [metrics]
+    dedup_key: job,instance
+    summary: "Scrape target {{ $labels.instance }} ({{ $labels.job }}) more than doubled its series"
+  - id: log.process_failure
+    version: 1
+    class: logql
+    target: kubernetes
+    scope: node
+    file: loki/workloads.yaml
+    group: workload-logs
+    alert: WorkloadProcessFailure
+    category: log.process_failure
+    severity: high
+    capabilities: [logs]
+    dedup_key: namespace,workload_kind,workload,container
+    budget: {max_series: 1000, counter_bytes: 2097152}
+    summary: "{{ $labels.namespace }}/{{ $labels.workload }} container {{ $labels.container }} logged a crash or fatal error"
+  - id: log.error_rate_spike
+    version: 1
+    class: logql
+    target: kubernetes
+    scope: node
+    file: loki/workloads.yaml
+    group: workload-logs
+    alert: WorkloadErrorRateSpike
+    category: log.error_rate_spike
+    severity: medium
+    capabilities: [logs]
+    dedup_key: namespace,workload_kind,workload
+    budget: {max_series: 1000, counter_bytes: 2097152}
+    summary: "{{ $labels.namespace }}/{{ $labels.workload }} logs more than one error line per second"
+  - id: log.severity_mix_shift
+    version: 1
+    class: logql
+    target: kubernetes
+    scope: node
+    file: loki/workloads.yaml
+    group: workload-logs
+    alert: WorkloadSeverityMixShift
+    category: log.severity_mix_shift
+    severity: low
+    capabilities: [logs]
+    dedup_key: namespace,workload_kind,workload
+    budget: {max_series: 1000, counter_bytes: 2097152}
+    summary: "{{ $labels.namespace }}/{{ $labels.workload }} output shifted toward warnings and errors"
+  - id: log.new_fingerprint_burst
+    version: 1
+    class: logql
+    target: kubernetes
+    scope: node
+    file: loki/workloads.yaml
+    group: workload-logs
+    alert: WorkloadNewFingerprintBurst
+    category: log.new_fingerprint_burst
+    severity: low
+    capabilities: [logs]
+    dedup_key: namespace,workload_kind,workload
+    budget: {max_series: 3000, counter_bytes: 5242880}
+    summary: "{{ $labels.namespace }}/{{ $labels.workload }} emits a burst of distinct message patterns"
+  - id: log.dominant_fingerprint
+    version: 1
+    class: logql
+    target: kubernetes
+    scope: node
+    file: loki/workloads.yaml
+    group: workload-logs
+    alert: WorkloadDominantFingerprint
+    category: log.dominant_fingerprint
+    severity: low
+    capabilities: [logs]
+    dedup_key: namespace,workload_kind,workload
+    budget: {max_series: 3000, counter_bytes: 5242880}
+    summary: "One message pattern dominates the output of {{ $labels.namespace }}/{{ $labels.workload }}"

@@ -1,0 +1,61 @@
+groups:
+  - name: container-saturation
+    rules:
+      - alert: ContainerCPUSaturation
+        expr: |
+          sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m]))
+            / on (namespace, pod, container)
+          max by (namespace, pod, container) (kube_pod_container_resource_limits{resource="cpu"})
+            >= 0.9 < 0.97
+        for: 10m
+        keep_firing_for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} is near its CPU limit"
+      - alert: ContainerCPUSaturation
+        expr: |
+          sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m]))
+            / on (namespace, pod, container)
+          max by (namespace, pod, container) (kube_pod_container_resource_limits{resource="cpu"})
+            >= 0.97
+        for: 10m
+        keep_firing_for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} is near its CPU limit"
+      - alert: ContainerMemorySaturation
+        expr: |
+          max by (namespace, pod, container) (container_memory_working_set_bytes{container!="", container!="POD"})
+            / on (namespace, pod, container)
+          max by (namespace, pod, container) (kube_pod_container_resource_limits{resource="memory"})
+            >= 0.9 < 0.97
+        for: 10m
+        keep_firing_for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} is near its memory limit"
+      - alert: ContainerMemorySaturation
+        expr: |
+          max by (namespace, pod, container) (container_memory_working_set_bytes{container!="", container!="POD"})
+            / on (namespace, pod, container)
+          max by (namespace, pod, container) (kube_pod_container_resource_limits{resource="memory"})
+            >= 0.97
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} is near its memory limit"
+  - name: container-trends
+    rules:
+      - alert: ContainerMemoryGrowthChange
+        expr: |
+          deriv(container_memory_working_set_bytes{container!="", container!="POD"}[30m])
+            > 2 * clamp_min(deriv(container_memory_working_set_bytes{container!="", container!="POD"}[2h] offset 30m), 0) + 17476
+        for: 15m
+        keep_firing_for: 10m
+        annotations:
+          summary: "Memory growth of {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} accelerated"

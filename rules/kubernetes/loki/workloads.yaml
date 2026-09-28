@@ -1,0 +1,47 @@
+groups:
+  - name: workload-logs
+    rules:
+      - alert: WorkloadProcessFailure
+        expr: |
+          sum by (namespace, workload_kind, workload, container) (count_over_time({namespace=~".+"}
+            |~ `(?i)(\bpanic:|\bfatal error\b|\blevel["=: ]+(fatal|panic)\b|segmentation fault|\bsig(segv|abrt|bus)\b|core dumped|out of memory|outofmemoryerror|\boom[- ]?kill|killed process [0-9]+)`
+            [5m])) > 0
+        keep_firing_for: 10m
+        annotations:
+          summary: "{{ $labels.namespace }}/{{ $labels.workload }} container {{ $labels.container }} logged a crash or fatal error"
+      - alert: WorkloadErrorRateSpike
+        expr: |
+          sum by (namespace, workload_kind, workload) (rate({namespace=~".+"}
+            |~ `(?i)(\b(level|severity|lvl)["=: ]+(error|err|fatal|critical|crit)\b|\[(error|err|fatal|crit)\]|^\s*(error|fatal|critical)\b|^[EF][0-9]{4} )`
+            [5m])) > 1
+        for: 5m
+        keep_firing_for: 5m
+        annotations:
+          summary: "{{ $labels.namespace }}/{{ $labels.workload }} logs errors at an elevated rate"
+      - alert: WorkloadSeverityMixShift
+        expr: |
+          sum by (namespace, workload_kind, workload) (count_over_time({namespace=~".+"}
+            |~ `(?i)(\b(level|severity|lvl)["=: ]+(warn|warning|error|err|fatal|critical|crit)\b|\[(warn|warning|error|err|fatal|crit)\]|^\s*(warn|warning|error|fatal|critical)\b|^[WEF][0-9]{4} )`
+            [15m])) > 600
+        for: 10m
+        keep_firing_for: 5m
+        annotations:
+          summary: "{{ $labels.namespace }}/{{ $labels.workload }} output shifted toward warnings and errors"
+      - alert: WorkloadNewFingerprintBurst
+        expr: |
+          count by (namespace, workload_kind, workload) (sum by (namespace, workload_kind, workload, fingerprint) (count_over_time({namespace=~".+"}
+            | regexp `(?P<fingerprint>[A-Za-z][a-z]{2,}(?:[ _-]+[A-Za-z][a-z]{2,}){2})` | fingerprint!=""
+            [10m]))) > 50
+        for: 2m
+        keep_firing_for: 5m
+        annotations:
+          summary: "{{ $labels.namespace }}/{{ $labels.workload }} emits a burst of distinct message patterns"
+      - alert: WorkloadDominantFingerprint
+        expr: |
+          max by (namespace, workload_kind, workload) (sum by (namespace, workload_kind, workload, fingerprint) (count_over_time({namespace=~".+"}
+            | regexp `(?P<fingerprint>[A-Za-z][a-z]{2,}(?:[ _-]+[A-Za-z][a-z]{2,}){2})` | fingerprint!=""
+            [15m]))) > 1200
+        for: 15m
+        keep_firing_for: 5m
+        annotations:
+          summary: "One message pattern dominates the output of {{ $labels.namespace }}/{{ $labels.workload }}"

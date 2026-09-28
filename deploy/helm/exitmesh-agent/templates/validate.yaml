@@ -1,0 +1,122 @@
+{{- $v := .Values -}}
+{{- if not $v.trust.roots -}}
+{{- fail "trust.roots is required: set it to the root public keys of your ExitMesh deployment, shown on the connector page next to the enrollment token" -}}
+{{- end -}}
+{{- $nodeNs := $v.namespaces.node -}}
+{{- $coordNs := $v.namespaces.coordinator -}}
+{{- if or (not $nodeNs) (not $coordNs) -}}
+{{- fail "namespaces.node and namespaces.coordinator must both be set" -}}
+{{- end -}}
+{{- if eq $nodeNs $coordNs -}}
+{{- fail (printf "namespaces.node and namespaces.coordinator must differ (both are %q): the node agent namespace is relaxed to the privileged Pod Security level, the coordinator namespace stays restricted" $nodeNs) -}}
+{{- end -}}
+{{- if and $v.createNamespaces (has .Release.Namespace (list $nodeNs $coordNs)) -}}
+{{- fail (printf "the release namespace %q is one of the namespaces this chart creates; install the release record into another existing namespace (for example --namespace default) or set createNamespaces=false" .Release.Namespace) -}}
+{{- end -}}
+{{- if not $v.createNamespaces -}}
+{{- $online := lookup "v1" "Namespace" "" "kube-system" -}}
+{{- if $online -}}
+{{- range $want := list (list $nodeNs "privileged" "namespaces.node") (list $coordNs "restricted" "namespaces.coordinator") -}}
+{{- $ns := lookup "v1" "Namespace" "" (index $want 0) -}}
+{{- if not $ns -}}
+{{- fail (printf "createNamespaces=false but namespace %q (%s) does not exist; create it first: kubectl create namespace %s && kubectl label namespace %s pod-security.kubernetes.io/enforce=%s" (index $want 0) (index $want 2) (index $want 0) (index $want 0) (index $want 1)) -}}
+{{- end -}}
+{{- $labels := default (dict) $ns.metadata.labels -}}
+{{- $got := index $labels "pod-security.kubernetes.io/enforce" | default "" -}}
+{{- if ne $got (index $want 1) -}}
+{{- fail (printf "createNamespaces=false but namespace %q (%s) has pod-security.kubernetes.io/enforce=%q, required %q; fix it: kubectl label --overwrite namespace %s pod-security.kubernetes.io/enforce=%s" (index $want 0) (index $want 2) $got (index $want 1) (index $want 0) (index $want 1)) -}}
+{{- end -}}
+{{- end -}}
+{{- else if not $v.namespaces.skipLookupValidation -}}
+{{- fail (printf "createNamespaces=false: cannot verify namespaces %q and %q and their Pod Security labels without cluster access (helm template or an offline GitOps render); pre-create them with pod-security.kubernetes.io/enforce=privileged and restricted respectively, then set namespaces.skipLookupValidation=true" $nodeNs $coordNs) -}}
+{{- end -}}
+{{- end -}}
+{{- if and .Release.IsInstall $v.cleanup.enabled -}}
+{{- if lookup "apps/v1" "DaemonSet" $nodeNs (include "exitmesh.cleanupName" .) -}}
+{{- fail (printf "a cleanup DaemonSet from a previous uninstall still exists; confirm it finished, then delete it before reinstalling: kubectl -n %s delete daemonset %s" $nodeNs (include "exitmesh.cleanupName" .)) -}}
+{{- end -}}
+{{- end -}}
+{{- $mode := $v.coordinator.persistence.accessMode -}}
+{{- if eq $mode "ReadWriteMany" -}}
+{{- fail "coordinator.persistence.accessMode ReadWriteMany is refused: the coordinator spool must have exactly one writer; use ReadWriteOncePod, or ReadWriteOnce where the CSI driver does not support ReadWriteOncePod" -}}
+{{- end -}}
+{{- if not (has $mode (list "ReadWriteOncePod" "ReadWriteOnce")) -}}
+{{- fail (printf "coordinator.persistence.accessMode must be ReadWriteOncePod or ReadWriteOnce (got %q)" $mode) -}}
+{{- end -}}
+{{- if not (or $v.capabilities.inventory $v.capabilities.metrics $v.capabilities.logs) -}}
+{{- fail "at least one of capabilities.inventory, capabilities.metrics, capabilities.logs must be enabled" -}}
+{{- end -}}
+{{- if not (has $v.kubernetes.scope (list "cluster" "namespaces")) -}}
+{{- fail (printf "kubernetes.scope must be cluster or namespaces (got %q)" $v.kubernetes.scope) -}}
+{{- end -}}
+{{- if and (eq $v.kubernetes.scope "namespaces") (not $v.kubernetes.namespaces) -}}
+{{- fail "kubernetes.scope=namespaces requires kubernetes.namespaces" -}}
+{{- end -}}
+{{- if not (has $v.node.kubeletTLS (list "verify" "skip")) -}}
+{{- fail "node.kubeletTLS must be verify or skip" -}}
+{{- end -}}
+{{- if and $v.image.digest (not (regexMatch "^sha256:[a-f0-9]{64}$" $v.image.digest)) -}}
+{{- fail "image.digest must look like sha256:<64 hex characters>" -}}
+{{- end -}}
+{{- if or .Release.IsInstall .Release.IsUpgrade -}}
+{{- if not $v.airgap.enabled -}}
+{{- if not (regexMatch "^https://[^/\\s]+" $v.endpoint) -}}
+{{- fail "endpoint is required and must be an https URL (copy it from the ExitMesh connector page), unless airgap.enabled=true" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $v.enrollment.token) (not $v.enrollment.existingSecret) -}}
+{{- fail "an enrollment token is required: set enrollment.token or enrollment.existingSecret" -}}
+{{- end -}}
+{{- end -}}
+{{- if and $v.enrollment.token (not (hasPrefix "emx1_" $v.enrollment.token)) -}}
+{{- fail "enrollment.token must be an ExitMesh enrollment token (emx1_...)" -}}
+{{- end -}}
+{{- if not (has $v.tls.mode (list "generate" "certManager" "existingSecret")) -}}
+{{- fail "tls.mode must be generate, certManager, or existingSecret" -}}
+{{- end -}}
+{{- if and (ne $v.tls.mode "generate") (not $v.tls.caBundle) -}}
+{{- fail (printf "tls.mode=%s requires tls.caBundle, the PEM CA that signs the coordinator serving certificate, so node agents can verify it" $v.tls.mode) -}}
+{{- end -}}
+{{- if and (eq $v.tls.mode "certManager") (not $v.tls.certManager.issuerRef.name) -}}
+{{- fail "tls.mode=certManager requires tls.certManager.issuerRef.name" -}}
+{{- end -}}
+{{- if and (eq $v.tls.mode "existingSecret") (not $v.tls.existingSecret) -}}
+{{- fail "tls.mode=existingSecret requires tls.existingSecret" -}}
+{{- end -}}
+{{- if and $v.airgap.bundles.configMap $v.airgap.bundles.imagePath -}}
+{{- fail "set only one of airgap.bundles.configMap and airgap.bundles.imagePath" -}}
+{{- end -}}
+{{- $forbidden := list "secrets" "tokenreviews" "subjectaccessreviews" "selfsubjectaccessreviews" "localsubjectaccessreviews" "selfsubjectrulesreviews" "serviceaccounts/token" "*" -}}
+{{- range $scope, $rules := $v.rbac.inventory -}}
+{{- range $rule := $rules -}}
+{{- range $res := $rule.resources -}}
+{{- if or (has $res $forbidden) (contains "/" $res) -}}
+{{- fail (printf "rbac.inventory.%s must not grant %q: the agent never reads Secrets, never uses review APIs, and requests no subresources" $scope $res) -}}
+{{- end -}}
+{{- end -}}
+{{- range $g := $rule.apiGroups -}}
+{{- if eq $g "*" -}}
+{{- fail (printf "rbac.inventory.%s must not use wildcard apiGroups" $scope) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $names := dict -}}
+{{- range $l := $v.lookback -}}
+{{- if or (not $l.name) (hasKey $names $l.name) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $l.name)) -}}
+{{- fail "lookback entries need unique DNS-label names" -}}
+{{- end -}}
+{{- $_ := set $names $l.name true -}}
+{{- if not (has $l.type (list "prometheus" "mimir" "victoriametrics" "loki" "victorialogs")) -}}
+{{- fail (printf "lookback %s: type must be prometheus, mimir, victoriametrics, loki, or victorialogs" $l.name) -}}
+{{- end -}}
+{{- if not (regexMatch "^https?://[^/\\s]+" (default "" $l.url)) -}}
+{{- fail (printf "lookback %s: url must be http or https" $l.name) -}}
+{{- end -}}
+{{- if and $l.bearerToken $l.bearerToken.secretName (not $l.bearerToken.key) -}}
+{{- fail (printf "lookback %s: bearerToken.key is required" $l.name) -}}
+{{- end -}}
+{{- if and $l.ca $l.ca.secretName $l.ca.configMapName -}}
+{{- fail (printf "lookback %s: set only one of ca.secretName and ca.configMapName" $l.name) -}}
+{{- end -}}
+{{- end -}}

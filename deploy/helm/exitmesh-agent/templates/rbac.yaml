@@ -1,0 +1,247 @@
+{{- if .Values.rbac.create }}
+{{- $coord := include "exitmesh.coordinatorName" . -}}
+{{- $node := include "exitmesh.nodeName" . -}}
+{{- $coordNs := .Values.namespaces.coordinator -}}
+{{- $nodeNs := .Values.namespaces.node -}}
+{{- $clusterScope := eq .Values.kubernetes.scope "cluster" -}}
+{{- $coordLabels := include "exitmesh.labels" (dict "ctx" . "component" "coordinator") -}}
+{{- $nodeLabels := include "exitmesh.labels" (dict "ctx" . "component" "node") -}}
+{{- if $clusterScope }}
+{{- if .Values.capabilities.inventory }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $coord }}-inventory
+  labels:
+    {{- $coordLabels | nindent 4 }}
+    exitmesh.io/capability: inventory
+rules:
+  {{- range $r := concat .Values.rbac.inventory.namespaced .Values.rbac.inventory.cluster }}
+  - apiGroups: {{ toJson $r.apiGroups }}
+    resources: {{ toJson $r.resources }}
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $coord }}-inventory
+  labels:
+    {{- $coordLabels | nindent 4 }}
+    exitmesh.io/capability: inventory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $coord }}-inventory
+subjects:
+  - kind: ServiceAccount
+    name: {{ $coord }}
+    namespace: {{ $coordNs }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $node }}-pods
+  labels:
+    {{- $nodeLabels | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $node }}-pods
+  labels:
+    {{- $nodeLabels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $node }}-pods
+subjects:
+  - kind: ServiceAccount
+    name: {{ $node }}
+    namespace: {{ $nodeNs }}
+{{- else }}
+{{- range $ns := .Values.kubernetes.namespaces }}
+{{- if $.Values.capabilities.inventory }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $coord }}-inventory
+  namespace: {{ $ns }}
+  labels:
+    {{- $coordLabels | nindent 4 }}
+    exitmesh.io/capability: inventory
+rules:
+  {{- range $r := $.Values.rbac.inventory.namespaced }}
+  - apiGroups: {{ toJson $r.apiGroups }}
+    resources: {{ toJson $r.resources }}
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $coord }}-inventory
+  namespace: {{ $ns }}
+  labels:
+    {{- $coordLabels | nindent 4 }}
+    exitmesh.io/capability: inventory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $coord }}-inventory
+subjects:
+  - kind: ServiceAccount
+    name: {{ $coord }}
+    namespace: {{ $coordNs }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $node }}-pods
+  namespace: {{ $ns }}
+  labels:
+    {{- $nodeLabels | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $node }}-pods
+  namespace: {{ $ns }}
+  labels:
+    {{- $nodeLabels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $node }}-pods
+subjects:
+  - kind: ServiceAccount
+    name: {{ $node }}
+    namespace: {{ $nodeNs }}
+{{- end }}
+{{- end }}
+{{- if .Values.rbac.clusterReads }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $coord }}
+  labels:
+    {{- $coordLabels | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "persistentvolumes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $coord }}
+  labels:
+    {{- $coordLabels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $coord }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $coord }}
+    namespace: {{ $coordNs }}
+{{- if .Values.capabilities.metrics }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $node }}-metrics
+  labels:
+    {{- $nodeLabels | nindent 4 }}
+    exitmesh.io/capability: metrics
+rules:
+  - apiGroups: [""]
+    resources: ["nodes/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $node }}-metrics
+  labels:
+    {{- $nodeLabels | nindent 4 }}
+    exitmesh.io/capability: metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $node }}-metrics
+subjects:
+  - kind: ServiceAccount
+    name: {{ $node }}
+    namespace: {{ $nodeNs }}
+{{- end }}
+{{- end }}
+{{- if .Values.rbac.issuerDiscovery }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $coord }}-issuer-discovery
+  labels:
+    {{- $coordLabels | nindent 4 }}
+rules:
+  - nonResourceURLs: ["/.well-known/openid-configuration", "/openid/v1/jwks"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $coord }}-issuer-discovery
+  labels:
+    {{- $coordLabels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $coord }}-issuer-discovery
+subjects:
+  - kind: ServiceAccount
+    name: {{ $coord }}
+    namespace: {{ $coordNs }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $coord }}-node-identity
+  namespace: {{ $nodeNs }}
+  labels:
+    {{- $coordLabels | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $coord }}-node-identity
+  namespace: {{ $nodeNs }}
+  labels:
+    {{- $coordLabels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $coord }}-node-identity
+subjects:
+  - kind: ServiceAccount
+    name: {{ $coord }}
+    namespace: {{ $coordNs }}
+{{- end }}

@@ -1,0 +1,163 @@
+{{- $v := .Values -}}
+{{- $name := include "exitmesh.nodeName" . -}}
+{{- $uid := ternary 0 (int $v.node.uid) $v.node.runAsRootFallback -}}
+{{- $gid := ternary 0 (int $v.node.gid) $v.node.runAsRootFallback -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ $v.namespaces.node }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "node") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "exitmesh.selectorLabels" (dict "ctx" . "component" "node") | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        {{- include "exitmesh.labels" (dict "ctx" . "component" "node") | nindent 8 }}
+        {{- with $v.node.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum }}
+        {{- if $v.node.runAsRootFallback }}
+        exitmesh.io/run-as-root-fallback: "true"
+        {{- end }}
+        {{- with $v.node.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      terminationGracePeriodSeconds: {{ $v.node.terminationGracePeriodSeconds }}
+      {{- with $v.node.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- include "exitmesh.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        fsGroup: {{ $gid }}
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: prepare-state
+          image: {{ include "exitmesh.image" . }}
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          args: ["prepare-state", "--dir", "/var/lib/exitmesh", "--uid", "{{ $uid }}", "--gid", "{{ $gid }}"]
+          resources:
+            {{- toYaml $v.node.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/exitmesh
+      containers:
+        - name: node-agent
+          image: {{ include "exitmesh.image" . }}
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          args: ["run", "--config", "/etc/exitmesh/config/agent.yaml"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            {{- include "exitmesh.goMemLimitEnv" (dict "container" "node-agent") | nindent 12 }}
+          resources:
+            {{- toYaml $v.node.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: {{ not $v.node.runAsRootFallback }}
+            runAsUser: {{ $uid }}
+            runAsGroup: {{ $gid }}
+            capabilities:
+              drop: ["ALL"]
+              add: ["DAC_READ_SEARCH"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/exitmesh
+            {{- if $v.capabilities.logs }}
+            - name: pod-logs
+              mountPath: /var/log/pods
+              readOnly: true
+            {{- end }}
+            - name: config
+              mountPath: /etc/exitmesh/config
+              readOnly: true
+            - name: coordinator-ca
+              mountPath: /etc/exitmesh/coordinator-ca
+              readOnly: true
+            - name: coordinator-token
+              mountPath: /var/run/secrets/exitmesh
+              readOnly: true
+      volumes:
+        - name: state
+          hostPath:
+            path: /var/lib/exitmesh
+            type: DirectoryOrCreate
+        {{- if $v.capabilities.logs }}
+        - name: pod-logs
+          hostPath:
+            path: /var/log/pods
+            type: Directory
+        {{- end }}
+        - name: config
+          configMap:
+            name: {{ $name }}-config
+        - name: coordinator-ca
+          configMap:
+            name: {{ include "exitmesh.caConfigMapName" . }}
+        - name: coordinator-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ $v.nodeAPI.audience }}
+                  expirationSeconds: {{ int $v.nodeAPI.tokenExpirationSeconds }}
+                  path: token
+      {{- with $v.node.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.node.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.node.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

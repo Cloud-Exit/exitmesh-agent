@@ -1,0 +1,20 @@
+{{- if .Values.createNamespaces }}
+{{- range $ns := list (list .Values.namespaces.node "privileged" "node") (list .Values.namespaces.coordinator "restricted" "coordinator") }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index $ns 0 }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" $ "component" (index $ns 2)) | nindent 4 }}
+    pod-security.kubernetes.io/enforce: {{ index $ns 1 }}
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: {{ index $ns 1 }}
+    pod-security.kubernetes.io/warn: {{ index $ns 1 }}
+    {{- with $.Values.namespaces.extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    helm.sh/resource-policy: keep
+{{- end }}
+{{- end }}

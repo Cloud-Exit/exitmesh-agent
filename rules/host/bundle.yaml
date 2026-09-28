@@ -1,0 +1,202 @@
+version: "2026.09.1"
+engine_version: 1
+schema_version: 1
+target_type: host
+created_at: 2026-09-28T00:00:00Z
+rules:
+  - id: host.systemd_unit_failed
+    version: 1
+    class: state
+    target: host
+    scope: node
+    category: host.systemd_unit_failed
+    severity: high
+    capabilities: [inventory]
+    required_fields: [active_state]
+    dedup_key: kind,name
+    summary: "systemd unit {{ $labels.name }} failed"
+  - id: host.filesystem_almost_full.high
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-filesystem
+    alert: NodeFilesystemAlmostFull
+    match: {severity: high}
+    category: metric.volume_saturation
+    severity: high
+    capabilities: [metrics]
+    dedup_key: device,mountpoint
+    summary: "Filesystem {{ $labels.mountpoint }} is at least 90% full"
+  - id: host.filesystem_almost_full.critical
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-filesystem
+    alert: NodeFilesystemAlmostFull
+    match: {severity: critical}
+    category: metric.volume_saturation
+    severity: critical
+    capabilities: [metrics]
+    dedup_key: device,mountpoint
+    summary: "Filesystem {{ $labels.mountpoint }} is at least 97% full"
+  - id: host.filesystem_predicted_full
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-filesystem
+    alert: NodeFilesystemFillingUp
+    category: metric.volume_fill_trend
+    severity: high
+    capabilities: [metrics]
+    dedup_key: device,mountpoint
+    budget: {max_samples: 2000000}
+    summary: "Filesystem {{ $labels.mountpoint }} is predicted to fill within 4 hours"
+  - id: host.cpu_saturation.high
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-resources
+    alert: NodeCPUSaturation
+    match: {severity: high}
+    category: metric.saturation
+    severity: high
+    capabilities: [metrics]
+    summary: "CPU is at least 90% busy"
+  - id: host.cpu_saturation.critical
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-resources
+    alert: NodeCPUSaturation
+    match: {severity: critical}
+    category: metric.saturation
+    severity: critical
+    capabilities: [metrics]
+    summary: "CPU is at least 97% busy"
+  - id: host.memory_saturation.high
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-resources
+    alert: NodeMemorySaturation
+    match: {severity: high}
+    category: metric.saturation
+    severity: high
+    capabilities: [metrics]
+    summary: "At least 90% of memory is in use"
+  - id: host.memory_saturation.critical
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-resources
+    alert: NodeMemorySaturation
+    match: {severity: critical}
+    category: metric.saturation
+    severity: critical
+    capabilities: [metrics]
+    summary: "At least 97% of memory is in use"
+  - id: host.memory_pressure
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-resources
+    alert: NodeMemoryPressureStall
+    category: host.memory_pressure
+    severity: medium
+    capabilities: [metrics]
+    summary: "Tasks stall on memory more than 10% of the time"
+  - id: host.high_load
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-resources
+    alert: NodeHighLoad
+    category: host.high_load
+    severity: medium
+    capabilities: [metrics]
+    summary: "Load average exceeds twice the CPU count"
+  - id: host.disk_io_saturation
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-resources
+    alert: NodeDiskIOSaturation
+    category: host.disk_io_saturation
+    severity: medium
+    capabilities: [metrics]
+    dedup_key: device
+    summary: "Disk {{ $labels.device }} is IO saturated"
+  - id: host.clock_skew
+    version: 1
+    class: promql
+    target: host
+    scope: node
+    file: prometheus/node.yaml
+    group: node-resources
+    alert: NodeClockSkewDetected
+    category: host.clock_skew
+    severity: medium
+    capabilities: [metrics]
+    summary: "Clock is more than 50ms off and not converging"
+  - id: host.log.oom_kill
+    version: 1
+    class: logql
+    target: host
+    scope: node
+    file: loki/journal.yaml
+    group: journal
+    alert: JournalOOMKill
+    category: log.process_failure
+    severity: high
+    capabilities: [logs]
+    dedup_key: syslog_identifier
+    budget: {max_series: 1000, counter_bytes: 2097152}
+    summary: "The kernel or systemd-oomd killed a process for lack of memory"
+  - id: host.log.process_failure
+    version: 1
+    class: logql
+    target: host
+    scope: node
+    file: loki/journal.yaml
+    group: journal
+    alert: JournalProcessFailure
+    category: log.process_failure
+    severity: high
+    capabilities: [logs]
+    dedup_key: unit,syslog_identifier
+    budget: {max_series: 1000, counter_bytes: 2097152}
+    summary: "A process crashed ({{ $labels.syslog_identifier }})"
+  - id: host.log.error_rate_spike
+    version: 1
+    class: logql
+    target: host
+    scope: node
+    file: loki/journal.yaml
+    group: journal
+    alert: JournalErrorRateSpike
+    category: log.error_rate_spike
+    severity: medium
+    capabilities: [logs]
+    dedup_key: unit,syslog_identifier
+    budget: {max_series: 1000, counter_bytes: 2097152}
+    summary: "{{ $labels.syslog_identifier }} logs error-priority journal entries at an elevated rate"

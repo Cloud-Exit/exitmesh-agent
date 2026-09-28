@@ -1,0 +1,22 @@
+ExitMesh agent
+Copyright 2026 Cloud Exit
+
+This product includes software developed by Cloud Exit
+(https://github.com/cloud-exit/exitmesh-agent), licensed under the Apache License, Version 2.0.
+
+This product includes software from the Prometheus project
+(https://github.com/prometheus), Copyright 2012-2015 The Prometheus Authors,
+licensed under the Apache License, Version 2.0, including collectors from node_exporter.
+The Prometheus project includes software developed at SoundCloud Ltd. (https://soundcloud.com/).
+
+This product includes software from the Kubernetes project
+(https://github.com/kubernetes), Copyright The Kubernetes Authors,
+licensed under the Apache License, Version 2.0.
+
+This product includes software from the CEL project (https://github.com/google/cel-go),
+Copyright Google LLC, licensed under the Apache License, Version 2.0.
+
+This product includes software from VictoriaMetrics (https://github.com/VictoriaMetrics),
+Copyright VictoriaMetrics, licensed under the Apache License, Version 2.0.
+
+The full list of third-party modules and their licenses is published in the SBOM attached to every release.

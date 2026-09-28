@@ -1,0 +1,43 @@
+name: loki-oracle
+
+on:
+  pull_request:
+    paths:
+      - internal/rules/logql/**
+      - .github/workflows/loki-oracle.yml
+  push:
+    branches: [main]
+    paths:
+      - internal/rules/logql/**
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  differential:
+    runs-on: ubuntu-24.04
+    services:
+      loki:
+        image: grafana/loki:3.7.8
+        ports:
+          - 3100:3100
+    env:
+      LOKI_URL: http://127.0.0.1:3100
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: wait for Loki
+        run: |
+          for i in $(seq 1 90); do
+            if curl -fsS "$LOKI_URL/ready" | grep -q ready; then exit 0; fi
+            sleep 2
+          done
+          echo "Loki did not become ready" >&2
+          exit 1
+      - name: LogQL differential tests against the Loki oracle
+        run: go test -count=1 -v ./internal/rules/logql/...

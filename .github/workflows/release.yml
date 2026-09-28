@@ -1,0 +1,255 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: version component to increment
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  HELM_VERSION: v3.22.0
+
+jobs:
+  version:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: next version = max(Chart.yaml, latest tag) + 1
+        id: next
+        run: echo "version=$(.github/scripts/next-version.sh "${{ inputs.bump || 'patch' }}")" >>"$GITHUB_OUTPUT"
+
+  quality:
+    needs: version
+    uses: ./.github/workflows/quality.yml
+
+  artifacts:
+    needs: version
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/artifacts.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      release: true
+    secrets: inherit
+
+  publish:
+    needs: [version, quality, artifacts]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    outputs:
+      image_digest: ${{ steps.image.outputs.digest }}
+      chart_digest: ${{ steps.chart.outputs.digest }}
+      repository: ${{ steps.repo.outputs.published }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      CANDIDATE: ${{ needs.artifacts.outputs.image_ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: imjasonh/setup-crane@v0.7
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: chart
+          path: dist-chart
+      - name: names
+        run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          echo "IMAGE=ghcr.io/$owner/exitmesh-agent" >>"$GITHUB_ENV"
+          echo "CHART_REPO=oci://ghcr.io/$owner/charts" >>"$GITHUB_ENV"
+          echo "PAGES_URL=https://$owner.github.io/${GITHUB_REPOSITORY#*/}" >>"$GITHUB_ENV"
+          go run ./internal/deploytest/releaseinfo >>"$GITHUB_ENV"
+      - name: commit the version bump and tag the built commit
+        env:
+          TAG_COMMIT: ${{ github.sha }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        run: .github/scripts/release-push.sh "$VERSION"
+      - name: sign release files
+        run: |
+          for f in dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sbom.json dist/checksums.txt dist-chart/*.tgz; do
+            cosign sign-blob --yes --output-certificate "$f.pem" --output-signature "$f.sig" "$f" >/dev/null
+          done
+      - name: tag and sign the gated image
+        id: image
+        run: |
+          digest=${CANDIDATE##*@}
+          crane tag "$CANDIDATE" "$VERSION"
+          crane tag "$CANDIDATE" latest
+          cosign sign --yes "$IMAGE@$digest"
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          echo "IMAGE_DIGEST=$digest" >>"$GITHUB_ENV"
+      - name: push and sign the chart
+        id: chart
+        run: |
+          helm push "dist-chart/exitmesh-agent-$VERSION.tgz" "$CHART_REPO" 2>&1 | tee helm-push.txt
+          digest=$(sed -n 's/^Digest: //p' helm-push.txt)
+          [ -n "$digest" ] || { echo "no chart digest" >&2; exit 1; }
+          cosign sign --yes "${CHART_REPO#oci://}/exitmesh-agent@$digest"
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          echo "CHART_DIGEST=$digest" >>"$GITHUB_ENV"
+      - name: signed APT and YUM repository on GitHub Pages
+        id: repo
+        env:
+          PACKAGE_SIGNING_KEY: ${{ secrets.PACKAGE_SIGNING_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.PACKAGE_SIGNING_PASSPHRASE }}
+        run: |
+          if [ -z "$PACKAGE_SIGNING_KEY" ]; then
+            echo "::warning::PACKAGE_SIGNING_KEY is not set: the package repository was not updated"
+            echo "published=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sudo apt-get update -q && sudo apt-get install -y -q createrepo-c dpkg-dev apt-utils
+          printf '%s\n' "$PACKAGE_SIGNING_KEY" | gpg --batch --import
+          export GPG_KEY_ID=$(gpg --batch --list-secret-keys --with-colons | awk -F: '$1=="fpr"{print $10; exit}')
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch -q origin gh-pages; then
+            git worktree add pages FETCH_HEAD
+            git -C pages switch -q -C gh-pages
+          else
+            git worktree add --orphan -b gh-pages pages
+          fi
+          REPO_URL="$PAGES_URL" .github/scripts/package-repo.sh pages dist
+          git -C pages add -A
+          git -C pages commit -q -m "packages: v$VERSION"
+          git -C pages push -q origin gh-pages
+          echo "published=true" >>"$GITHUB_OUTPUT"
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat >notes.md <<NOTES
+          |Contract|Version|
+          |---|---|
+          |History Protocol|$EXITMESH_PROTOCOL_VERSION|
+          |State schema|$EXITMESH_SCHEMA_VERSION|
+          |Rule engine|$EXITMESH_ENGINE_VERSION|
+
+          Built from \`$GITHUB_SHA\`.
+
+          ### Kubernetes
+
+          |Artifact|Reference|
+          |---|---|
+          |Container image|\`$IMAGE:$VERSION@$IMAGE_DIGEST\`|
+          |Helm chart|\`$CHART_REPO/exitmesh-agent\` version \`$VERSION\`, digest \`$CHART_DIGEST\`|
+
+          \`\`\`sh
+          helm upgrade --install exitmesh-agent $CHART_REPO/exitmesh-agent --version $VERSION --namespace default --reuse-values --set image.digest=$IMAGE_DIGEST
+          \`\`\`
+
+          ### Linux hosts
+
+          \`\`\`sh
+          # Debian and Ubuntu
+          sudo apt-get update && sudo apt-get install exitmesh-agent=$VERSION
+          # RHEL, Rocky, Alma, Fedora, Amazon Linux
+          sudo dnf install exitmesh-agent-$VERSION
+          \`\`\`
+
+          Package repository: $PAGES_URL (see docs/install-host.md). The tarballs, deb, and rpm files are attached below.
+
+          ### Verify
+
+          \`\`\`sh
+          cosign verify $IMAGE@$IMAGE_DIGEST --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          cosign verify ${CHART_REPO#oci://}/exitmesh-agent@$CHART_DIGEST --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          cosign verify-blob checksums.txt --certificate checksums.txt.pem --signature checksums.txt.sig --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          \`\`\`
+          NOTES
+          gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes-file notes.md \
+            dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sbom.json dist/checksums.txt dist-chart/*.tgz \
+            dist/*.pem dist/*.sig dist-chart/*.pem dist-chart/*.sig
+
+  verify:
+    needs: [version, publish]
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}
+      CHART_DIGEST: ${{ needs.publish.outputs.chart_digest }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: signatures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          identity="^https://github.com/$GITHUB_REPOSITORY/"
+          issuer=https://token.actions.githubusercontent.com
+          cosign verify "ghcr.io/$owner/exitmesh-agent@$IMAGE_DIGEST" --certificate-identity-regexp "$identity" --certificate-oidc-issuer "$issuer" >/dev/null
+          cosign verify "ghcr.io/$owner/charts/exitmesh-agent@$CHART_DIGEST" --certificate-identity-regexp "$identity" --certificate-oidc-issuer "$issuer" >/dev/null
+          gh release download "v$VERSION" --dir rel --pattern 'checksums.txt*'
+          cosign verify-blob rel/checksums.txt --certificate rel/checksums.txt.pem --signature rel/checksums.txt.sig --certificate-identity-regexp "$identity" --certificate-oidc-issuer "$issuer"
+      - name: published chart renders with the published image
+        run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          helm pull "oci://ghcr.io/$owner/charts/exitmesh-agent" --version "$VERSION" --destination pulled
+          helm template exitmesh-agent pulled/exitmesh-agent-"$VERSION".tgz --namespace default \
+            --set endpoint=https://cp.example.com --set enrollment.token=emx1_c_t-verify_abcdefghijklmnop \
+            --set-json 'trust.roots=["verify-root:MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="]' \
+            --set image.digest="$IMAGE_DIGEST" | grep -q "exitmesh-agent@$IMAGE_DIGEST"
+      - name: install from the published package repository
+        if: needs.publish.outputs.repository == 'true'
+        run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          url="https://$owner.github.io/${GITHUB_REPOSITORY#*/}"
+          for i in $(seq 1 30); do curl -fsS "$url/apt/dists/stable/InRelease" | grep -q "exitmesh-agent" && break || sleep 10; done
+          docker run --rm debian:12 sh -ec "
+            apt-get update -q && apt-get install -y -q curl ca-certificates gnupg
+            install -d -m 0755 /etc/apt/keyrings
+            curl -fsSL $url/exitmesh-archive-keyring.gpg -o /etc/apt/keyrings/exitmesh-archive-keyring.gpg
+            curl -fsSL $url/exitmesh-agent.sources -o /etc/apt/sources.list.d/exitmesh-agent.sources
+            apt-get update -q
+            apt-get install -y -q --no-install-recommends exitmesh-agent=$VERSION
+            exitmesh-agent version | grep -q $VERSION"
+          docker run --rm rockylinux:9 sh -ec "
+            curl -fsSL $url/exitmesh-agent.repo -o /etc/yum.repos.d/exitmesh-agent.repo
+            dnf install -y --setopt=install_weak_deps=False exitmesh-agent-$VERSION
+            exitmesh-agent version | grep -q $VERSION"

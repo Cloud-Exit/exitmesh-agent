@@ -1,0 +1,58 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - depguard
+    - errorlint
+    - gosec
+    - misspell
+    - nolintlint
+    - unconvert
+    - usestdlibvars
+  settings:
+    depguard:
+      rules:
+        licensing:
+          deny:
+            - pkg: github.com/grafana/loki
+              desc: AGPL; LogQL is implemented in-house and Loki runs only as an unlinked CI oracle
+            - pkg: github.com/grafana/grafana
+              desc: AGPL
+            - pkg: github.com/grafana/mimir
+              desc: AGPL
+            - pkg: github.com/grafana/tempo
+              desc: AGPL
+    gosec:
+      excludes:
+        - G304
+    misspell:
+      locale: US
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/cloud-exit/exitmesh-agent

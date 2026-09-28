@@ -1,0 +1,77 @@
+{{- $secretName := include "exitmesh.tlsSecretName" . -}}
+{{- $coordNs := .Values.namespaces.coordinator -}}
+{{- $dnsNames := include "exitmesh.serviceDNSNames" . | fromJsonArray -}}
+{{- $hostsKey := join "," $dnsNames -}}
+{{- $caPEM := .Values.tls.caBundle -}}
+{{- if eq .Values.tls.mode "generate" }}
+{{- $crt := "" -}}
+{{- $key := "" -}}
+{{- $existing := lookup "v1" "Secret" $coordNs $secretName -}}
+{{- $reuse := false -}}
+{{- if and $existing $existing.data $existing.metadata.annotations -}}
+{{- if and (index $existing.data "ca.crt") (index $existing.data "tls.crt") (index $existing.data "tls.key") (eq (index $existing.metadata.annotations "exitmesh.io/tls-hosts" | default "") $hostsKey) -}}
+{{- $reuse = true -}}
+{{- $caPEM = index $existing.data "ca.crt" | b64dec -}}
+{{- $crt = index $existing.data "tls.crt" | b64dec -}}
+{{- $key = index $existing.data "tls.key" | b64dec -}}
+{{- end -}}
+{{- end -}}
+{{- if not $reuse -}}
+{{- $ca := genCA (printf "%s-ca" (include "exitmesh.coordinatorName" .)) (int .Values.tls.validityDays) -}}
+{{- $cert := genSignedCert (index $dnsNames 2) nil $dnsNames (int .Values.tls.validityDays) $ca -}}
+{{- $caPEM = $ca.Cert -}}
+{{- $crt = $cert.Cert -}}
+{{- $key = $cert.Key -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  namespace: {{ $coordNs }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "coordinator") | nindent 4 }}
+  annotations:
+    exitmesh.io/tls-hosts: {{ $hostsKey | quote }}
+type: kubernetes.io/tls
+data:
+  ca.crt: {{ $caPEM | b64enc | quote }}
+  tls.crt: {{ $crt | b64enc | quote }}
+  tls.key: {{ $key | b64enc | quote }}
+{{- else if eq .Values.tls.mode "certManager" }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "exitmesh.coordinatorName" . }}
+  namespace: {{ $coordNs }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "coordinator") | nindent 4 }}
+spec:
+  secretName: {{ $secretName }}
+  commonName: {{ index $dnsNames 2 }}
+  dnsNames:
+    {{- toYaml $dnsNames | nindent 4 }}
+  duration: {{ .Values.tls.certManager.duration }}
+  renewBefore: {{ .Values.tls.certManager.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - digital signature
+  issuerRef:
+    name: {{ .Values.tls.certManager.issuerRef.name }}
+    kind: {{ .Values.tls.certManager.issuerRef.kind }}
+    group: {{ .Values.tls.certManager.issuerRef.group }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "exitmesh.caConfigMapName" . }}
+  namespace: {{ .Values.namespaces.node }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "node") | nindent 4 }}
+data:
+  ca.crt: |
+    {{- $caPEM | trim | nindent 4 }}

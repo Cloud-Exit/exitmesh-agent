@@ -1,0 +1,10 @@
+groups:
+  - name: scrape-targets
+    rules:
+      - alert: ScrapeTargetSeriesSpike
+        expr: |
+          scrape_samples_scraped > 2 * avg_over_time(scrape_samples_scraped[1h] offset 10m)
+          and scrape_samples_scraped - avg_over_time(scrape_samples_scraped[1h] offset 10m) > 1000
+        for: 10m
+        annotations:
+          summary: "Scrape target {{ $labels.instance }} ({{ $labels.job }}) exposes a sudden surge of series"

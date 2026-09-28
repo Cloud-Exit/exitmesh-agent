@@ -1,0 +1,40 @@
+ExitMesh agent {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is installed.
+
+Workloads
+  Node agents:  DaemonSet {{ include "exitmesh.nodeName" . }} in namespace {{ .Values.namespaces.node }} (Pod Security: privileged, required for hostPath volumes)
+  Coordinator:  StatefulSet {{ include "exitmesh.coordinatorName" . }} (replicas 1) in namespace {{ .Values.namespaces.coordinator }} (Pod Security: restricted)
+  Connectivity: outbound only{{ if .Values.airgap.enabled }}; air-gap profile, no connection to ExitMesh{{ else }} to {{ .Values.endpoint }}{{ end }}. Nothing listens outside the cluster network; node agents reach the coordinator on ClusterIP port {{ .Values.nodeAPI.port }}.
+
+Permission summary (verbs get, list, watch only; no writes, no Secrets, no exec, attach, port-forward, nodes/proxy, or nodes/log)
+{{- if .Values.capabilities.inventory }}
+  inventory: coordinator reads workload, networking, storage, and policy objects {{ if eq .Values.kubernetes.scope "cluster" }}cluster-wide{{ else }}in namespaces {{ join ", " .Values.kubernetes.namespaces }}{{ end }}. ConfigMaps are watched metadata-only; RBAC cannot express metadata-only, so the role permits reading ConfigMap contents.
+{{- end }}
+  coordinator: get nodes and persistentvolumes{{ if not .Values.rbac.clusterReads }} (disabled by rbac.clusterReads=false){{ end }}, get pods in {{ .Values.namespaces.node }} to resolve node agent tokens.
+  node agents: list and watch pods {{ if eq .Values.kubernetes.scope "cluster" }}CLUSTER-WIDE. RBAC cannot limit this to the node's own pods; the agent uses a spec.nodeName field selector.{{ else }}in {{ join ", " .Values.kubernetes.namespaces }}.{{ end }}
+{{- if .Values.capabilities.metrics }}
+  metrics: node agents get nodes/metrics to scrape the local kubelet /metrics and /metrics/cadvisor; annotated pod /metrics endpoints are reached over the pod network.
+{{- end }}
+
+Host-mount summary (node agents)
+  /var/lib/exitmesh  read-write, created if missing, mode 0700, owned by UID {{ ternary 0 .Values.node.uid .Values.node.runAsRootFallback }}. The only host path written. Capped at {{ .Values.node.diskCap }} by the agent; removed on uninstall.
+{{- if .Values.capabilities.logs }}
+  /var/log/pods      read-only, for log rules and investigation.
+{{- end }}
+  Capabilities: all dropped except CAP_DAC_READ_SEARCH; read-only root filesystem; never privileged. An init container runs as root with only CAP_CHOWN to set ownership of /var/lib/exitmesh.
+{{- if .Values.node.runAsRootFallback }}
+
+WARNING: node.runAsRootFallback=true. Node agents run as UID 0. Use this only where the container runtime does not grant CAP_DAC_READ_SEARCH to non-root processes. The connector flags this installation.
+{{- end }}
+
+Export preview
+  Sent to ExitMesh: normalized state facts and their deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence.
+  Never sent: raw logs, raw metric samples, full manifests, Secret contents, ConfigMap values, or environment values.
+  Historical log and metric search is not an ExitMesh feature. Connect your own monitoring stack as a read-only lookback source (values: lookback).
+
+Check status
+  kubectl -n {{ .Values.namespaces.coordinator }} rollout status statefulset/{{ include "exitmesh.coordinatorName" . }}
+  kubectl -n {{ .Values.namespaces.node }} rollout status daemonset/{{ include "exitmesh.nodeName" . }}
+
+Uninstall (stops writers before deleting state)
+  helm uninstall {{ .Release.Name }} --namespace {{ .Release.Namespace }} --cascade foreground --wait
+  Then follow docs/uninstall.md to confirm per-node cleanup and delete the namespaces.

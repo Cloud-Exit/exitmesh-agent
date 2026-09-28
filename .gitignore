@@ -1,0 +1,7 @@
+bin/
+dist/
+dist-chart/
+dist-tools/
+/exitmesh-agent
+__pycache__/
+*.pyc

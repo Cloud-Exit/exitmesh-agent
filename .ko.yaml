@@ -1,0 +1,13 @@
+defaultBaseImage: gcr.io/distroless/static-debian12:nonroot
+defaultPlatforms:
+  - linux/amd64
+  - linux/arm64
+builds:
+  - id: exitmesh-agent
+    main: ./cmd/exitmesh-agent
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -buildid= -X main.version={{ .Env.VERSION }} -X main.commit={{ .Git.FullCommit }} -X main.date={{ .Git.CommitDate }}

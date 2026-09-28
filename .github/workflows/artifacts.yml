@@ -1,0 +1,257 @@
+name: artifacts
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: version to build (X.Y.Z for releases)
+        required: true
+        type: string
+      release:
+        description: build release artifacts and push a candidate image by digest
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      image_ref:
+        description: candidate image reference with digest (release builds only)
+        value: ${{ jobs.image.outputs.ref }}
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: "0"
+  HELM_VERSION: v3.22.0
+  GORELEASER_VERSION: v2.18.2
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: anchore/sbom-action/download-syft@v0.24.2
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: supported protocol, schema, and engine versions
+        run: go run ./internal/deploytest/releaseinfo >>"$GITHUB_ENV"
+      - name: package signing key
+        env:
+          PACKAGE_SIGNING_KEY: ${{ secrets.PACKAGE_SIGNING_KEY }}
+        run: |
+          if [ -n "$PACKAGE_SIGNING_KEY" ]; then
+            umask 077
+            printf '%s\n' "$PACKAGE_SIGNING_KEY" >"$RUNNER_TEMP/package-signing.key"
+            echo "NFPM_SIGNING_KEY_FILE=$RUNNER_TEMP/package-signing.key" >>"$GITHUB_ENV"
+          elif [ "${{ inputs.release }}" = true ]; then
+            echo "::warning::PACKAGE_SIGNING_KEY is not set: deb and rpm packages are unsigned and the package repository is not published"
+          fi
+      - name: release binaries, packages, tarballs, checksums, SBOMs
+        if: inputs.release
+        env:
+          NFPM_PASSPHRASE: ${{ secrets.PACKAGE_SIGNING_PASSPHRASE }}
+          GORELEASER_CURRENT_TAG: v${{ inputs.version }}
+        run: |
+          git tag -f "v${{ inputs.version }}"
+          go run "github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}" release --clean --skip=publish,announce,sign,validate
+      - name: snapshot binaries, packages, tarballs, checksums, SBOMs
+        if: ${{ !inputs.release }}
+        run: go run "github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}" release --snapshot --clean --skip=publish,announce,sign
+      - name: binaries are static
+        run: .github/scripts/check-static.sh $(find dist -type f -name exitmesh-agent -path '*_linux_*')
+      - uses: docker/setup-qemu-action@v4
+      - name: binaries run on amd64 and arm64
+        run: |
+          for arch in amd64 arm64; do
+            bin=$(find dist -type f -name exitmesh-agent -path "*_linux_${arch}*" | head -n1)
+            docker run --rm --platform "linux/$arch" -v "$PWD/$(dirname "$bin"):/opt/agent:ro" --entrypoint /opt/agent/exitmesh-agent gcr.io/distroless/static-debian12:nonroot version
+          done
+      - name: package the Helm chart
+        run: helm package deploy/helm/exitmesh-agent --version "${{ inputs.version }}" --app-version "${{ inputs.version }}" --destination dist-chart
+      - name: reference control plane for smoke tests
+        run: go build -trimpath -o dist-tools/exitmesh-refcp ./cmd/exitmesh-refcp
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+            dist/*.sbom.json
+            dist/checksums.txt
+            dist/metadata.json
+            dist/artifacts.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chart
+          path: dist-chart/*.tgz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tools
+          path: dist-tools/exitmesh-refcp
+          if-no-files-found: error
+
+  image:
+    if: inputs.release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      ref: ${{ steps.push.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: ko-build/setup-ko@v0.10
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: push the candidate multi-arch image
+        id: push
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          export KO_DOCKER_REPO="ghcr.io/$owner/exitmesh-agent"
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          ko build ./cmd/exitmesh-agent --bare --sbom=spdx --tags "candidate-${GITHUB_SHA::12}" --image-refs image-ref.txt
+          echo "ref=$(cat image-ref.txt)" >>"$GITHUB_OUTPUT"
+
+  package-smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:12
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - rockylinux:9
+          - fedora:41
+          - amazonlinux:2023
+          - opensuse/leap:15.6
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: previous release packages for the upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p previous
+          if tag=$(gh release view --json tagName --jq .tagName 2>/dev/null); then
+            gh release download "$tag" --dir previous --pattern '*.deb' --pattern '*.rpm'
+            echo "OLD=previous" >>"$GITHUB_ENV"
+          else
+            echo "no earlier release: install test only"
+          fi
+      - name: install, upgrade, remove, purge
+        run: docker run --rm -v "$PWD:/src" -w /src "${{ matrix.image }}" sh .github/scripts/package-smoke.sh dist ${OLD:-}
+
+  tarball-smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: tarball install, remove, and purge under systemd
+        run: |
+          work=$(mktemp -d)
+          tar -xzf "$(ls dist/exitmesh-agent_*_linux_amd64.tar.gz)" -C "$work"
+          sudo sh "$work/install.sh"
+          test -x /usr/local/bin/exitmesh-agent
+          id exitmesh
+          test "$(sudo stat -c '%a %U' /var/lib/exitmesh)" = "700 exitmesh"
+          systemctl cat exitmesh-agent.service >/dev/null
+          sudo sh "$work/uninstall.sh" </dev/null
+          sudo test -d /var/lib/exitmesh
+          test ! -e /usr/local/bin/exitmesh-agent
+          sudo sh "$work/install.sh"
+          sudo sh "$work/uninstall.sh" --purge </dev/null
+          sudo test ! -e /var/lib/exitmesh
+
+  host-smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: tools
+          path: dist-tools
+      - name: host mode under systemd against the reference control plane
+        run: |
+          chmod +x dist-tools/exitmesh-refcp
+          .github/scripts/host-smoke.sh "$(ls dist/exitmesh-agent_*_amd64.deb)" dist-tools/exitmesh-refcp
+
+  kind:
+    needs: [build, image]
+    if: ${{ always() && needs.build.result == 'success' && (needs.image.result == 'success' || needs.image.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node_image:
+          - kindest/node:v1.34.11@sha256:44e222ee2132dab25ff87301682f89eb82c7880ea3a1bf543bfe9708fd08d67d
+          - kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
+          - kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+          - kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: ko-build/setup-ko@v0.10
+      - uses: actions/download-artifact@v8
+        with:
+          name: chart
+          path: dist-chart
+      - uses: actions/download-artifact@v8
+        with:
+          name: tools
+          path: dist-tools
+      - uses: docker/login-action@v4
+        if: inputs.release
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: helm/kind-action@v1.15.0
+        with:
+          version: v0.33.0
+          node_image: ${{ matrix.node_image }}
+          cluster_name: exitmesh
+      - name: install the exact chart and image, verify, and uninstall
+        env:
+          KIND_CLUSTER_NAME: exitmesh
+          IMAGE_REF: ${{ needs.image.outputs.ref }}
+        run: |
+          chmod +x dist-tools/exitmesh-refcp
+          CHART=$(ls dist-chart/*.tgz) REFCP=dist-tools/exitmesh-refcp .github/scripts/kind-integration.sh

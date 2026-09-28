@@ -1,0 +1,108 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $v := .Values -}}
+{{- $np := $v.networkPolicy -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "exitmesh.nodeName" . }}
+  namespace: {{ $v.namespaces.node }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "node") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "exitmesh.selectorLabels" (dict "ctx" . "component" "node") | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $v.namespaces.coordinator }}
+          podSelector:
+            matchLabels:
+              {{- include "exitmesh.selectorLabels" (dict "ctx" . "component" "coordinator") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ $v.nodeAPI.port }}
+    - ports:
+        {{- range $np.dns.ports }}
+        - protocol: UDP
+          port: {{ . }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- include "exitmesh.np.egressRule" $np.apiServer | nindent 4 }}
+    {{- if $v.capabilities.metrics }}
+    {{- include "exitmesh.np.egressRule" $np.kubelet | nindent 4 }}
+    - to:
+        - namespaceSelector: {}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "exitmesh.coordinatorName" . }}
+  namespace: {{ $v.namespaces.coordinator }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "coordinator") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "exitmesh.selectorLabels" (dict "ctx" . "component" "coordinator") | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $v.namespaces.node }}
+          podSelector:
+            matchLabels:
+              {{- include "exitmesh.selectorLabels" (dict "ctx" . "component" "node") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ $v.nodeAPI.port }}
+  egress:
+    - ports:
+        {{- range $np.dns.ports }}
+        - protocol: UDP
+          port: {{ . }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- include "exitmesh.np.egressRule" $np.apiServer | nindent 4 }}
+    {{- if not $v.airgap.enabled }}
+    {{- include "exitmesh.np.egressRule" $np.endpoint | nindent 4 }}
+    {{- end }}
+    {{- range $l := $v.lookback }}
+    {{- $e := default (dict) $l.egress }}
+    {{- $u := urlParse $l.url }}
+    {{- $port := "" }}
+    {{- if contains ":" $u.host }}
+    {{- $port = last (splitList ":" $u.host) }}
+    {{- else }}
+    {{- $port = ternary "443" "80" (eq $u.scheme "https") }}
+    {{- end }}
+    {{- $ports := default (list $port) $e.ports }}
+    - ports:
+        {{- range $ports }}
+        - protocol: TCP
+          port: {{ int . }}
+        {{- end }}
+      {{- if or $e.cidrs $e.namespaceSelector $e.podSelector }}
+      to:
+        {{- range $e.cidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+        {{- if or $e.namespaceSelector $e.podSelector }}
+        - namespaceSelector:
+            {{- toYaml (default (dict) $e.namespaceSelector) | nindent 12 }}
+          {{- with $e.podSelector }}
+          podSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+{{- end }}

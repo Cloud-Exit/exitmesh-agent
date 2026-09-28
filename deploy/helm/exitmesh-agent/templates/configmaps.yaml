@@ -1,0 +1,110 @@
+{{- $v := .Values -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "exitmesh.coordinatorName" . }}-config
+  namespace: {{ $v.namespaces.coordinator }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "coordinator") | nindent 4 }}
+data:
+  agent.yaml: |
+    role: coordinator
+    {{- with $v.endpoint }}
+    endpoint: {{ . | quote }}
+    {{- end }}
+    {{- if $v.endpointCA }}
+    endpointCAFile: /etc/exitmesh/config/endpoint-ca.crt
+    {{- end }}
+    enrollmentTokenFile: /etc/exitmesh/enrollment/token
+    stateDir: /data
+    {{- include "exitmesh.config.common" . | nindent 4 }}
+    {{- include "exitmesh.config.kubernetes" . | nindent 4 }}
+    coordinator:
+      listen: ":{{ $v.nodeAPI.port }}"
+      tlsCertFile: /etc/exitmesh/tls/tls.crt
+      tlsKeyFile: /etc/exitmesh/tls/tls.key
+      audience: {{ $v.nodeAPI.audience | quote }}
+      namespace: {{ $v.namespaces.coordinator | quote }}
+      podName: "{{ include "exitmesh.coordinatorName" . }}-0"
+    spool:
+      capacity: {{ include "exitmesh.spoolCapacity" . | quote }}
+      window: {{ $v.coordinator.spool.window | quote }}
+      coalesceAt: {{ $v.coordinator.spool.coalesceAt }}
+    {{- with $v.lookback }}
+    lookback:
+      {{- range $l := . }}
+      - name: {{ $l.name | quote }}
+        type: {{ $l.type | quote }}
+        url: {{ $l.url | quote }}
+        {{- with $l.tenant }}
+        tenant: {{ . | quote }}
+        {{- end }}
+        {{- with $l.accountID }}
+        accountID: {{ . | quote }}
+        {{- end }}
+        {{- with $l.projectID }}
+        projectID: {{ . | quote }}
+        {{- end }}
+        {{- if and $l.bearerToken $l.bearerToken.secretName }}
+        bearerTokenFile: /etc/exitmesh/lookback/{{ $l.name }}/bearer-token
+        {{- end }}
+        {{- if and $l.basicAuth $l.basicAuth.secretName }}
+        basicUsernameFile: /etc/exitmesh/lookback/{{ $l.name }}/username
+        basicPasswordFile: /etc/exitmesh/lookback/{{ $l.name }}/password
+        {{- end }}
+        {{- if and $l.ca (or $l.ca.secretName $l.ca.configMapName) }}
+        caFile: /etc/exitmesh/lookback/{{ $l.name }}/ca.crt
+        {{- end }}
+        {{- with $l.timeout }}
+        timeout: {{ . | quote }}
+        {{- end }}
+        {{- with $l.retention }}
+        retention: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- if $v.airgap.enabled }}
+    airgap:
+      enabled: true
+      {{- with (include "exitmesh.bundleDir" .) }}
+      bundleDir: {{ . | quote }}
+      {{- end }}
+      exportDir: {{ $v.airgap.exportDir | quote }}
+    {{- end }}
+    {{- with $v.investigation }}
+    investigation:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- with $v.endpointCA }}
+  endpoint-ca.crt: |
+    {{- . | trim | nindent 4 }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "exitmesh.nodeName" . }}-config
+  namespace: {{ $v.namespaces.node }}
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "node") | nindent 4 }}
+data:
+  agent.yaml: |
+    role: node
+    stateDir: /var/lib/exitmesh
+    {{- include "exitmesh.config.common" . | nindent 4 }}
+    {{- include "exitmesh.config.kubernetes" . | nindent 4 }}
+    coordinator:
+      serviceURL: "https://{{ include "exitmesh.serviceHost" . }}:{{ $v.nodeAPI.port }}"
+      caFile: /etc/exitmesh/coordinator-ca/ca.crt
+      audience: {{ $v.nodeAPI.audience | quote }}
+      tokenFile: /var/run/secrets/exitmesh/token
+    node:
+      diskCap: {{ $v.node.diskCap | quote }}
+      evidenceRing: {{ $v.node.evidenceRing | quote }}
+      logsPath: /var/log/pods
+      scrapeInterval: {{ $v.node.scrapeInterval | quote }}
+      maxTargets: {{ int $v.node.maxTargets }}
+      maxSeries: {{ int $v.node.maxSeries }}
+      maxSamplesPerSecond: {{ int $v.node.maxSamplesPerSecond }}
+      kubeletTLS: {{ $v.node.kubeletTLS | quote }}
+      kubeletPort: {{ int $v.node.kubeletPort }}

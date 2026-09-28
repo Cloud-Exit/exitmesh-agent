@@ -1,0 +1,102 @@
+groups:
+  - name: node-filesystem
+    rules:
+      - alert: NodeFilesystemAlmostFull
+        expr: |
+          1 - node_filesystem_avail_bytes{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"}
+            / node_filesystem_size_bytes{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"} >= 0.9 < 0.97
+          and node_filesystem_readonly{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"} == 0
+        for: 15m
+        keep_firing_for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} is almost full"
+      - alert: NodeFilesystemAlmostFull
+        expr: |
+          1 - node_filesystem_avail_bytes{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"}
+            / node_filesystem_size_bytes{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"} >= 0.97
+          and node_filesystem_readonly{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"} == 0
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} is almost full"
+      - alert: NodeFilesystemFillingUp
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"}
+            / node_filesystem_size_bytes{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"} < 0.4
+          and predict_linear(node_filesystem_avail_bytes{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"}[1h], 4 * 3600) < 0
+          and node_filesystem_readonly{fstype!~"|tmpfs|ramfs|squashfs|overlay|nsfs|fuse.lxcfs"} == 0
+        for: 15m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} is predicted to fill within 4 hours"
+  - name: node-resources
+    rules:
+      - alert: NodeCPUSaturation
+        expr: |
+          sum without (mode) (avg without (cpu) (rate(node_cpu_seconds_total{mode!~"idle|iowait|steal"}[5m]))) >= 0.9 < 0.97
+        for: 15m
+        keep_firing_for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "CPU is saturated"
+      - alert: NodeCPUSaturation
+        expr: |
+          sum without (mode) (avg without (cpu) (rate(node_cpu_seconds_total{mode!~"idle|iowait|steal"}[5m]))) >= 0.97
+        for: 15m
+        keep_firing_for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CPU is saturated"
+      - alert: NodeMemorySaturation
+        expr: |
+          1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes >= 0.9 < 0.97
+        for: 15m
+        keep_firing_for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Memory is almost exhausted"
+      - alert: NodeMemorySaturation
+        expr: |
+          1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes >= 0.97
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Memory is almost exhausted"
+      - alert: NodeMemoryPressureStall
+        expr: |
+          rate(node_pressure_memory_waiting_seconds_total[5m]) > 0.1
+        for: 10m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Tasks stall on memory more than 10% of the time"
+      - alert: NodeHighLoad
+        expr: |
+          node_load1 / count without (cpu, mode) (node_cpu_seconds_total{mode="idle"}) > 2
+        for: 15m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Load average exceeds twice the CPU count"
+      - alert: NodeDiskIOSaturation
+        expr: |
+          rate(node_disk_io_time_weighted_seconds_total{device!=""}[5m]) > 10
+        for: 30m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Disk {{ $labels.device }} has an average IO queue above 10"
+      - alert: NodeClockSkewDetected
+        expr: |
+          (node_timex_offset_seconds > 0.05 and deriv(node_timex_offset_seconds[5m]) >= 0)
+          or (node_timex_offset_seconds < -0.05 and deriv(node_timex_offset_seconds[5m]) <= 0)
+        for: 10m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Clock is more than 50ms off and not converging"

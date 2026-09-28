@@ -1,0 +1,233 @@
+# ExitMesh agent chart values. Every key is described in docs/configuration.md.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# HTTPS endpoint of the ExitMesh control plane, shown on the connector page. Not required when airgap.enabled.
+endpoint: ""
+# Optional PEM CA bundle for the endpoint, for TLS-intercepting egress proxies.
+endpointCA: ""
+
+# Root public keys of your ExitMesh deployment that sign rule bundle key manifests, shown on the
+# connector page next to the enrollment token ("<id>:<base64 ed25519 public key>"). Required.
+trust:
+  roots: []
+  # Number of distinct root signatures a key manifest needs (default 1).
+  threshold: 0
+
+enrollment:
+  # Enrollment token from the connector page (emx1_c_...). Stored in a Secret read only by the coordinator.
+  token: ""
+  # Use an existing Secret in the coordinator namespace instead of token.
+  existingSecret: ""
+  existingSecretKey: token
+
+image:
+  repository: ghcr.io/cloud-exit/exitmesh-agent
+  # Defaults to the chart appVersion.
+  tag: ""
+  # Pinned image digest (sha256:...). Takes precedence over tag when set.
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Create both namespaces with their Pod Security Admission labels. Kept on uninstall so cleanup hooks can run.
+createNamespaces: true
+namespaces:
+  # Node agent namespace, labelled pod-security.kubernetes.io/enforce=privileged (hostPath volumes).
+  node: exitmesh-node
+  # Coordinator namespace, labelled pod-security.kubernetes.io/enforce=restricted.
+  coordinator: exitmesh
+  # With createNamespaces false, rendering without cluster access (helm template, some GitOps controllers) cannot verify the namespaces. Set true to acknowledge that the namespaces were pre-created with the required labels.
+  skipLookupValidation: false
+  extraLabels: {}
+
+# Independently removable capabilities. Each one carries its own RBAC and host mounts.
+capabilities:
+  inventory: true
+  metrics: true
+  logs: true
+
+kubernetes:
+  # cluster, or namespaces for the namespace-scoped profile (Roles and RoleBindings per namespace).
+  scope: cluster
+  namespaces: []
+  excludeNamespaces: []
+  labelAllowlist: []
+  annotationAllowlist: []
+  # Resource kinds the coordinator collects. Empty means the agent default set.
+  resources: []
+  clusterName: ""
+  clusterDomain: cluster.local
+
+rbac:
+  create: true
+  # Cluster-scoped gets that cannot be granted by a Role: coordinator get nodes and persistentvolumes, node agent get nodes/metrics.
+  clusterReads: true
+  # Grant get on the service account issuer discovery URLs to the coordinator, for clusters that removed the default system:service-account-issuer-discovery binding.
+  issuerDiscovery: false
+  inventory:
+    # Namespaced resources for list and watch. ConfigMaps are watched metadata-only by the agent; RBAC cannot express metadata-only access, so remove configmaps to deny it entirely.
+    namespaced:
+      - apiGroups: [""]
+        resources: [pods, services, persistentvolumeclaims, configmaps, serviceaccounts, replicationcontrollers, resourcequotas, limitranges]
+      - apiGroups: [apps]
+        resources: [deployments, replicasets, statefulsets, daemonsets, controllerrevisions]
+      - apiGroups: [batch]
+        resources: [jobs, cronjobs]
+      - apiGroups: [autoscaling]
+        resources: [horizontalpodautoscalers]
+      - apiGroups: [policy]
+        resources: [poddisruptionbudgets]
+      - apiGroups: [networking.k8s.io]
+        resources: [ingresses, networkpolicies]
+      - apiGroups: [discovery.k8s.io]
+        resources: [endpointslices]
+      - apiGroups: [gateway.networking.k8s.io]
+        resources: [gateways, httproutes, grpcroutes]
+    # Cluster-scoped resources, granted only in the cluster profile.
+    cluster:
+      - apiGroups: [""]
+        resources: [nodes, namespaces, persistentvolumes]
+      - apiGroups: [storage.k8s.io]
+        resources: [storageclasses, csidrivers]
+      - apiGroups: [networking.k8s.io]
+        resources: [ingressclasses]
+      - apiGroups: [scheduling.k8s.io]
+        resources: [priorityclasses]
+      - apiGroups: [apiextensions.k8s.io]
+        resources: [customresourcedefinitions]
+
+tls:
+  # generate (chart CA reused across upgrades), certManager (Certificate from tls.certManager.issuerRef), or existingSecret (kubernetes.io/tls Secret).
+  mode: generate
+  # PEM CA that signed the serving cert. Required for certManager and existingSecret; mounted in node agents.
+  caBundle: ""
+  existingSecret: ""
+  certManager:
+    issuerRef:
+      name: ""
+      kind: Issuer
+      group: cert-manager.io
+    duration: 2160h
+    renewBefore: 360h
+  # Validity of generated certificates in days.
+  validityDays: 3650
+
+coordinator:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  persistence:
+    # Empty uses the default StorageClass. "-" requests no class.
+    storageClassName: ""
+    # ReadWriteOncePod where the CSI driver supports it, otherwise ReadWriteOnce (the spool lock then prevents two writers). ReadWriteMany is refused.
+    accessMode: ReadWriteOncePod
+    size: 12Gi
+  spool:
+    capacity: 10Gi
+    window: 8Mi
+    coalesceAt: 0.90
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  terminationGracePeriodSeconds: 60
+
+node:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: 100m
+      memory: 192Mi
+  # Fixed non-root UID and GID of the node agent and the owner of /var/lib/exitmesh.
+  uid: 65532
+  gid: 65532
+  # FALLBACK ONLY: run the node agent as UID 0 where the container runtime does not grant CAP_DAC_READ_SEARCH to non-root processes. Flagged on the connector and in the install notes.
+  runAsRootFallback: false
+  diskCap: 1Gi
+  evidenceRing: 16Mi
+  scrapeInterval: 30s
+  maxTargets: 200
+  maxSeries: 100000
+  maxSamplesPerSecond: 20000
+  # verify or skip kubelet serving certificate verification.
+  kubeletTLS: verify
+  kubeletPort: 10250
+  nodeSelector: {}
+  # Run on every node, including tainted control plane nodes.
+  tolerations:
+    - operator: Exists
+  affinity: {}
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  terminationGracePeriodSeconds: 30
+
+# Projected ServiceAccount token used by node agents to authenticate to the coordinator.
+nodeAPI:
+  port: 8443
+  audience: exitmesh-coordinator
+  tokenExpirationSeconds: 600
+
+# Optional read-only lookback sources, used only by investigations. Credentials come only from explicitly referenced Secrets.
+lookback: []
+
+airgap:
+  enabled: false
+  bundles:
+    # ConfigMap in the coordinator namespace holding the signed bundle, signature, and key manifest (docs/bundle-format.md).
+    configMap: ""
+    # Files mounted from the ConfigMap; each is mounted with subPath so the agent sees regular files, not the symlinks of a ConfigMap volume.
+    files: [keymanifest.json, bundle.tar.gz, bundle.sig]
+    # Directory inside the image holding bundled rule files, for derived images.
+    imagePath: ""
+  # Export directory on the coordinator PVC.
+  exportDir: /data/export
+  # Enlarged PVC and spool used when airgap.enabled.
+  persistenceSize: 60Gi
+  spoolCapacity: 50Gi
+
+# Local administrator upper bound on rules (config policy section).
+policy: {}
+
+# Live query bounds (config investigation section).
+investigation: {}
+
+logging:
+  level: info
+  format: json
+
+networkPolicy:
+  enabled: true
+  # Empty cidrs allow any destination on the listed ports.
+  dns:
+    ports: [53]
+  apiServer:
+    cidrs: []
+    ports: [443, 6443]
+  endpoint:
+    cidrs: []
+    ports: [443]
+  kubelet:
+    cidrs: []
+    ports: [10250]
+
+# Post-delete cleanup DaemonSet that removes /var/lib/exitmesh on every node after the workloads are gone.
+cleanup:
+  enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi

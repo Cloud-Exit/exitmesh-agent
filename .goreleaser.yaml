@@ -1,0 +1,155 @@
+version: 2
+project_name: exitmesh-agent
+
+env:
+  - CGO_ENABLED=0
+
+builds:
+  - id: exitmesh-agent
+    main: ./cmd/exitmesh-agent
+    binary: exitmesh-agent
+    env:
+      - CGO_ENABLED=0
+      - SOURCE_DATE_EPOCH={{ .CommitTimestamp }}
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -buildid= -X main.version={{ .Version }} -X main.commit={{ .FullCommit }} -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: tarball
+    ids: [exitmesh-agent]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds_info:
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info: { mtime: "{{ .CommitDate }}" }
+      - src: NOTICE
+        info: { mtime: "{{ .CommitDate }}" }
+      - src: README.md
+        info: { mtime: "{{ .CommitDate }}" }
+      - src: deploy/packaging/tarball/*.sh
+        strip_parent: true
+        info: { mtime: "{{ .CommitDate }}", mode: 0755 }
+      - src: deploy/packaging/systemd/exitmesh-agent.service
+        dst: systemd
+        strip_parent: true
+        info: { mtime: "{{ .CommitDate }}" }
+      - src: deploy/packaging/sysusers.d/exitmesh-agent.conf
+        dst: sysusers.d
+        strip_parent: true
+        info: { mtime: "{{ .CommitDate }}" }
+      - src: deploy/packaging/config/agent.yaml
+        dst: config
+        strip_parent: true
+        info: { mtime: "{{ .CommitDate }}" }
+
+nfpms:
+  - id: packages
+    ids: [exitmesh-agent]
+    package_name: exitmesh-agent
+    file_name_template: "{{ .ConventionalFileName }}"
+    formats: [deb, rpm]
+    vendor: Cloud Exit
+    maintainer: Cloud Exit
+    homepage: https://github.com/cloud-exit/exitmesh-agent
+    description: ExitMesh host agent, read-only host state, metrics, and logs collection with outbound-only delivery.
+    license: Apache-2.0
+    section: admin
+    priority: optional
+    bindir: /usr/bin
+    mtime: "{{ .CommitDate }}"
+    recommends: [systemd]
+    contents:
+      - src: deploy/packaging/systemd/exitmesh-agent.service
+        dst: /usr/lib/systemd/system/exitmesh-agent.service
+        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+      - src: deploy/packaging/sysusers.d/exitmesh-agent.conf
+        dst: /usr/lib/sysusers.d/exitmesh-agent.conf
+        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+      - src: deploy/packaging/config/agent.yaml
+        dst: /etc/exitmesh/agent.yaml
+        type: config|noreplace
+        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+      - dst: /etc/exitmesh
+        type: dir
+        file_info: { mode: 0755, mtime: "{{ .CommitDate }}" }
+      - src: LICENSE
+        dst: /usr/share/doc/exitmesh-agent/LICENSE
+        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+      - src: NOTICE
+        dst: /usr/share/doc/exitmesh-agent/NOTICE
+        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+    overrides:
+      deb:
+        scripts:
+          postinstall: deploy/packaging/scripts/deb/postinst
+          preremove: deploy/packaging/scripts/deb/prerm
+          postremove: deploy/packaging/scripts/deb/postrm
+      rpm:
+        dependencies:
+          - /usr/sbin/useradd
+        scripts:
+          postinstall: deploy/packaging/scripts/rpm/post
+          preremove: deploy/packaging/scripts/rpm/preun
+          postremove: deploy/packaging/scripts/rpm/postun
+    rpm:
+      group: System Environment/Daemons
+      signature:
+        key_file: '{{ if index .Env "NFPM_SIGNING_KEY_FILE" }}{{ .Env.NFPM_SIGNING_KEY_FILE }}{{ end }}'
+    deb:
+      signature:
+        key_file: '{{ if index .Env "NFPM_SIGNING_KEY_FILE" }}{{ .Env.NFPM_SIGNING_KEY_FILE }}{{ end }}'
+        type: origin
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - id: archive-sbom
+    artifacts: archive
+  - id: package-sbom
+    artifacts: package
+
+signs:
+  - id: cosign
+    cmd: cosign
+    artifacts: all
+    certificate: "${artifact}.pem"
+    signature: "${artifact}.sig"
+    output: true
+    args:
+      - sign-blob
+      - --yes
+      - --output-certificate=${certificate}
+      - --output-signature=${signature}
+      - ${artifact}
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github
+  sort: asc
+
+release:
+  github:
+    owner: cloud-exit
+    name: exitmesh-agent
+  # Package repositories (apt, yum) are published from these deb and rpm files and signed with the repository key, never with a bundle signing key.
+  header: |
+    ## ExitMesh agent {{ .Tag }}
+
+    |Contract|Version|
+    |---|---|
+    |History Protocol|{{ .Env.EXITMESH_PROTOCOL_VERSION }}|
+    |State schema|{{ .Env.EXITMESH_SCHEMA_VERSION }}|
+    |Rule engine|{{ .Env.EXITMESH_ENGINE_VERSION }}|
+
+    Binaries are static (`CGO_ENABLED=0`), built with `-trimpath` and `SOURCE_DATE_EPOCH` from the tag commit, and reproducible from the tag. Every artifact, the checksums, SBOMs, container images, and the Helm chart are signed with cosign (keyless). Container image and chart digests are listed below once published.

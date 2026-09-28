@@ -1,0 +1,8 @@
+- id: host.systemd_unit_failed
+  version: 1
+  target: host
+  kinds: [host/Unit]
+  expr: field(r, "active_state", "") == "failed"
+  for: 2m
+  labels:
+    sub_state: '=string(field(r, "sub_state", ""))'

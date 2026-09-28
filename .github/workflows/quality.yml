@@ -1,0 +1,153 @@
+name: quality
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: "0"
+  HELM_VERSION: v3.22.0
+  KUBECONFORM_VERSION: v0.8.0
+
+jobs:
+  vet:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      - name: gofmt
+        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: go test -race
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 ./...
+
+  govulncheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
+  licenses:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go-licenses check
+        run: >-
+          go run github.com/google/go-licenses/v2@v2.0.1 check ./...
+          --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC
+          --ignore github.com/cloud-exit/exitmesh-agent
+
+  forbidden-modules:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: no Loki, Grafana, or AGPL modules
+        run: .github/scripts/check-forbidden-modules.sh
+      - name: go.mod deny list test
+        run: go test -count=1 -run TestNoForbiddenModules ./internal/deploytest/
+
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Go protocol vectors and scenarios
+        run: go test -count=1 ./pkg/protocol/...
+      - name: Python reference oracle
+        run: python3 -m unittest discover -s protocol/reference -v
+
+  fuzz:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: fuzz smoke
+        env:
+          FUZZTIME: 20s
+        run: .github/scripts/fuzz-smoke.sh
+
+  chart:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: helm/chart-testing-action@v2.8.0
+      - run: helm lint --strict deploy/helm/exitmesh-agent
+      - name: chart-testing lint
+        run: ct lint --charts deploy/helm/exitmesh-agent --check-version-increment=false --validate-maintainers=false --helm-lint-extra-args "--set endpoint=https://cp.example.com --set enrollment.token=emx1_c_t-ci_abcdefghijklmnop --set-json trust.roots=[\"ci-root:MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=\"]"
+      - name: install kubeconform
+        run: |
+          curl -fsSLo kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          curl -fsSLo CHECKSUMS "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/CHECKSUMS"
+          grep ' kubeconform-linux-amd64.tar.gz$' CHECKSUMS | sed 's/kubeconform-linux-amd64.tar.gz/kubeconform.tar.gz/' | sha256sum -c -
+          tar -xzf kubeconform.tar.gz kubeconform
+          sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
+      - name: schema validation across Kubernetes versions
+        run: .github/scripts/chart-validate.sh
+      - name: chart render assertions
+        run: go test -count=1 -v ./internal/deploytest/
+
+  reproducible:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: build twice and compare checksums
+        run: .github/scripts/reproducible-build.sh

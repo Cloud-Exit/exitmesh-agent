@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload || true
+	if [ "$1" -ge 1 ]; then
+		systemctl try-restart exitmesh-agent.service || true
+	fi
+fi
+exit 0

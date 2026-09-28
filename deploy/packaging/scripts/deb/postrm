@@ -1,0 +1,33 @@
+#!/bin/sh
+set -e
+
+STATE=/var/lib/exitmesh
+HELPER_DIR=/usr/libexec/exitmesh-agent-purge
+
+case "$1" in
+remove)
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+	fi
+	;;
+purge)
+	if [ -d "$STATE" ]; then
+		if [ -x "$HELPER_DIR/exitmesh-agent" ]; then
+			if ! "$HELPER_DIR/exitmesh-agent" purge-state --dir "$STATE"; then
+				echo "exitmesh-agent: refusing to delete $STATE: its lock is held by a running agent. Stop it and run the purge again." >&2
+				exit 1
+			fi
+		else
+			echo "exitmesh-agent: $STATE kept: the purge helper is missing, so the state lock cannot be taken. See docs/uninstall.md." >&2
+		fi
+	fi
+	rm -rf "$HELPER_DIR" /etc/systemd/system/exitmesh-agent.service.d
+	rm -f /etc/exitmesh/enrollment-token /etc/exitmesh/purge-on-remove
+	rmdir /etc/exitmesh 2>/dev/null || true
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+	fi
+	echo "exitmesh-agent: purge does not de-enroll. Unless it was de-enrolled, this host shows as offline in ExitMesh until an administrator de-enrolls it there."
+	;;
+esac
+exit 0

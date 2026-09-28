@@ -1,0 +1,2579 @@
+{
+ "description": "Ownership decision table (SPEC 8.3). chain_hashes lists the committed chain hashes known per epoch.",
+ "vectors": [
+  {
+   "name": "invalid credential",
+   "credential_valid": false,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 1,
+    "accept": false,
+    "code": "unauthorized",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "revoked target",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": true,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 1,
+    "accept": false,
+    "code": "unauthorized",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "invalid credential precedes conflict",
+   "credential_valid": false,
+   "state": {
+    "target_type": "host",
+    "revoked": false,
+    "conflict": true,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 1,
+    "accept": false,
+    "code": "unauthorized",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "unresolved identity conflict",
+   "credential_valid": true,
+   "state": {
+    "target_type": "host",
+    "revoked": false,
+    "conflict": true,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 2,
+    "accept": false,
+    "code": "identity_conflict",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "host machine id differs",
+   "credential_valid": true,
+   "state": {
+    "target_type": "host",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "m-1",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": "m-2"
+   },
+   "expect": {
+    "row": 3,
+    "accept": false,
+    "code": "identity_conflict",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": true,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": true
+   }
+  },
+  {
+   "name": "host machine id matches",
+   "credential_valid": true,
+   "state": {
+    "target_type": "host",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "m-1",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": "m-1"
+   },
+   "expect": {
+    "row": 10,
+    "accept": true,
+    "code": "",
+    "outcome": "resume",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  },
+  {
+   "name": "cluster target ignores machine id",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "m-1",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 10,
+    "accept": true,
+    "code": "",
+    "outcome": "resume",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  },
+  {
+   "name": "retired writer",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [
+     "57420b112233445566778899aabbcc02"
+    ],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57420b112233445566778899aabbcc02",
+    "incarnation": 1,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 4,
+    "accept": false,
+    "code": "writer_retired",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "retired writer precedes closed epoch",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [
+     "57420b112233445566778899aabbcc02"
+    ],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57420b112233445566778899aabbcc02",
+    "incarnation": 1,
+    "epoch": "019b774f20007003800000000000000c",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 4,
+    "accept": false,
+    "code": "writer_retired",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "closed epoch",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57420b112233445566778899aabbcc02",
+    "incarnation": 1,
+    "epoch": "019b774f20007003800000000000000c",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 5,
+    "accept": false,
+    "code": "epoch_closed",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "closed epoch presented by its owner of the open epoch",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f20007003800000000000000c",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 5,
+    "accept": false,
+    "code": "epoch_closed",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "open epoch owned by another writer",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57420b112233445566778899aabbcc02",
+    "incarnation": 1,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 6,
+    "accept": false,
+    "code": "not_owner",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "stale incarnation",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 4,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 7,
+    "accept": false,
+    "code": "stale_incarnation",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "stale incarnation precedes duplicate session",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": {
+     "session_id": "s-1",
+     "writer_id": "57410a112233445566778899aabbcc01",
+     "incarnation": 4
+    }
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 4,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 7,
+    "accept": false,
+    "code": "stale_incarnation",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "duplicate session with same writer and incarnation",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": {
+     "session_id": "s-1",
+     "writer_id": "57410a112233445566778899aabbcc01",
+     "incarnation": 5
+    }
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 8,
+    "accept": false,
+    "code": "identity_conflict",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": true
+   }
+  },
+  {
+   "name": "divergent chain hash at last committed",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": {
+     "seq": 10,
+     "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+    },
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 9,
+    "accept": false,
+    "code": "divergence",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "last committed above committed head",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": {
+     "seq": 11,
+     "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+    },
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 9,
+    "accept": false,
+    "code": "divergence",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "last committed at an unknown sequence",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": {
+     "seq": 7,
+     "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+    },
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 9,
+    "accept": false,
+    "code": "divergence",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "resume at committed head",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": {
+     "seq": 10,
+     "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+    },
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 10,
+    "accept": true,
+    "code": "",
+    "outcome": "resume",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  },
+  {
+   "name": "resume below committed head",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": {
+     "seq": 5,
+     "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+    },
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 10,
+    "accept": true,
+    "code": "",
+    "outcome": "resume",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  },
+  {
+   "name": "resume without last committed",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 10,
+    "accept": true,
+    "code": "",
+    "outcome": "resume",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  },
+  {
+   "name": "resume supersedes a lower incarnation session",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": {
+     "session_id": "s-1",
+     "writer_id": "57410a112233445566778899aabbcc01",
+     "incarnation": 5
+    }
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": {
+     "seq": 10,
+     "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+    },
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 10,
+    "accept": true,
+    "code": "",
+    "outcome": "resume",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": true,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  },
+  {
+   "name": "resume does not supersede another writer's session",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": {
+     "session_id": "s-1",
+     "writer_id": "57430000000000000000000000000000",
+     "incarnation": 9
+    }
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 10,
+    "accept": true,
+    "code": "",
+    "outcome": "resume",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  },
+  {
+   "name": "resume does not supersede a higher incarnation session",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": {
+     "session_id": "s-1",
+     "writer_id": "57410a112233445566778899aabbcc01",
+     "incarnation": 9
+    }
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 10,
+    "accept": true,
+    "code": "",
+    "outcome": "resume",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  },
+  {
+   "name": "first epoch of a target",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": null,
+    "epochs": [],
+    "retired": [],
+    "highest_incarnation": [],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 1,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 11,
+    "accept": true,
+    "code": "",
+    "outcome": "opened",
+    "open_epoch": true,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  },
+  {
+   "name": "unknown epoch with only closed epochs",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": null,
+    "epochs": [
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 16,
+    "accept": false,
+    "code": "invalid_hello",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "rebaseline closes the previous epoch",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": {
+     "reason": "rebaseline",
+     "prev_epoch": "019b774f00007001800000000000000a",
+     "prev_head": 10
+    },
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 12,
+    "accept": true,
+    "code": "",
+    "outcome": "opened",
+    "open_epoch": true,
+    "close_epoch": "019b774f00007001800000000000000a",
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "rebaseline supersedes the lower incarnation session",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": {
+     "session_id": "s-1",
+     "writer_id": "57410a112233445566778899aabbcc01",
+     "incarnation": 5
+    }
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": {
+     "reason": "rebaseline",
+     "prev_epoch": "019b774f00007001800000000000000a",
+     "prev_head": 10
+    },
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 12,
+    "accept": true,
+    "code": "",
+    "outcome": "opened",
+    "open_epoch": true,
+    "close_epoch": "019b774f00007001800000000000000a",
+    "retire_writer": null,
+    "supersede": true,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "rebaseline naming another previous epoch",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": {
+     "reason": "rebaseline",
+     "prev_epoch": "019b774f20007003800000000000000c",
+     "prev_head": 10
+    },
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 16,
+    "accept": false,
+    "code": "invalid_hello",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "owner opening an epoch without rebaseline",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 6,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": {
+     "reason": "initial",
+     "prev_epoch": null,
+     "prev_head": 10
+    },
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 16,
+    "accept": false,
+    "code": "invalid_hello",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "new writer on a cluster target",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57420b112233445566778899aabbcc02",
+    "incarnation": 1,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": {
+     "reason": "writer_change",
+     "prev_epoch": "019b774f00007001800000000000000a",
+     "prev_head": 10
+    },
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 13,
+    "accept": true,
+    "code": "",
+    "outcome": "opened",
+    "open_epoch": true,
+    "close_epoch": "019b774f00007001800000000000000a",
+    "retire_writer": "57410a112233445566778899aabbcc01",
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "new writer on a cluster target supersedes the active session",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": {
+     "session_id": "s-1",
+     "writer_id": "57410a112233445566778899aabbcc01",
+     "incarnation": 5
+    }
+   },
+   "hello": {
+    "writer_id": "57420b112233445566778899aabbcc02",
+    "incarnation": 1,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 13,
+    "accept": true,
+    "code": "",
+    "outcome": "opened",
+    "open_epoch": true,
+    "close_epoch": "019b774f00007001800000000000000a",
+    "retire_writer": "57410a112233445566778899aabbcc01",
+    "supersede": true,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "new writer on a host target with a pending binding",
+   "credential_valid": true,
+   "state": {
+    "target_type": "host",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": true,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57420b112233445566778899aabbcc02",
+    "incarnation": 1,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 14,
+    "accept": true,
+    "code": "",
+    "outcome": "opened",
+    "open_epoch": true,
+    "close_epoch": "019b774f00007001800000000000000a",
+    "retire_writer": "57410a112233445566778899aabbcc01",
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": true,
+    "audit": true,
+    "alarm": false
+   }
+  },
+  {
+   "name": "new writer on a host target",
+   "credential_valid": true,
+   "state": {
+    "target_type": "host",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57420b112233445566778899aabbcc02",
+    "incarnation": 1,
+    "epoch": "019b774f10007002800000000000000b",
+    "epoch_open": null,
+    "last_committed": null,
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 15,
+    "accept": false,
+    "code": "identity_conflict",
+    "outcome": "",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": true,
+    "clear_binding": false,
+    "audit": true,
+    "alarm": true
+   }
+  },
+  {
+   "name": "incarnation equal to the highest seen",
+   "credential_valid": true,
+   "state": {
+    "target_type": "kubernetes",
+    "revoked": false,
+    "conflict": false,
+    "pending_binding": false,
+    "enrolled_machine_id": "",
+    "open_epoch": "019b774f00007001800000000000000a",
+    "epochs": [
+     {
+      "id": "019b774f00007001800000000000000a",
+      "owner": "57410a112233445566778899aabbcc01",
+      "open": true,
+      "head": {
+       "seq": 10,
+       "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+      },
+      "chain_hashes": [
+       {
+        "seq": 5,
+        "chain_hash": "b44a6ed95a04324f542c89adbadb68785a6e2f88c92a2ea63e315d9bb082431c"
+       },
+       {
+        "seq": 10,
+        "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+       }
+      ]
+     },
+     {
+      "id": "019b774f20007003800000000000000c",
+      "owner": "57420b112233445566778899aabbcc02",
+      "open": false,
+      "head": {
+       "seq": 3,
+       "chain_hash": "0f7c4b1da7e75505c3f5402318600b8141c875a4d197a7e3c7ea243033d69802"
+      },
+      "chain_hashes": []
+     }
+    ],
+    "retired": [],
+    "highest_incarnation": [
+     {
+      "writer_id": "57410a112233445566778899aabbcc01",
+      "incarnation": 5
+     }
+    ],
+    "active": null
+   },
+   "hello": {
+    "writer_id": "57410a112233445566778899aabbcc01",
+    "incarnation": 5,
+    "epoch": "019b774f00007001800000000000000a",
+    "epoch_open": null,
+    "last_committed": {
+     "seq": 10,
+     "chain_hash": "bb697e82df90dda3b714e0f5f5f68093f6d35c217c7395ed05410d11ec6e32d1"
+    },
+    "machine_id": ""
+   },
+   "expect": {
+    "row": 10,
+    "accept": true,
+    "code": "",
+    "outcome": "resume",
+    "open_epoch": false,
+    "close_epoch": null,
+    "retire_writer": null,
+    "supersede": false,
+    "set_conflict": false,
+    "clear_binding": false,
+    "audit": false,
+    "alarm": false
+   }
+  }
+ ]
+}
