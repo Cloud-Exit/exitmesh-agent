@@ -39,7 +39,7 @@ func newRing(n int) ring {
 	return r
 }
 
-func (r ring) add(b int64, n int) bool {
+func (r ring) add(b int64, n uint64) bool {
 	s := &r[posMod(b, int64(len(r)))]
 	switch {
 	case s.idx == b:
@@ -49,7 +49,7 @@ func (r ring) add(b int64, n int) bool {
 		return false
 	}
 	s.count++
-	s.bytes += uint64(n)
+	s.bytes += n
 	return true
 }
 
@@ -227,7 +227,7 @@ func (p *Program) Observe(streamLabels map[string]string, ts time.Time, line str
 	}
 	if isErr {
 		p.lastErr = st.err
-		if !p.errs.add(b, len(line)) {
+		if !p.errs.add(b, uint64(len(line))) {
 			p.late++
 		}
 		return true
@@ -246,7 +246,7 @@ func (p *Program) Observe(streamLabels map[string]string, ts time.Time, line str
 		s = &counterSeries{lbls: lbls, key: key, r: newRing(p.nb)}
 		p.series[key] = s
 	}
-	if !s.r.add(b, len(line)) {
+	if !s.r.add(b, uint64(len(line))) {
 		p.late++
 	}
 	return true

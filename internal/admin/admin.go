@@ -52,13 +52,12 @@ func Serve(ctx context.Context, dir string, b Backend) error {
 		return err
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
-		ln.Close()
-		return err
+		return errors.Join(err, ln.Close())
 	}
 	srv := &http.Server{Handler: Handler(b), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
-		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sctx)
 	}()
@@ -80,7 +79,7 @@ func Handler(b Backend) http.Handler {
 	mux.HandleFunc("POST /v1/investigate", func(w http.ResponseWriter, r *http.Request) {
 		var req InvestigateRequest
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
-			reply(w, nil, fmt.Errorf("%w: %v", errBadRequest, err))
+			reply(w, nil, fmt.Errorf("%w: %w", errBadRequest, err))
 			return
 		}
 		v, err := b.Investigate(r.Context(), req)
@@ -112,7 +111,7 @@ func Handler(b Backend) http.Handler {
 	mux.HandleFunc("POST /v1/commit", func(w http.ResponseWriter, r *http.Request) {
 		var rc CommitReceipt
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&rc); err != nil {
-			reply(w, nil, fmt.Errorf("%w: %v", errBadRequest, err))
+			reply(w, nil, fmt.Errorf("%w: %w", errBadRequest, err))
 			return
 		}
 		reply(w, map[string]string{"status": "committed"}, b.Commit(r.Context(), rc))

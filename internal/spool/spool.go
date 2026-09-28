@@ -140,7 +140,7 @@ type Spool struct {
 	count     int
 	bytes     int64
 	inflight  int64
-	pinned    map[uint64]uint32
+	pinned    map[uint64]int64
 	pinBytes  int64
 
 	rate          rateEWMA
@@ -166,7 +166,7 @@ func Open(opts Options) (*Spool, error) {
 		unlock:  unlock,
 		cursors: map[string]uint64{},
 		kvs:     map[string]kv.Store{},
-		pinned:  map[uint64]uint32{},
+		pinned:  map[uint64]int64{},
 		notify:  make(chan struct{}, 1),
 	}
 	if err := s.open(); err != nil {
@@ -640,13 +640,13 @@ func (s *Spool) oldestLocked() time.Time {
 		if err != nil {
 			return err
 		}
-		t = time.UnixMilli(int64(m.Time))
+		t = protocol.UnixMilli(m.Time)
 		return nil
 	})
 	return t
 }
 
-// Notify is signalled, without blocking, after appends, commits, and discards.
+// Notify is signaled, without blocking, after appends, commits, and discards.
 func (s *Spool) Notify() <-chan struct{} { return s.notify }
 
 func (s *Spool) signal() {
@@ -683,7 +683,7 @@ func getJSON(b *bolt.Bucket, key []byte, v any) (bool, error) {
 		return false, nil
 	}
 	if err := json.Unmarshal(raw, v); err != nil {
-		return false, fmt.Errorf("%w: %s: %v", ErrCorrupt, key, err)
+		return false, fmt.Errorf("%w: %s: %w", ErrCorrupt, key, err)
 	}
 	return true, nil
 }

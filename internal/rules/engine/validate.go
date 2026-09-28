@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -74,7 +75,7 @@ func selectorName(vs *parser.VectorSelector) string {
 		return vs.Name
 	}
 	for _, m := range vs.LabelMatchers {
-		if m.Name == labels.MetricName && m.Type == labels.MatchEqual {
+		if m.Name == model.MetricNameLabel && m.Type == labels.MatchEqual {
 			return m.Value
 		}
 	}
@@ -429,7 +430,7 @@ func PartSeries(node string, p Part) []Series {
 			continue
 		}
 		lb := labels.NewBuilder(s.Metric)
-		lb.Set(labels.MetricName, SplitMetric)
+		lb.Set(model.MetricNameLabel, SplitMetric)
 		lb.Set(LabelRule, p.RuleID)
 		lb.Set(LabelRuleVersion, strconv.Itoa(p.RuleVersion))
 		lb.Set(LabelNode, node)

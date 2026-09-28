@@ -3,6 +3,7 @@ package hostfacts
 import (
 	"context"
 	"errors"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -118,7 +119,7 @@ func (c *Collector) systemdConn(ctx context.Context) (Systemd, error) {
 
 func (c *Collector) dropSystemd() {
 	if c.systemd != nil && c.o.Systemd == nil {
-		c.systemd.Close()
+		_ = c.systemd.Close()
 		c.systemd = nil
 	}
 }
@@ -195,7 +196,7 @@ func (c *Collector) collectSystemd(ctx context.Context, s *Snapshot) *unitSet {
 				info.trigger, _ = p["Unit"].(string)
 				next, _ := p["NextElapseUSecRealtime"].(uint64)
 				fields["scheduled"] = next != 0
-				if last, _ := p["LastTriggerUSec"].(uint64); last != 0 {
+				if last, _ := p["LastTriggerUSec"].(uint64); last != 0 && last <= math.MaxInt64 {
 					fields["last_trigger_day"] = time.UnixMicro(int64(last)).UTC().Format(time.DateOnly)
 				}
 				timers = append(timers, info)

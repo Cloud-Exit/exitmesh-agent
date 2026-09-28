@@ -293,8 +293,7 @@ func fixedSize(size int, lenDelta int) (string, *pad) {
 	b := bigTextRecord(textLen - lenDelta)
 	prefix := b[:len(b)-(textLen-lenDelta)]
 	if lenDelta != 0 {
-		hdr := prefix[len(prefix)-4:]
-		binary.BigEndian.PutUint32(hdr, uint32(textLen))
+		putLen32(prefix[len(prefix)-4:], textLen)
 	}
 	return hx(prefix), &pad{Byte: "61", Length: size}
 }
@@ -302,8 +301,17 @@ func fixedSize(size int, lenDelta int) (string, *pad) {
 func arrayPad(n int, declared int) (string, *pad) {
 	b := bigArrayRecord(n)
 	prefix := append([]byte(nil), b[:len(b)-n]...)
-	binary.BigEndian.PutUint32(prefix[len(prefix)-4:], uint32(declared))
+	putLen32(prefix[len(prefix)-4:], declared)
 	return hx(prefix), &pad{Byte: "00", Length: len(prefix) + declared}
+}
+
+// putLen32 writes a CBOR 4-byte length, panicking on lengths it cannot carry.
+func putLen32(b []byte, n int) {
+	v := int64(n)
+	if v < 0 || v > math.MaxUint32 {
+		panic(fmt.Sprintf("length %d does not fit 32 bits", n))
+	}
+	binary.BigEndian.PutUint32(b, uint32(v))
 }
 
 func rangeRecord(b *builder, from, to int) *p.Record {
@@ -415,12 +423,12 @@ func orderedMap(pairs [][2][]byte) []byte {
 
 func marshalHeader(major byte, n int) []byte {
 	switch {
+	case n < 0 || n > 255:
+		panic("header length out of range")
 	case n < 24:
 		return []byte{major<<5 | byte(n)}
-	case n < 256:
-		return []byte{major<<5 | 24, byte(n)}
 	default:
-		panic("header too large")
+		return []byte{major<<5 | 24, byte(n)}
 	}
 }
 

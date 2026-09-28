@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -121,13 +122,13 @@ func PodSeriesFromPods(n *Normalizer, pods []*unstructured.Unstructured, nowMs i
 func NodeScoped(series []Series, nodeName string) []Series {
 	uids := map[string]bool{}
 	for _, s := range series {
-		if s.Labels.Get(labels.MetricName) == "kube_pod_info" && s.Labels.Get("node") == nodeName {
+		if s.Labels.Get(model.MetricNameLabel) == "kube_pod_info" && s.Labels.Get("node") == nodeName {
 			uids[s.Labels.Get("uid")] = true
 		}
 	}
 	var out []Series
 	for _, s := range series {
-		name := s.Labels.Get(labels.MetricName)
+		name := s.Labels.Get(model.MetricNameLabel)
 		switch {
 		case strings.HasPrefix(name, "kube_pod_") && uids[s.Labels.Get("uid")]:
 			out = append(out, s)
@@ -143,7 +144,7 @@ func sortSeries(s []Series) {
 }
 
 func mk(t int64, v float64, name string, kv ...string) Series {
-	m := map[string]string{labels.MetricName: name}
+	m := map[string]string{model.MetricNameLabel: name}
 	for i := 0; i+1 < len(kv); i += 2 {
 		if kv[i+1] != "" {
 			m[kv[i]] = kv[i+1]

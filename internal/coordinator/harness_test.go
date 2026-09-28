@@ -59,7 +59,6 @@ const (
 
 var (
 	podGVR  = schema.GroupVersionResource{Version: "v1", Resource: "pods"}
-	depGVR  = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	fastRef = &wait.Backoff{Duration: 5 * time.Millisecond, Cap: 5 * time.Millisecond, Factor: 1, Steps: 1 << 20}
 )
 

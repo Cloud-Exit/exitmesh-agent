@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"cel.dev/cel-go/common/types"
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/storage"
@@ -470,7 +471,7 @@ func (e *Engine) missingInputs(ctx context.Context, names []string, now time.Tim
 	defer q.Close()
 	var missing []string
 	for _, n := range names {
-		set := q.Select(ctx, false, &storage.SelectHints{Start: now.Add(-e.opts.LookbackDelta).UnixMilli(), End: now.UnixMilli(), Limit: 1, Func: "series"}, labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, n))
+		set := q.Select(ctx, false, &storage.SelectHints{Start: now.Add(-e.opts.LookbackDelta).UnixMilli(), End: now.UnixMilli(), Limit: 1, Func: "series"}, labels.MustNewMatcher(labels.MatchEqual, model.MetricNameLabel, n))
 		found := set.Next()
 		if err := set.Err(); err != nil {
 			return nil, err
@@ -522,7 +523,7 @@ func (e *Engine) observe(cr *compiledRule, vec promql.Vector) []observation {
 	for _, s := range vec {
 		src := s.Metric.Map()
 		lb := labels.NewBuilder(s.Metric)
-		lb.Del(labels.MetricName)
+		lb.Del(model.MetricNameLabel)
 		for k, v := range cr.labels {
 			lb.Set(k, expand(v, src, s.F))
 		}
@@ -639,7 +640,7 @@ func (e *Engine) evalState(ctx context.Context, cr *compiledRule, rt *ruleRuntim
 	for _, kind := range cr.kinds {
 		for _, r := range sc.byKind[kind] {
 			if err := ctx.Err(); err != nil {
-				return in, fmt.Errorf("%w: %v", errBudget, err)
+				return in, fmt.Errorf("%w: %w", errBudget, err)
 			}
 			if sc.scope(kind, r.Namespace) >= protocol.ScopeUnavailable || !hasFields(r, cr.required) {
 				in.incomplete[r.UID] = true
@@ -652,7 +653,7 @@ func (e *Engine) evalState(ctx context.Context, cr *compiledRule, rt *ruleRuntim
 			}
 			if err != nil {
 				if isCELCancel(err) || ctx.Err() != nil {
-					return in, fmt.Errorf("%w: %v", errBudget, err)
+					return in, fmt.Errorf("%w: %w", errBudget, err)
 				}
 				in.incomplete[r.UID] = true
 				continue
@@ -670,7 +671,7 @@ func (e *Engine) evalState(ctx context.Context, cr *compiledRule, rt *ruleRuntim
 			lbls, err := stateLabels(ctx, cr, r, act)
 			if err != nil {
 				if isCELCancel(err) || ctx.Err() != nil {
-					return in, fmt.Errorf("%w: %v", errBudget, err)
+					return in, fmt.Errorf("%w: %w", errBudget, err)
 				}
 				in.incomplete[r.UID] = true
 				continue

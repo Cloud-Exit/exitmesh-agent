@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/prometheus/model/labels"
+
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/findings"
 	"github.com/cloud-exit/exitmesh-agent/internal/kv"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
-	"github.com/prometheus/prometheus/model/labels"
 )
 
 type fakeRouter struct {
@@ -407,8 +408,8 @@ func TestFindingSaveProvenance(t *testing.T) {
 		}
 	}
 	r = h.mustCall(t, ToolFindingSave, args(t, map[string]any{"tool": ToolPromQL, "query": `req_total`, "window": win(time.Minute, 0), "severity": "low", "summary": "req"}))
-	if len(h.saved) != 2 || h.saved[1].Evidence[0].Labels["namespace"] != "shop" {
-		t.Fatalf("metric evidence %+v", h.saved[1].Evidence)
+	if len(h.saved) != 2 || h.saved[1].Query == nil || h.saved[1].Query.Hash.String() != r.QueryHash || h.saved[1].Evidence[0].Labels["namespace"] != "shop" {
+		t.Fatalf("metric save %+v", h.saved[1])
 	}
 }
 

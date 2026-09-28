@@ -219,7 +219,7 @@ func Encode(r *Record) ([]byte, error) {
 	}
 	b, err := Marshal(m)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidValue, err)
 	}
 	if len(b) > MaxRecordBytes {
 		return nil, fmt.Errorf("%w: %d bytes", ErrTooLarge, len(b))
@@ -395,7 +395,7 @@ func validateRecord(r *Record) error {
 			return fmt.Errorf("%w: range body missing", ErrMalformed)
 		}
 		g := r.Range
-		if !(1 < g.From && g.From <= g.To) || r.Seq != g.To || r.Parent != g.From-1 {
+		if g.From <= 1 || g.From > g.To || r.Seq != g.To || r.Parent != g.From-1 {
 			return fmt.Errorf("%w: range span [%d,%d] inconsistent with seq %d parent %d", ErrInvalidChain, g.From, g.To, r.Seq, r.Parent)
 		}
 		if r.Base < 1 || r.Base > r.Parent {
@@ -425,7 +425,7 @@ func (c *Checkpoint) validate(seq uint64) error {
 		return fmt.Errorf("%w: interval start after end", ErrMalformed)
 	}
 	for i := 1; i < len(c.Resources); i++ {
-		if !(c.Resources[i-1].UID < c.Resources[i].UID) {
+		if c.Resources[i-1].UID >= c.Resources[i].UID {
 			return fmt.Errorf("%w: resources not sorted by uid", ErrMalformed)
 		}
 	}
@@ -435,7 +435,7 @@ func (c *Checkpoint) validate(seq uint64) error {
 		}
 	}
 	for i := 1; i < len(c.Capabilities); i++ {
-		if !(c.Capabilities[i-1] < c.Capabilities[i]) {
+		if c.Capabilities[i-1] >= c.Capabilities[i] {
 			return fmt.Errorf("%w: capabilities not sorted and unique", ErrMalformed)
 		}
 	}
@@ -645,7 +645,7 @@ func decodeInterval(v any) (Interval, error) {
 func decodeResource(v any) (Resource, error) {
 	a, ok := v.([]any)
 	if !ok || len(a) != 5 {
-		return Resource{}, fmt.Errorf("%w: resource: %v", ErrMalformed, errNotArray)
+		return Resource{}, fmt.Errorf("%w: resource: %w", ErrMalformed, errNotArray)
 	}
 	var r Resource
 	var ok1, ok2, ok3, ok4 bool
@@ -667,7 +667,7 @@ func decodeResource(v any) (Resource, error) {
 func decodeEdge(v any) (Edge, error) {
 	a, ok := v.([]any)
 	if !ok || len(a) != 4 {
-		return Edge{}, fmt.Errorf("%w: edge: %v", ErrMalformed, errNotArray)
+		return Edge{}, fmt.Errorf("%w: edge: %w", ErrMalformed, errNotArray)
 	}
 	var e Edge
 	var ok1, ok2, ok3 bool

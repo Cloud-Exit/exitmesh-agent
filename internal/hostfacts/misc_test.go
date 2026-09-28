@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"net"
 	"os"
@@ -66,7 +67,7 @@ func TestCatalogConsistent(t *testing.T) {
 	}
 	for k := range kinds {
 		if !covered[k] {
-			t.Fatalf("kind %s not catalogued", k)
+			t.Fatalf("kind %s not cataloged", k)
 		}
 	}
 	for _, r := range []string{ReasonSourceAbsent, ReasonPermission, ReasonDBus, ReasonReadFailed, ReasonOtherUserFD, ReasonOwnerNotFound, ReasonDependency, ReasonProcessVanished, ReasonCapacityDenied} {
@@ -260,7 +261,7 @@ func TestDBusSystemdAdapter(t *testing.T) {
 	if err != nil || p["Unit"] != "fstrim.service" || p["NextElapseUSecRealtime"] != uint64(1790000000000000) {
 		t.Fatalf("timer %v %v", p, err)
 	}
-	if _, err := sd.Properties(ctx, "/org/freedesktop/systemd1/unit/gone_2eservice", ifaceUnit, "FragmentPath"); err != ErrNoSuchUnit {
+	if _, err := sd.Properties(ctx, "/org/freedesktop/systemd1/unit/gone_2eservice", ifaceUnit, "FragmentPath"); !errors.Is(err, ErrNoSuchUnit) {
 		t.Fatalf("vanished unit err = %v", err)
 	}
 	empty := t.TempDir()

@@ -11,13 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/prometheus/storage"
+
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/findings"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/redact"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol/client"
-	"github.com/prometheus/prometheus/storage"
 )
 
 // Roles served by a Service.

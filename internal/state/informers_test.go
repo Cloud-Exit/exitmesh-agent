@@ -470,11 +470,9 @@ func TestCollectorWatchLossRelistAndPermissionLoss(t *testing.T) {
 	assertReadOnly(t, env)
 }
 
-func TestCollectorForbiddenReportsOnceAndBacksOff(t *testing.T) {
-	env := newTestEnv(t, fixtureObjects(t), "autoscaling/v2")
-	env.dyn.PrependReactor("list", "pods", func(clienttesting.Action) (bool, runtime.Object, error) {
-		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("denied"))
-	})
+// runFailingScope runs a collector over resources until the single failing scope has waited n times.
+func runFailingScope(t *testing.T, env *testEnv, resources []string, n int) (*Collector, *logRecorder, *recorder, []time.Duration) {
+	t.Helper()
 	var mu sync.Mutex
 	var waits []time.Duration
 	ctx, cancel := context.WithCancel(context.Background())
@@ -484,7 +482,7 @@ func TestCollectorForbiddenReportsOnceAndBacksOff(t *testing.T) {
 	var c *Collector
 	var err error
 	c, err = NewCollector(CollectorOptions{Dynamic: env.dyn, Discovery: env.disc, Tracker: NewTracker(TrackerOptions{}),
-		Resources: []string{"pods", "deployments", "horizontalpodautoscalers", "widgets.example.com"}, Sink: rec.sink, OnSynced: rec.synced,
+		Resources: resources, Sink: rec.sink, OnSynced: rec.synced,
 		Logger: slog.New(logs), RetryBase: time.Second, RetryMax: 4 * time.Second, FlushInterval: time.Hour, ReflectorBackoff: fastRef,
 		Wait: func(ctx context.Context, d time.Duration) bool {
 			if d == time.Hour {
@@ -499,7 +497,7 @@ func TestCollectorForbiddenReportsOnceAndBacksOff(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			waits = append(waits, d)
-			if len(waits) >= 12 {
+			if len(waits) >= n {
 				cancel()
 				return false
 			}
@@ -514,38 +512,32 @@ func TestCollectorForbiddenReportsOnceAndBacksOff(t *testing.T) {
 		_ = c.Run(ctx)
 	}()
 	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	return c, logs, rec, append([]time.Duration(nil), waits...)
+}
+
+func TestCollectorForbiddenReportsOnceAndBacksOff(t *testing.T) {
+	env := newTestEnv(t, fixtureObjects(t))
+	env.dyn.PrependReactor("list", "pods", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("denied"))
+	})
+	c, logs, rec, waits := runFailingScope(t, env, []string{"pods", "deployments", "widgets.example.com"}, 8)
 	podLists := 0
 	for _, a := range env.dyn.Actions() {
 		if a.GetVerb() == "list" && a.GetResource().Resource == "pods" {
 			podLists++
 		}
-		if a.GetResource().Resource == "horizontalpodautoscalers" {
-			t.Fatal("listed a resource the API server does not serve")
-		}
 	}
-	if podLists > 7 {
-		t.Fatalf("forbidden list retried %d times", podLists)
+	if podLists != len(waits) {
+		t.Fatalf("pod lists %d for %d backoff waits: one list per attempt expected", podLists, len(waits))
 	}
-	mu.Lock()
-	var pods []time.Duration
-	for _, d := range waits {
-		if d <= 4*time.Second {
-			pods = append(pods, d)
-		}
-	}
-	mu.Unlock()
-	counts := map[time.Duration]int{}
-	for _, d := range pods {
-		counts[d]++
-	}
-	if counts[time.Second] > 2 || counts[2*time.Second] > 2 || counts[4*time.Second] < 6 || len(pods) != len(waits) {
-		t.Fatalf("backoff not exponential up to the cap for two failing scopes: %v", pods)
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 4 * time.Second, 4 * time.Second, 4 * time.Second, 4 * time.Second, 4 * time.Second}
+	if !slices.Equal(waits, want) {
+		t.Fatalf("backoff %v, want exponential up to the cap %v", waits, want)
 	}
 	if n := logs.count("scope unavailable", "Pod|", "forbidden"); n != 1 {
 		t.Fatalf("forbidden reported %d times", n)
-	}
-	if n := logs.count("scope unavailable", "HorizontalPodAutoscaler|", "not served"); n != 1 {
-		t.Fatalf("not served reported %d times", n)
 	}
 	if logs.count("widgets.example.com") != 1 {
 		t.Fatal("unsupported resource not reported")
@@ -565,12 +557,34 @@ func TestCollectorForbiddenReportsOnceAndBacksOff(t *testing.T) {
 		}
 	}
 	cov := c.Coverage()
-	if len(cov.Unsupported) != 1 || cov.Unsupported[0] != "widgets.example.com" || len(cov.Scopes) != 3 {
+	if len(cov.Unsupported) != 1 || cov.Unsupported[0] != "widgets.example.com" || len(cov.Scopes) != 2 {
 		t.Fatalf("coverage %+v", cov)
 	}
 	for _, s := range cov.Scopes {
-		if s.Key == "Pod|" && (s.State != protocol.ScopeUnavailable || s.Attempts < 2 || s.Reason != ReasonForbidden) {
+		if s.Key == "Pod|" && (s.State != protocol.ScopeUnavailable || s.Attempts != len(waits) || s.Reason != ReasonForbidden) {
 			t.Fatalf("pod coverage %+v", s)
+		}
+	}
+	assertReadOnly(t, env)
+}
+
+func TestCollectorNotServedReportsOnceWithoutListing(t *testing.T) {
+	env := newTestEnv(t, fixtureObjects(t), "autoscaling/v2")
+	c, logs, _, waits := runFailingScope(t, env, []string{"deployments", "horizontalpodautoscalers"}, 5)
+	for _, a := range env.dyn.Actions() {
+		if a.GetResource().Resource == "horizontalpodautoscalers" {
+			t.Fatal("listed a resource the API server does not serve")
+		}
+	}
+	if len(waits) != 5 || waits[0] != time.Second || waits[len(waits)-1] != 4*time.Second {
+		t.Fatalf("backoff %v", waits)
+	}
+	if n := logs.count("scope unavailable", "HorizontalPodAutoscaler|", "not served"); n != 1 {
+		t.Fatalf("not served reported %d times", n)
+	}
+	for _, s := range c.Coverage().Scopes {
+		if s.Key == "autoscaling/HorizontalPodAutoscaler|" && (s.State != protocol.ScopeUnavailable || s.Reason != ReasonNotServed) {
+			t.Fatalf("hpa coverage %+v", s)
 		}
 	}
 	assertReadOnly(t, env)

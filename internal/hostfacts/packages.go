@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
 
@@ -29,11 +28,6 @@ var DefaultRPMPaths = []string{
 type Package struct {
 	Manager, Name, Version, Arch, State string
 	UnitFiles                           []string
-}
-
-type fileStamp struct {
-	mtime time.Time
-	size  int64
 }
 
 func stampOf(paths ...string) (string, error) {
@@ -229,7 +223,7 @@ func (c *Collector) dpkgUnits(p Package) ([]string, error) {
 			}
 		}
 		err = sc.Err()
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			return nil, err
 		}

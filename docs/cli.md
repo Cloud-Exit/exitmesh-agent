@@ -151,7 +151,7 @@ exitmesh-agent prepare-state --dir <dir> --uid <n> --gid <n>
 
 |Flag|Required|Meaning|
 |---|---|---|
-|`--dir`|yes|State directory (`/var/lib/exitmesh`).|
+|`--dir`|yes|State directory (`/var/lib/exitmesh`), an absolute path other than `/`.|
 |`--uid`|yes|Owner user ID of the agent.|
 |`--gid`|yes|Owner group ID of the agent.|
 
@@ -165,7 +165,7 @@ exitmesh-agent cleanup --dir <dir> [--wait]
 
 |Flag|Required|Meaning|
 |---|---|---|
-|`--dir`|yes|State directory.|
+|`--dir`|yes|State directory, an absolute path other than `/`.|
 |`--wait`|no|After deleting, release the lock and block until `SIGTERM` or `SIGINT`.|
 
 Used by the uninstall cleanup DaemonSet ([uninstall.md](uninstall.md)). Takes the directory lock (`<dir>/LOCK`); if an agent holds it, deletes nothing and exits 1 with a message, so the kubelet retries. Otherwise deletes the contents (the lock file last) and the directory itself unless it is a mount point, which is the case for the chart's hostPath volume (`EBUSY` is tolerated). A missing directory counts as clean. With `--wait` the pod stays Running as the per-node completion signal.
@@ -178,7 +178,7 @@ exitmesh-agent purge-state --dir <dir>
 
 |Flag|Required|Meaning|
 |---|---|---|
-|`--dir`|yes|State directory.|
+|`--dir`|yes|State directory, an absolute path other than `/`.|
 
 Used by `apt purge`, `EXITMESH_PURGE=1 dnf remove`, and `uninstall.sh --purge` (PRD H12). Takes the lock and deletes the directory like `cleanup`; exits 1 and deletes nothing if the lock is held. Purging does not de-enroll.
 
@@ -190,6 +190,6 @@ exitmesh-agent prepare-image --dir <dir>
 
 |Flag|Required|Meaning|
 |---|---|---|
-|`--dir`|yes|State directory.|
+|`--dir`|yes|State directory, an absolute path other than `/`.|
 
 For golden images (PRD H14). Refuses while the service holds the lock. Otherwise deletes the identity, credential, spool, and all other state, leaving an empty directory, so every instance started from the image enrolls as a new target. It prints the reminder that the image tooling must also reset `/etc/machine-id`; the agent does not write outside its state directory.

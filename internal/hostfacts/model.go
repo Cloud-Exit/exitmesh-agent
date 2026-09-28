@@ -50,7 +50,7 @@ const (
 	ReasonCapacityDenied  = "capacity_permission_denied"
 )
 
-// Status is the availability of one catalogued fact or edge in one collection.
+// Status is the availability of one cataloged fact or edge in one collection.
 type Status struct {
 	State  protocol.ScopeState
 	Reason string
@@ -141,5 +141,5 @@ func uid(kind string, parts ...string) string {
 	return k + ":" + clean(strings.Join(parts, "|"))
 }
 
-// ScopeKey returns the scope key of a catalogued fact or edge.
+// ScopeKey returns the scope key of a cataloged fact or edge.
 func ScopeKey(id string) string { return "host/" + id }

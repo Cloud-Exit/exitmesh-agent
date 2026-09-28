@@ -8,9 +8,10 @@ import (
 
 	"github.com/VictoriaMetrics/VictoriaLogs/lib/logstorage"
 	"github.com/VictoriaMetrics/metricsql"
-	"github.com/cloud-exit/exitmesh-agent/internal/rules/logql"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
+
+	"github.com/cloud-exit/exitmesh-agent/internal/rules/logql"
 )
 
 var (

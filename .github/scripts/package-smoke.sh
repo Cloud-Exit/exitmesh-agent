@@ -3,8 +3,8 @@
 # usage: package-smoke.sh NEW_PACKAGE_DIR [OLD_PACKAGE_DIR]
 set -eu
 
-new=${1:?usage: package-smoke.sh NEW_PACKAGE_DIR [OLD_PACKAGE_DIR]}
-old=${2:-}
+new=$(cd "${1:?usage: package-smoke.sh NEW_PACKAGE_DIR [OLD_PACKAGE_DIR]}" && pwd)
+old=${2:+$(cd "$2" && pwd)}
 arch=$(uname -m)
 state=/var/lib/exitmesh
 

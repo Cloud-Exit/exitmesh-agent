@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
@@ -241,7 +242,7 @@ func (a *Agent) refreshKube() {
 	if up != nil {
 		out := make([]engine.Series, 0, len(up.Series))
 		for _, s := range up.Series {
-			if s.Labels[labels.MetricName] == "" {
+			if s.Labels[model.MetricNameLabel] == "" {
 				continue
 			}
 			out = append(out, engine.Series{Labels: labels.FromMap(s.Labels), Samples: []engine.Sample{{T: now.UnixMilli(), F: s.Value}}})

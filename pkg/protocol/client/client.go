@@ -121,7 +121,7 @@ func New(opts Options) (*Client, error) {
 			if c <= 0 {
 				return 0
 			}
-			return time.Duration(rand.Int64N(int64(c) + 1))
+			return time.Duration(rand.Int64N(int64(c) + 1)) //nolint:gosec // reconnect jitter needs no cryptographic randomness
 		}
 	}
 	if opts.BackoffBase <= 0 {

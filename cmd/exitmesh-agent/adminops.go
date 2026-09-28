@@ -139,13 +139,10 @@ func exportCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		return err
 	}
 	if err := write(f); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
+		return errors.Join(err, f.Close(), os.Remove(tmp))
 	}
 	if err := errors.Join(f.Sync(), f.Close()); err != nil {
-		os.Remove(tmp)
-		return err
+		return errors.Join(err, os.Remove(tmp))
 	}
 	if err := os.Rename(tmp, *out); err != nil {
 		return err

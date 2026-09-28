@@ -318,7 +318,7 @@ func TestSummaryWindows(t *testing.T) {
 	if c := byKey[cID]; c.State != StateFiring || c.LastTransition != e.sink.seq+1 || c.FirstSeen != uint64(t0.Add(2*time.Minute).UnixMilli()) {
 		t.Fatalf("%+v", c)
 	}
-	if !(s[0].FindingID < s[1].FindingID) {
+	if s[0].FindingID >= s[1].FindingID {
 		t.Fatal("summary order")
 	}
 	mid := e.tr.Summary(h, h+1)

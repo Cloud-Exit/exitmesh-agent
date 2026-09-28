@@ -349,7 +349,7 @@ func fixtureConfigMap() *corev1.ConfigMap {
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
 		ObjectMeta: meta("web-config", "shop", "cm-1"),
 		Data:       map[string]string{"mode": "prod", "db.password": secretCMValue},
-		BinaryData: map[string][]byte{"cert.der": []byte{1, 2, 3}},
+		BinaryData: map[string][]byte{"cert.der": {1, 2, 3}},
 	}
 }
 

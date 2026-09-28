@@ -72,7 +72,14 @@ spec:
         {{- end }}
     {{- include "exitmesh.np.egressRule" $np.apiServer | nindent 4 }}
     {{- if not $v.airgap.enabled }}
-    {{- include "exitmesh.np.egressRule" $np.endpoint | nindent 4 }}
+    {{- $endpointPorts := $np.endpoint.ports }}
+    {{- with .Values.endpoint }}
+    {{- $u := urlParse . }}
+    {{- if contains ":" $u.host }}
+    {{- $endpointPorts = append $endpointPorts (int (last (splitList ":" $u.host))) | uniq }}
+    {{- end }}
+    {{- end }}
+    {{- include "exitmesh.np.egressRule" (dict "ports" $endpointPorts "cidrs" $np.endpoint.cidrs) | nindent 4 }}
     {{- end }}
     {{- range $l := $v.lookback }}
     {{- $e := default (dict) $l.egress }}

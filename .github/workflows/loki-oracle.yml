@@ -19,11 +19,6 @@ permissions:
 jobs:
   differential:
     runs-on: ubuntu-24.04
-    services:
-      loki:
-        image: grafana/loki:3.7.8
-        ports:
-          - 3100:3100
     env:
       LOKI_URL: http://127.0.0.1:3100
     steps:
@@ -31,6 +26,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: start Loki
+        # Level discovery adds detected_level structured metadata at ingestion, which is not LogQL semantics.
+        run: docker run -d --name loki -p 3100:3100 grafana/loki:3.7.8 -config.file=/etc/loki/local-config.yaml -validation.discover-log-levels=false
       - name: wait for Loki
         run: |
           for i in $(seq 1 90); do
@@ -38,6 +36,7 @@ jobs:
             sleep 2
           done
           echo "Loki did not become ready" >&2
+          docker logs loki >&2
           exit 1
       - name: LogQL differential tests against the Loki oracle
         run: go test -count=1 -v ./internal/rules/logql/...

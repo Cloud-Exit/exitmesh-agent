@@ -3,6 +3,7 @@ package hostfacts
 import (
 	"errors"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -69,7 +70,11 @@ func (p *processSet) read(pid int) procResult {
 	if err != nil {
 		return procResult{reason: procReason(err)}
 	}
-	fields := map[string]any{"pid": int64(pid), "comm": clean(st.Comm), "uid": int64(status.UIDs[0])}
+	owner := status.UIDs[0]
+	if owner > math.MaxUint32 {
+		return procResult{reason: ReasonReadFailed}
+	}
+	fields := map[string]any{"pid": int64(pid), "comm": clean(st.Comm), "uid": int64(owner)}
 	if p.c.allow[st.Comm] {
 		if args, err := proc.CmdLine(); err == nil && len(args) > 0 {
 			fields["cmdline"] = clean(p.c.o.Redactor.String(strings.Join(args, " ")))

@@ -69,14 +69,14 @@ func decodeStrict(b []byte) (any, error) {
 	var v any
 	rest, err := decMode.UnmarshalFirst(b, &v)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+		return nil, fmt.Errorf("%w: %w", ErrMalformed, err)
 	}
 	if len(rest) != 0 {
 		return nil, fmt.Errorf("%w: %d trailing bytes", ErrMalformed, len(rest))
 	}
 	re, err := encMode.Marshal(v)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+		return nil, fmt.Errorf("%w: %w", ErrMalformed, err)
 	}
 	if !bytes.Equal(re, b) {
 		return nil, fmt.Errorf("%w: not deterministically encoded", ErrMalformed)

@@ -631,4 +631,33 @@ func TestPayloadDecodingErrors(t *testing.T) {
 	if _, err := o.payload([]byte{1, 2}, objCompressedLZ4); !errors.Is(err, ErrCorrupt) {
 		t.Fatalf("short lz4: %v", err)
 	}
+	w.o.comp = compLZ4
+	enc, _ := w.compress([]byte("MESSAGE=" + strings.Repeat("z", 500)))
+	enc[0]++
+	if _, err := o.payload(enc, objCompressedLZ4); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("lz4 shorter than declared: %v", err)
+	}
+	o.size = 100
+	if _, err := o.readAt(96, 8); !errors.Is(err, errBeyondEOF) {
+		t.Fatalf("read past the end: %v", err)
+	}
+	if _, err := o.readAt(1<<63, 8); !errors.Is(err, errBeyondEOF) {
+		t.Fatalf("offset beyond int64: %v", err)
+	}
+	if _, err := o.arrayItems(64, 0, 1<<62); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("oversized entry array range: %v", err)
+	}
+}
+
+func TestEntryRealtimeBeyondInt64IsCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	w := newTestWriter(filepath.Join(dir, "system.journal"), opts(false, true, compNone, 1, nil))
+	w.append(baseRT, 1, "MESSAGE=ok")
+	w.append(1<<63, 2, "MESSAGE=beyond int64")
+	w.state = stateArchived
+	mustFlush(t, w)
+	r := mustOpen(t, Options{Dirs: []string{dir}})
+	if got := readAll(t, r); len(got) != 1 || !errors.Is(r.FileErrors()[w.path], ErrCorrupt) {
+		t.Fatalf("read %d entries, errors %v", len(got), r.FileErrors())
+	}
 }

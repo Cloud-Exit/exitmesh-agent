@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/prometheus/model/labels"
+
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
-	"github.com/prometheus/prometheus/model/labels"
 )
 
 // Error classes reported in results and audit records.

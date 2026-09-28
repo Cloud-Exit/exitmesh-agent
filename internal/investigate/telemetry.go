@@ -9,10 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/prometheus/promql/parser"
+
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/logql"
-	"github.com/prometheus/prometheus/promql/parser"
 )
 
 const (

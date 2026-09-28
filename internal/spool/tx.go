@@ -157,7 +157,7 @@ func (s *Spool) commitTx(tx *Tx) error {
 	for i, r := range tx.recs {
 		metas[i] = recMeta{
 			Seq: r.Seq, Type: r.Type, State: NeverTransmitted, Hash: r.Hash(),
-			Seg: locs[i].seg, Off: locs[i].off, Len: uint32(len(r.Bytes())), Time: r.Time, From: r.Seq,
+			Seg: locs[i].seg, Off: locs[i].off, Len: uint32(len(r.Bytes())), Time: r.Time, From: r.Seq, //nolint:gosec // protocol.Encode bounds records by MaxRecordBytes
 		}
 		n += int64(len(r.Bytes()))
 	}

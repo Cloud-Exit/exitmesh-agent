@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
@@ -115,8 +117,18 @@ type objects struct {
 	zstd     *zstd.Decoder
 }
 
+// fits reports whether the n bytes at off lie within the file.
+func (o *objects) fits(off, n uint64) bool {
+	s := o.size
+	if s < 0 {
+		return false
+	}
+	size := uint64(s)
+	return off <= size && n <= size-off
+}
+
 func (o *objects) readAt(off uint64, n int) ([]byte, error) {
-	if off > uint64(o.size) || uint64(n) > uint64(o.size)-off {
+	if n < 0 || off > math.MaxInt64 || !o.fits(off, uint64(n)) {
 		return nil, errBeyondEOF
 	}
 	b := make([]byte, n)
@@ -144,7 +156,7 @@ func (o *objects) object(off uint64, typ uint8) ([]byte, uint8, error) {
 	if hdr[0] != typ {
 		return nil, 0, fmt.Errorf("%w: object at %d has type %d, want %d", ErrCorrupt, off, hdr[0], typ)
 	}
-	if size < objectHeaderSize || int64(size) > o.maxBytes {
+	if size < objectHeaderSize || size > math.MaxInt || int64(size) > o.maxBytes {
 		return nil, 0, fmt.Errorf("%w: object at %d has size %d", ErrCorrupt, off, size)
 	}
 	b, err := o.readAt(off, int(size))
@@ -161,11 +173,11 @@ func (o *objects) payload(b []byte, flags uint8) ([]byte, error) {
 	case objCompressedXZ:
 		r, err := xz.NewReader(bytes.NewReader(b))
 		if err != nil {
-			return nil, fmt.Errorf("%w: xz: %v", ErrCorrupt, err)
+			return nil, fmt.Errorf("%w: xz: %w", ErrCorrupt, err)
 		}
 		out, err := io.ReadAll(io.LimitReader(r, o.maxBytes+1))
 		if err != nil {
-			return nil, fmt.Errorf("%w: xz: %v", ErrCorrupt, err)
+			return nil, fmt.Errorf("%w: xz: %w", ErrCorrupt, err)
 		}
 		if int64(len(out)) > o.maxBytes {
 			return nil, errTooLarge
@@ -176,13 +188,16 @@ func (o *objects) payload(b []byte, flags uint8) ([]byte, error) {
 			return nil, fmt.Errorf("%w: lz4 payload", ErrCorrupt)
 		}
 		n := binary.LittleEndian.Uint64(b)
-		if n > uint64(o.maxBytes) {
+		if n > math.MaxInt64 || int64(n) > o.maxBytes {
 			return nil, errTooLarge
 		}
 		out := make([]byte, n)
 		m, err := lz4.UncompressBlock(b[8:], out)
-		if err != nil || uint64(m) != n {
-			return nil, fmt.Errorf("%w: lz4: %v", ErrCorrupt, err)
+		if err != nil {
+			return nil, fmt.Errorf("%w: lz4: %w", ErrCorrupt, err)
+		}
+		if m != len(out) {
+			return nil, fmt.Errorf("%w: lz4: decoded %d of %d bytes", ErrCorrupt, m, n)
 		}
 		return out, nil
 	case objCompressedZSTD:
@@ -191,7 +206,7 @@ func (o *objects) payload(b []byte, flags uint8) ([]byte, error) {
 			if errors.Is(err, zstd.ErrDecoderSizeExceeded) || errors.Is(err, zstd.ErrWindowSizeExceeded) {
 				return nil, errTooLarge
 			}
-			return nil, fmt.Errorf("%w: zstd: %v", ErrCorrupt, err)
+			return nil, fmt.Errorf("%w: zstd: %w", ErrCorrupt, err)
 		}
 		if int64(len(out)) > o.maxBytes {
 			return nil, errTooLarge
@@ -232,13 +247,18 @@ func (o *objects) data(off uint64) (string, string, error) {
 
 func (o *objects) oversize(off uint64) bool {
 	hdr, err := o.readAt(off, objectHeaderSize)
-	return err == nil && hdr[0] == objData && int64(binary.LittleEndian.Uint64(hdr[8:])) > o.maxBytes
+	if err != nil || hdr[0] != objData {
+		return false
+	}
+	size := binary.LittleEndian.Uint64(hdr[8:])
+	return size <= math.MaxInt64 && int64(size) > o.maxBytes
 }
 
 type entryHead struct {
 	offset    uint64
 	seqnum    uint64
 	realtime  uint64
+	when      time.Time
 	monotonic uint64
 	bootID    ID128
 }
@@ -253,6 +273,10 @@ func (o *objects) entryHead(off uint64) (entryHead, []uint64, error) {
 	}
 	le := binary.LittleEndian
 	e := entryHead{offset: off, seqnum: le.Uint64(b[16:]), realtime: le.Uint64(b[24:]), monotonic: le.Uint64(b[32:])}
+	if e.realtime > math.MaxInt64 {
+		return entryHead{}, nil, fmt.Errorf("%w: entry at %d has realtime %d", ErrCorrupt, off, e.realtime)
+	}
+	e.when = time.UnixMicro(int64(e.realtime))
 	copy(e.bootID[:], b[40:56])
 	items := b[entryItemsOffset:]
 	var offs []uint64
@@ -278,7 +302,7 @@ func (o *objects) arrayHeader(off uint64) (uint64, uint64, error) {
 		return 0, 0, err
 	}
 	size := binary.LittleEndian.Uint64(b[8:])
-	if b[0] != objEntryArray || size < 24 || off+size > uint64(o.size) {
+	if b[0] != objEntryArray || size < 24 || !o.fits(off, size) {
 		return 0, 0, fmt.Errorf("%w: entry array at %d", ErrCorrupt, off)
 	}
 	return binary.LittleEndian.Uint64(b[16:]), (size - 24) / o.itemSize(), nil
@@ -294,7 +318,11 @@ func (o *objects) itemSize() uint64 {
 // arrayItems reads n items starting at index from of the entry array at off.
 func (o *objects) arrayItems(off, from, n uint64) ([]uint64, error) {
 	sz := o.itemSize()
-	b, err := o.readAt(off+24+from*sz, int(n*sz))
+	nb := n * sz
+	if n > math.MaxInt/8 || from > math.MaxInt/8 || nb > math.MaxInt {
+		return nil, fmt.Errorf("%w: entry array range %d+%d at %d", ErrCorrupt, from, n, off)
+	}
+	b, err := o.readAt(off+24+from*sz, int(nb))
 	if err != nil {
 		return nil, err
 	}

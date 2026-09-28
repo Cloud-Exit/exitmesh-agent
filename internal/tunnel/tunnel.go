@@ -146,6 +146,9 @@ func (t *Transport) Dial(ctx context.Context) (client.Conn, error) {
 	ws, resp, err := websocket.Dial(ctx, t.endpoint(protocol.TunnelPath), &websocket.DialOptions{
 		HTTPClient: t.client, HTTPHeader: h, Subprotocols: []string{protocol.TunnelSubprotocol}, OnPongReceived: c.pong,
 	})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		c.cancel()
 		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {

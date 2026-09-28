@@ -105,7 +105,7 @@ func parse(fs *flag.FlagSet, args []string, required ...string) error {
 		if errors.Is(err, flag.ErrHelp) {
 			return err
 		}
-		return fmt.Errorf("%w: %v", errUsage, err)
+		return fmt.Errorf("%w: %w", errUsage, err)
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("%w: unexpected argument %q", errUsage, fs.Arg(0))

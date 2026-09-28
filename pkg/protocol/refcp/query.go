@@ -347,7 +347,7 @@ func (s *Server) EdgeHistory(targetID, uid, edgeType string, from, to time.Time)
 	var out []EdgeChange
 	for _, id := range t.order {
 		for _, r := range t.epochs[id].records {
-			ts := time.UnixMilli(int64(r.Time))
+			ts := protocol.UnixMilli(r.Time)
 			if ts.Before(from) || ts.After(to) {
 				continue
 			}

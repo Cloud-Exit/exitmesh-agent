@@ -15,6 +15,7 @@ builds:
     goarch: [amd64, arm64]
     flags:
       - -trimpath
+      - -buildvcs=false
     ldflags:
       - -s -w -buildid= -X main.version={{ .Version }} -X main.commit={{ .FullCommit }} -X main.date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -55,8 +56,8 @@ nfpms:
     package_name: exitmesh-agent
     file_name_template: "{{ .ConventionalFileName }}"
     formats: [deb, rpm]
-    vendor: Cloud Exit
-    maintainer: Cloud Exit
+    vendor: Cloud Exit B.V.
+    maintainer: Cloud Exit B.V. <contact@cloud-exit.com>
     homepage: https://github.com/cloud-exit/exitmesh-agent
     description: ExitMesh host agent, read-only host state, metrics, and logs collection with outbound-only delivery.
     license: Apache-2.0
@@ -135,8 +136,7 @@ snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
 
 changelog:
-  use: github
-  sort: asc
+  disable: true
 
 release:
   github:

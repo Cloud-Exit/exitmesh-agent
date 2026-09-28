@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -148,7 +149,7 @@ func TestNodeAgentSubmissionIdempotentAndImpersonation(t *testing.T) {
 	impostor := e.nodeClient(t, r, "node-1", "node-2")
 	_, err = impostor.Submit(ctx, []nodeapi.Item{{Seq: 1, Kind: nodeapi.KindFinding, Finding: fb}})
 	var ae *nodeapi.Error
-	if !errors.As(err, &ae) || ae.StatusCode != 403 {
+	if !errors.As(err, &ae) || ae.StatusCode != http.StatusForbidden {
 		t.Fatalf("impersonation not rejected: %v", err)
 	}
 	h := r.c.health()

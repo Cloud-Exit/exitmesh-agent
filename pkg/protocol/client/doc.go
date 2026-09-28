@@ -28,7 +28,7 @@
 //     and records the committed head. A chain hash that differs from the writer's, a sequence above
 //     the highest assigned, or a sequence inside a coalesced span returns ErrDivergence.
 //   - DiscardAbove deletes every entry above seq; it precedes OpenEpoch during a rebaseline.
-//   - Notify is signalled after appends and commits.
+//   - Notify is signaled after appends and commits.
 //   - SetHalted records a stop code for this writer process; Do refuses to run while halted.
 //
 // MemStore is a goroutine-safe in-memory Store with the full semantics above, for tests.

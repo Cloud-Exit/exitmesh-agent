@@ -9,5 +9,6 @@ builds:
       - CGO_ENABLED=0
     flags:
       - -trimpath
+      - -buildvcs=false
     ldflags:
       - -s -w -buildid= -X main.version={{ .Env.VERSION }} -X main.commit={{ .Git.FullCommit }} -X main.date={{ .Git.CommitDate }}

@@ -57,14 +57,11 @@ func openSegments(dir string, max int64) (*segments, error) {
 		}
 		f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDWR, 0o600)
 		if err != nil {
-			ss.close()
-			return nil, err
+			return nil, errors.Join(err, ss.close())
 		}
 		fi, err := f.Stat()
 		if err != nil {
-			_ = f.Close()
-			ss.close()
-			return nil, err
+			return nil, errors.Join(err, f.Close(), ss.close())
 		}
 		ss.segs[id] = &segStat{f: f, size: fi.Size()}
 		if id >= ss.next {
@@ -249,7 +246,7 @@ func (r *frameReader) read(id uint64, off int64, n uint32) ([]byte, error) {
 	}
 	buf := r.buf[:need]
 	if _, err := io.ReadFull(r.br, buf); err != nil {
-		return nil, fmt.Errorf("%w: reading %s at %d: %v", ErrCorrupt, segName(id), off, err)
+		return nil, fmt.Errorf("%w: reading %s at %d: %w", ErrCorrupt, segName(id), off, err)
 	}
 	r.pos = end
 	p, err := checkFrame(buf, int(n))

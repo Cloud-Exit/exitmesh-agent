@@ -397,7 +397,7 @@ func (ft *FileTailer) pollFile(s *fileStream, now time.Time) {
 	for i, tf := range s.old {
 		n, eof, rerr := tf.read(ft.scratch, budget, ft.o.MaxLineBytes, func(pl physLine) { ft.handle(s, pl) })
 		budget -= n
-		ft.c.bytes.Add(uint64(n))
+		ft.c.addBytes(n)
 		if n > 0 {
 			tf.lastGrow = now
 		}
@@ -431,7 +431,7 @@ func (ft *FileTailer) pollFile(s *fileStream, now time.Time) {
 		s.cur.restart()
 	}
 	n, _, err := s.cur.read(ft.scratch, budget, ft.o.MaxLineBytes, func(pl physLine) { ft.handle(s, pl) })
-	ft.c.bytes.Add(uint64(n))
+	ft.c.addBytes(n)
 	if err != nil {
 		ft.gap(s, s.path, GapReadError, -1, err.Error())
 	}

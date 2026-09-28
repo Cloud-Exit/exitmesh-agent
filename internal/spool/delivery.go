@@ -177,17 +177,17 @@ func (s *Spool) pinBatch(es []*Entry) {
 		}
 	}
 	if s.pinBytes+add > 2*s.entriesLimit() {
-		keep, kept := map[uint64]uint32{}, int64(0)
+		keep, kept := map[uint64]int64{}, int64(0)
 		for _, e := range es {
 			if n, ok := s.pinned[e.Seq]; ok {
-				keep[e.Seq], kept = n, kept+int64(n)
+				keep[e.Seq], kept = n, kept+n
 			}
 		}
 		s.pinned, s.pinBytes = keep, kept
 	}
 	for _, e := range es {
 		if _, ok := s.pinned[e.Seq]; !ok && e.State == NeverTransmitted {
-			s.pinned[e.Seq] = uint32(len(e.Bytes))
+			s.pinned[e.Seq] = int64(len(e.Bytes))
 			s.pinBytes += int64(len(e.Bytes))
 		}
 	}
@@ -196,7 +196,7 @@ func (s *Spool) pinBatch(es []*Entry) {
 func (s *Spool) unpin(seq uint64) {
 	if n, ok := s.pinned[seq]; ok {
 		delete(s.pinned, seq)
-		s.pinBytes -= int64(n)
+		s.pinBytes -= n
 	}
 }
 
@@ -475,7 +475,7 @@ func (s *Spool) OpenEpoch(reason string, prev *protocol.EpochID, prevHead *uint6
 	s.committed = nil
 	s.marks = []chainMark{s.baseMark()}
 	s.sinceMark = 0
-	s.pinned, s.pinBytes = map[uint64]uint32{}, 0
+	s.pinned, s.pinBytes = map[uint64]int64{}, 0
 	s.rebaseline, s.nextRelief = false, 0
 	s.noteIO(s.segs.gc())
 	s.signal()

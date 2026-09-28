@@ -218,6 +218,9 @@ func TestDecodeRecordSerialTypes(t *testing.T) {
 	if _, err := DecodeRecord([]byte{2, 6}); err == nil {
 		t.Fatal("truncated value accepted")
 	}
+	if _, err := DecodeRecord([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("header length beyond int: %v", err)
+	}
 	if got := beInt([]byte{0xff, 0xfe}); got != -2 {
 		t.Fatalf("beInt = %d", got)
 	}

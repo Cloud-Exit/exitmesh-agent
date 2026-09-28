@@ -147,7 +147,7 @@ func (h *Host) recover() error {
 	if ok {
 		r, err := protocol.Decode(b)
 		if err != nil || r.Checkpoint == nil {
-			return fmt.Errorf("host: recovery snapshot: undecodable: %v", err)
+			return fmt.Errorf("host: recovery snapshot: undecodable: %w", err)
 		}
 		if r.Epoch == ep.ID {
 			st, from, hd.lastMs = protocol.StateFromCheckpoint(r.Checkpoint), r.Seq+1, r.Time

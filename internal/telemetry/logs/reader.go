@@ -21,7 +21,7 @@ type fileID struct{ dev, ino uint64 }
 
 func statID(fi os.FileInfo) fileID {
 	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-		return fileID{uint64(st.Dev), st.Ino}
+		return fileID{uint64(st.Dev), st.Ino} //nolint:unconvert // Stat_t.Dev is not uint64 on every GOOS/GOARCH
 	}
 	return fileID{}
 }
@@ -39,7 +39,7 @@ type fingerprint struct {
 
 func fpOf(b []byte) fingerprint {
 	h := fnv.New64a()
-	h.Write(b)
+	_, _ = h.Write(b)
 	return fingerprint{len(b), h.Sum64()}
 }
 
@@ -171,12 +171,12 @@ func openTracked(path, name string, start int64, midLine bool) (*tracked, error)
 	}
 	fi, err := f.Stat()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 	fp, err := readFP(f, fi.Size())
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 	t := &tracked{f: f, id: statID(fi), name: name, path: path, size: fi.Size(), fp: fp, offset: start, readPos: start}
@@ -255,7 +255,7 @@ func (t *tracked) refreshFP() {
 
 func (t *tracked) close() {
 	if t.f != nil {
-		t.f.Close()
+		_ = t.f.Close()
 		t.f = nil
 	}
 }

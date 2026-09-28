@@ -483,9 +483,9 @@ func TestPrecreatedNamespaces(t *testing.T) {
 
 func TestRequiredInputs(t *testing.T) {
 	renderFails(t, "endpoint is required", "--set", "enrollment.token=emx1_c_t-1_s")
-	renderFails(t, "endpoint: Does not match pattern", "--set", "enrollment.token=emx1_c_t-1_s", "--set", "endpoint=http://insecure.example.com")
+	schemaFails(t, "endpoint", "--set", "enrollment.token=emx1_c_t-1_s", "--set", "endpoint=http://insecure.example.com")
 	renderFails(t, "an enrollment token is required", "--set", "endpoint=https://cp.example.com")
-	renderFails(t, "enrollment.token: Does not match pattern", "--set", "endpoint=https://cp.example.com", "--set", "enrollment.token=abc")
+	schemaFails(t, "token", "--set", "endpoint=https://cp.example.com", "--set", "enrollment.token=abc")
 	render(t, "--set", "enrollment.token=emx1_c_t-1_s", "--set", "airgap.enabled=true")
 	renderFails(t, "at least one of capabilities", append([]string{"--set", "capabilities.inventory=false", "--set", "capabilities.metrics=false", "--set", "capabilities.logs=false"}, baseArgs...)...)
 	renderFails(t, "requires tls.caBundle", append([]string{"--set", "tls.mode=existingSecret", "--set", "tls.existingSecret=x"}, baseArgs...)...)
@@ -767,5 +767,20 @@ func TestCoordinatorKnowsNodeServiceAccount(t *testing.T) {
 	ds := daemonSet(t, m, nodeDS)
 	if env["EXITMESH_NODE_SERVICE_ACCOUNT"] != ds.Spec.Template.Spec.ServiceAccountName || env["EXITMESH_NODE_NAMESPACE"] != ds.Namespace || ds.Namespace == "" {
 		t.Fatalf("coordinator env %v does not name the node agent ServiceAccount %s/%s", env, ds.Namespace, ds.Spec.Template.Spec.ServiceAccountName)
+	}
+}
+
+func TestCoordinatorEgressAllowsEndpointPort(t *testing.T) {
+	m := render(t, "--set", "endpoint=https://cp.internal.example:9443", "--set", "enrollment.token=emx1_c_t-123_secret")
+	var coord networkingv1.NetworkPolicy
+	typed(t, m.find(t, "NetworkPolicy", coordName), &coord)
+	ports := map[int]bool{}
+	for _, e := range coord.Spec.Egress {
+		for _, p := range e.Ports {
+			ports[p.Port.IntValue()] = true
+		}
+	}
+	if !ports[9443] || !ports[443] {
+		t.Fatalf("coordinator egress ports %v must include the endpoint port 9443 and the default 443", ports)
 	}
 }

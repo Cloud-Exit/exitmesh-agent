@@ -4,7 +4,7 @@ on:
   pull_request:
   merge_group:
   push:
-    branches-ignore: [main, gh-pages]
+    branches-ignore: [main, gh-pages, "dependabot/**"]
 
 permissions:
   contents: read
@@ -18,6 +18,10 @@ jobs:
     uses: ./.github/workflows/quality.yml
 
   artifacts:
+    # The called workflow declares packages: write for its release-only image job; pull requests never push.
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/artifacts.yml
     with:
       version: 0.0.0-ci.${{ github.run_number }}

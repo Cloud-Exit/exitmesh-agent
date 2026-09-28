@@ -157,7 +157,7 @@ func foldVectors() foldFile {
 	vs = append(vs, foldCase("run starting with a range record takes its span start", withRange[:2], withRange[2:]))
 
 	for seed := uint64(1); seed <= 6; seed++ {
-		rg := &rgen{rng: rand.New(rand.NewPCG(seed, 0x454d4850))}
+		rg := &rgen{rng: rand.New(rand.NewPCG(seed, 0x454d4850))} //nolint:gosec // seeded PRNG keeps the committed vectors reproducible
 		b := rg.chain(8 + int(seed)*3)
 		n := len(b.recs)
 		a := 2 + rg.rng.IntN(n-2)
@@ -198,12 +198,12 @@ func (g *rgen) value(depth int) any {
 	case 3:
 		return g.rng.IntN(2) == 0
 	case 4:
-		return []byte{byte(g.rng.IntN(256)), byte(g.rng.IntN(256))}
+		return []byte{byte(g.rng.IntN(256) & 0xff), byte(g.rng.IntN(256) & 0xff)}
 	case 5:
 		if depth < 2 {
 			return []any{g.value(depth + 1), g.value(depth + 1)}
 		}
-		return uint64(1<<63) + uint64(g.rng.IntN(1000))
+		return uint64(1<<63) + g.rng.Uint64N(1000)
 	case 6:
 		if depth < 2 {
 			return map[string]any{"k": g.value(depth + 1), "l": g.value(depth + 1)}
@@ -259,7 +259,7 @@ func (g *rgen) ops(st *p.State) []p.Op {
 			if usedUID[r.UID] {
 				continue
 			}
-			ops = append(ops, p.Delete(r.UID, p.DeleteReason(1+g.rng.IntN(2))))
+			ops = append(ops, p.Delete(r.UID, p.DeleteReason(1+g.rng.Uint64N(2))))
 			usedUID[r.UID] = true
 		case k < 8:
 			if len(edges) > 0 && g.rng.IntN(2) == 0 {
@@ -286,12 +286,12 @@ func (g *rgen) ops(st *p.State) []p.Op {
 			if usedScope[key] {
 				continue
 			}
-			s := p.ScopeStatus{State: p.ScopeState(g.rng.IntN(3))}
+			s := p.ScopeStatus{State: p.ScopeState(g.rng.Uint64N(3))}
 			if g.rng.IntN(2) == 0 {
 				s.Reason = "forbidden"
 			}
 			if g.rng.IntN(2) == 0 {
-				s.Since = t0 + uint64(g.rng.IntN(1000))
+				s.Since = t0 + g.rng.Uint64N(1000)
 			}
 			ops = append(ops, p.ScopeSet(key, s))
 			usedScope[key] = true
@@ -305,13 +305,13 @@ func (g *rgen) chain(n int) *builder {
 	b.checkpoint(p.ReasonInitial)
 	for i := 0; i < n; i++ {
 		if g.rng.IntN(6) == 0 {
-			b.finding(minimalFinding(b.now, p.Transition(1+g.rng.IntN(5))))
+			b.finding(minimalFinding(b.now, p.Transition(1+g.rng.Uint64N(5))))
 			continue
 		}
 		var flags uint64
 		var unc *p.Interval
 		if g.rng.IntN(4) == 0 {
-			flags = uint64(1 + g.rng.IntN(3))
+			flags = 1 + g.rng.Uint64N(3)
 		}
 		if g.rng.IntN(4) == 0 {
 			unc = &p.Interval{Start: b.now - 100, End: b.now}

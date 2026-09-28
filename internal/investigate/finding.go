@@ -137,7 +137,7 @@ func evidenceOf(t Telemetry) []protocol.Evidence {
 			continue
 		}
 		p := sr.Points[len(sr.Points)-1]
-		out = append(out, protocol.Evidence{Source: sr.Source, Time: uint64(p.T), Text: fmt.Sprintf("%s %s", metricString(sr.Metric), strconv.FormatFloat(p.V, 'g', -1, 64)), Labels: sr.Metric})
+		out = append(out, protocol.Evidence{Source: sr.Source, Time: uint64(max(p.T, 0)), Text: fmt.Sprintf("%s %s", metricString(sr.Metric), strconv.FormatFloat(p.V, 'g', -1, 64)), Labels: sr.Metric})
 	}
 	return out
 }

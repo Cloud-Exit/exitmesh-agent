@@ -14,7 +14,7 @@ import (
 
 func unpinAll(s *Spool) {
 	s.mu.Lock()
-	s.pinned, s.pinBytes = map[uint64]uint32{}, 0
+	s.pinned, s.pinBytes = map[uint64]int64{}, 0
 	s.mu.Unlock()
 }
 

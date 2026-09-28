@@ -129,7 +129,9 @@ jobs:
           export KO_DOCKER_REPO="ghcr.io/$owner/exitmesh-agent"
           export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
           ko build ./cmd/exitmesh-agent --bare --sbom=spdx --tags "candidate-${GITHUB_SHA::12}" --image-refs image-ref.txt
-          echo "ref=$(cat image-ref.txt)" >>"$GITHUB_OUTPUT"
+          digest=$(grep -m1 -o 'sha256:[0-9a-f]\{64\}' image-ref.txt)
+          [ -n "$digest" ] || { cat image-ref.txt >&2; exit 1; }
+          echo "ref=$KO_DOCKER_REPO@$digest" >>"$GITHUB_OUTPUT"
 
   package-smoke:
     needs: build

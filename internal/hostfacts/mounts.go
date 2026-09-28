@@ -3,6 +3,7 @@ package hostfacts
 import (
 	"errors"
 	"io/fs"
+	"math"
 	"sort"
 	"strings"
 
@@ -96,9 +97,14 @@ func (c *Collector) collectMounts(s *Snapshot, devs *deviceIndex) {
 		var st unix.Statfs_t
 		switch err := c.o.Statfs(first.MountPoint, &st); {
 		case err == nil:
-			size := int64(st.Blocks) * int64(st.Bsize)
+			size, inodes, ok := capacity(&st)
+			if !ok {
+				fields["capacity_unavailable"] = ReasonReadFailed
+				t.bad(ReasonReadFailed)
+				break
+			}
 			fields["size_bytes"] = size
-			fields["inodes_total"] = int64(st.Files)
+			fields["inodes_total"] = inodes
 			if size > 0 {
 				pct := float64(st.Blocks-st.Bfree) * 100 / float64(st.Blocks)
 				fields["used_pct_bucket"] = c.bucket(fsUID, pct)
@@ -121,6 +127,19 @@ func (c *Collector) collectMounts(s *Snapshot, devs *deviceIndex) {
 		st.State = protocol.ScopePartial
 	}
 	s.set(FactFilesystems, st.State, st.Reason)
+}
+
+// capacity returns the size in bytes and the inode count of a statfs result, false when either exceeds int64.
+func capacity(st *unix.Statfs_t) (size, inodes int64, ok bool) {
+	blocks, bsize, files := st.Blocks, int64(st.Bsize), st.Files //nolint:unconvert // Statfs_t.Bsize is int32 on 32-bit GOARCHes
+	if bsize < 0 || blocks > math.MaxInt64 || files > math.MaxInt64 {
+		return 0, 0, false
+	}
+	n := int64(blocks)
+	if bsize > 0 && n > math.MaxInt64/bsize {
+		return 0, 0, false
+	}
+	return n * bsize, int64(files), true
 }
 
 // bucket returns the used-space bucket with a two point hysteresis so a filesystem near a boundary does not flap.

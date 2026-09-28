@@ -193,7 +193,12 @@ func (e *env) client(t *testing.T, node, token string) *Client {
 	return c
 }
 
-func (e *env) raw(t *testing.T, method, path, ctype string, body io.Reader, token string) *http.Response {
+type rawResponse struct {
+	StatusCode int
+	Header     http.Header
+}
+
+func (e *env) raw(t *testing.T, method, path, ctype string, body io.Reader, token string) rawResponse {
 	t.Helper()
 	req, err := http.NewRequest(method, e.srv.URL+path, body)
 	if err != nil {
@@ -209,8 +214,11 @@ func (e *env) raw(t *testing.T, method, path, ctype string, body io.Reader, toke
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { resp.Body.Close() })
-	return resp
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	return rawResponse{StatusCode: resp.StatusCode, Header: resp.Header}
 }
 
 func (e *env) auditLog() []AuditEvent {
@@ -444,7 +452,7 @@ func TestLongPollTimeouts(t *testing.T) {
 		cancel()
 	}()
 	if _, err := c.WaitTasks(cctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled poll: %v", err)
+		t.Fatalf("canceled poll: %v", err)
 	}
 }
 

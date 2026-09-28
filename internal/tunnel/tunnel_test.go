@@ -98,6 +98,15 @@ func (s *server) dial(t *testing.T, mod func(*Options)) (*Conn, *Conn) {
 	}
 }
 
+// dialRaw dials a bare WebSocket past the Transport, as a misbehaving peer would.
+func dialRaw(ctx context.Context, url string, opts *websocket.DialOptions) (*websocket.Conn, error) {
+	ws, resp, err := websocket.Dial(ctx, url, opts)
+	if resp != nil && resp.Body != nil {
+		resp.Body.Close()
+	}
+	return ws, err
+}
+
 func echo(ctx context.Context, req *client.Request) (any, error) {
 	switch req.Method {
 	case "echo":
@@ -318,7 +327,8 @@ func TestReadLimit(t *testing.T) {
 	s := newServer(t, ConnOptions{ReadLimit: 1024}, func(c *Conn) { c.Handle(echo) })
 	c, sc := s.dial(t, nil)
 	c.Handle(echo)
-	if err := c.SendBinary(context.Background(), make([]byte, 4096)); err != nil {
+	// The send can observe the server's close frame first; either way the server must drop the connection.
+	if err := c.SendBinary(context.Background(), make([]byte, 4096)); err != nil && !strings.Contains(err.Error(), "MessageTooBig") {
 		t.Fatal(err)
 	}
 	select {
@@ -363,7 +373,7 @@ func TestDialErrors(t *testing.T) {
 	if _, err := tr.Dial(ctx); err == nil {
 		t.Fatal("server without the subprotocol accepted")
 	}
-	ws, _, err := websocket.Dial(ctx, s.srv.URL+protocol.TunnelPath, &websocket.DialOptions{HTTPClient: s.srv.Client()})
+	ws, err := dialRaw(ctx, s.srv.URL+protocol.TunnelPath, &websocket.DialOptions{HTTPClient: s.srv.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +562,7 @@ func TestWritesAfterCloseAndInvalidJSON(t *testing.T) {
 	if err := c.Notify(ctx, "n", nil); !errors.Is(err, ErrClosed) {
 		t.Fatalf("notify after close: %v", err)
 	}
-	ws, _, err := websocket.Dial(ctx, s.srv.URL+protocol.TunnelPath, &websocket.DialOptions{HTTPClient: s.srv.Client(), Subprotocols: []string{protocol.TunnelSubprotocol}})
+	ws, err := dialRaw(ctx, s.srv.URL+protocol.TunnelPath, &websocket.DialOptions{HTTPClient: s.srv.Client(), Subprotocols: []string{protocol.TunnelSubprotocol}})
 	if err != nil {
 		t.Fatal(err)
 	}

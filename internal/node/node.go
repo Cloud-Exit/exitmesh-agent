@@ -302,8 +302,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.started = true
 	a.startMu.Unlock()
 	if err := a.open(); err != nil {
-		a.closeAll()
-		return err
+		return errors.Join(err, a.closeAll())
 	}
 	a.log.Info("node agent started", "version", a.deps.AgentVersion, "fresh_state", a.fresh, "capabilities", a.cfg.Capabilities)
 	runCtx, cancel := context.WithCancel(ctx)

@@ -558,7 +558,7 @@ func (s *Server) notifyLocked(t *target, n Notification) {
 	t.notified[n.FindingID] = true
 	now := s.now()
 	n.Target, n.Time = t.id, now
-	n.LateDelivered = now.Sub(time.UnixMilli(int64(n.EvalTime))) > s.opts.LateThreshold
+	n.LateDelivered = now.Sub(protocol.UnixMilli(n.EvalTime)) > s.opts.LateThreshold
 	t.notifications = append(t.notifications, n)
 }
 

@@ -12,7 +12,7 @@ import (
 
 // Default in-pod credential paths used for kubelet scraping.
 const (
-	ServiceAccountTokenFile = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	ServiceAccountTokenFile = "/var/run/secrets/kubernetes.io/serviceaccount/token" //nolint:gosec // a file path, not a credential
 	ServiceAccountCAFile    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 )
 

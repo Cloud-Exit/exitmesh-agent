@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
@@ -184,7 +185,7 @@ func canon(v promql.Vector) []string {
 	out := make([]string, 0, len(v))
 	for _, s := range v {
 		lb := labels.NewBuilder(s.Metric)
-		lb.Del(labels.MetricName)
+		lb.Del(model.MetricNameLabel)
 		out = append(out, fmt.Sprintf("%s=%.6f", lb.Labels().String(), s.F))
 	}
 	sort.Strings(out)

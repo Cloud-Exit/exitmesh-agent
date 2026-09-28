@@ -133,7 +133,7 @@ func (a *Authenticator) discover(ctx context.Context) (*oidc.IDTokenVerifier, er
 	}
 	var doc discoveryDoc
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("issuer discovery: %v", err)
+		return nil, fmt.Errorf("issuer discovery: %w", err)
 	}
 	if doc.Issuer == "" {
 		return nil, errors.New("issuer discovery: empty issuer")
@@ -164,7 +164,7 @@ func (a *Authenticator) verifierFor(ctx context.Context) (*oidc.IDTokenVerifier,
 	}
 	v, err := a.discover(ctx)
 	if err != nil {
-		a.failAt, a.failErr = now, fmt.Errorf("%w: %v", ErrAuthUnavailable, err)
+		a.failAt, a.failErr = now, fmt.Errorf("%w: %w", ErrAuthUnavailable, err)
 		return nil, a.failErr
 	}
 	a.verifier, a.failErr = v, nil
@@ -219,7 +219,7 @@ func (a *Authenticator) Authenticate(ctx context.Context, token string) (Identit
 	idt, err := v.Verify(context.WithValue(ctx, fetchFlagKey{}, flag), token)
 	if err != nil {
 		if flag.failed {
-			return Identity{}, fmt.Errorf("%w: %v", ErrAuthUnavailable, err)
+			return Identity{}, fmt.Errorf("%w: %w", ErrAuthUnavailable, err)
 		}
 		return Identity{}, unauthenticated("%v", err)
 	}

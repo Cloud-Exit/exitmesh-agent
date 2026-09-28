@@ -1,6 +1,8 @@
 package hostfacts
 
 import (
+	"math"
+
 	"github.com/prometheus/procfs"
 )
 
@@ -56,10 +58,28 @@ func (c *Collector) collectMemory(s *Snapshot) {
 		s.unavailable(FactMemory, reasonFor(err))
 		return
 	}
-	fields := map[string]any{"mem_total_bytes": int64(*mi.MemTotal) * 1024}
+	total, ok := kibBytes(*mi.MemTotal)
+	if !ok {
+		s.unavailable(FactMemory, ReasonReadFailed)
+		return
+	}
+	fields := map[string]any{"mem_total_bytes": total}
 	if mi.SwapTotal != nil {
-		fields["swap_total_bytes"] = int64(*mi.SwapTotal) * 1024
+		swap, ok := kibBytes(*mi.SwapTotal)
+		if !ok {
+			s.unavailable(FactMemory, ReasonReadFailed)
+			return
+		}
+		fields["swap_total_bytes"] = swap
 	}
 	s.add(uid(KindMemory), KindMemory, "memory", fields)
 	s.ok(FactMemory)
+}
+
+// kibBytes converts a meminfo kB count to bytes, false when the result exceeds int64.
+func kibBytes(kib uint64) (int64, bool) {
+	if kib > math.MaxInt64/1024 {
+		return 0, false
+	}
+	return int64(kib) * 1024, true
 }

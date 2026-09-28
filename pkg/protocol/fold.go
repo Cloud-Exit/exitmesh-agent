@@ -29,10 +29,12 @@ func Fold(records []*Record) (*Range, error) {
 	res := map[string]*resFold{}
 	edges := map[EdgeKey]*edgeFold{}
 	scopes := map[string]ScopeStatus{}
+	var prevSeq uint64
 	for i, r := range records {
-		if i > 0 && r.Parent != records[i-1].Seq {
-			return nil, fmt.Errorf("%w: record %d does not follow %d", ErrFold, r.Seq, records[i-1].Seq)
+		if i > 0 && r.Parent != prevSeq {
+			return nil, fmt.Errorf("%w: record %d does not follow %d", ErrFold, r.Seq, prevSeq)
 		}
+		prevSeq = r.Seq
 		var ops []Op
 		switch r.Type {
 		case TypeDelta:

@@ -60,7 +60,7 @@ func TestCollectDebianFixture(t *testing.T) {
 		t.Fatalf("identity fields %v", s.Resources[os].Fields)
 	}
 	if _, ok := s.Resources[os].Fields["home_url"]; ok {
-		t.Fatal("non-catalogued os-release key collected")
+		t.Fatal("non-cataloged os-release key collected")
 	}
 	if field(t, s, uid(KindKernel), "release") != "6.1.0-18-amd64" || field(t, s, uid(KindKernel), "machine") != "x86_64" {
 		t.Fatal("kernel fields")
@@ -246,6 +246,33 @@ func TestCollectDebianFixture(t *testing.T) {
 				t.Fatalf("%s field %s rendered empty", uid, k)
 			}
 		}
+	}
+}
+
+func TestKernelValuesOutOfRangeAreUnavailable(t *testing.T) {
+	f := newDebianFixture(t)
+	writeTree(t, f.root, map[string]string{
+		"proc/meminfo":     "MemTotal:        18446744073709551615 kB\n",
+		"proc/4242/status": strings.ReplaceAll(procStatus("myapp", 7), "\t7", "\t4294967296"),
+	})
+	root := f.stat["/"]
+	root.Blocks = 1 << 63
+	f.stat["/"] = root
+	s := NewCollector(f.options()).Collect(context.Background())
+	if st := s.Status[FactMemory]; st.State != protocol.ScopeUnavailable || st.Reason != ReasonReadFailed {
+		t.Fatalf("memory status %+v", st)
+	}
+	if field(t, s, uid(KindFilesystem, "ext4", "/dev/sda1"), "capacity_unavailable") != ReasonReadFailed {
+		t.Fatal("filesystem beyond int64 bytes reported a capacity")
+	}
+	if _, ok := s.Resources[uid(KindProcess, "4242", "5000")]; ok {
+		t.Fatal("process with a UID beyond uint32 collected")
+	}
+
+	writeTree(t, f.root, map[string]string{"proc/net/tcp": tcpHeader + strings.Replace(tcpLine(0, "00000000:0016", "00000000:0000", "0A", 7, 1001), "    7 ", "4294967296 ", 1)})
+	s = NewCollector(f.options()).Collect(context.Background())
+	if st := s.Status[FactSockets]; st.State != protocol.ScopeUnavailable || st.Reason != ReasonReadFailed {
+		t.Fatalf("sockets status %+v", st)
 	}
 }
 

@@ -215,7 +215,7 @@ func (s *Spool) rewriteFindings(target int64, bit uint8, edit func(*protocol.Fin
 				if err != nil {
 					return rewritten, fmt.Errorf("record %d: %w", m.Seq, err)
 				}
-				nm.Hash, nm.Len = rec.Hash(), uint32(len(b))
+				nm.Hash, nm.Len = rec.Hash(), uint32(len(b)) //nolint:gosec // protocol.Encode bounds records by MaxRecordBytes
 				changed = append(changed, len(news))
 				frames = append(frames, appendFrame(nil, b))
 				projected += int64(len(b)) - int64(m.Len)
@@ -450,7 +450,7 @@ func (s *Spool) persistRange(acc *protocol.Record, accMeta *recMeta, pending []r
 	}
 	nm := recMeta{
 		Seq: acc.Seq, Type: protocol.TypeRange, State: NeverTransmitted, Flags: flags, Hash: acc.Hash(),
-		Seg: locs[0].seg, Off: locs[0].off, Len: uint32(len(acc.Bytes())), Time: acc.Time, From: acc.Range.From,
+		Seg: locs[0].seg, Off: locs[0].off, Len: uint32(len(acc.Bytes())), Time: acc.Time, From: acc.Range.From, //nolint:gosec // protocol.Encode bounds records by MaxRecordBytes
 	}
 	// Usage reports the age of the oldest spooled change, so a range keeps its earliest input time.
 	gone := append([]recMeta(nil), pending...)

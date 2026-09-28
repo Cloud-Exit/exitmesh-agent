@@ -22,7 +22,7 @@ var castagnoli = crc32.MakeTable(crc32.Castagnoli)
 
 func appendFrame(dst, payload []byte) []byte {
 	var h [frameHeader]byte
-	binary.BigEndian.PutUint32(h[0:4], uint32(len(payload)))
+	binary.BigEndian.PutUint32(h[0:4], uint32(len(payload))) //nolint:gosec // callers bound payloads: records by MaxRecordBytes, queue items by maxFrame, the snapshot by MaxUint32
 	binary.BigEndian.PutUint32(h[4:8], crc32.Checksum(payload, castagnoli))
 	dst = append(dst, h[:]...)
 	return append(dst, payload...)

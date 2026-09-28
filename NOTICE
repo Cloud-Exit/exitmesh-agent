@@ -1,7 +1,7 @@
 ExitMesh agent
-Copyright 2026 Cloud Exit
+Copyright 2026, Cloud Exit B.V.
 
-This product includes software developed by Cloud Exit
+This product includes software developed by Cloud Exit B.V.
 (https://github.com/cloud-exit/exitmesh-agent), licensed under the Apache License, Version 2.0.
 
 This product includes software from the Prometheus project
@@ -20,3 +20,8 @@ This product includes software from VictoriaMetrics (https://github.com/Victoria
 Copyright VictoriaMetrics, licensed under the Apache License, Version 2.0.
 
 The full list of third-party modules and their licenses is published in the SBOM attached to every release.
+
+This product includes, unmodified, the following modules licensed under the Mozilla Public License 2.0,
+pulled in by the node_exporter collectors; their source is available at the listed locations:
+github.com/cyphar/filepath-securejoin (https://github.com/cyphar/filepath-securejoin) and
+github.com/hashicorp/go-envparse (https://github.com/hashicorp/go-envparse).

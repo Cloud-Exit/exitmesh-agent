@@ -142,7 +142,7 @@ func (b nodeBackend) Submit(_ context.Context, node string, items []nodeapi.Item
 			case nodeapi.KindFinding:
 				f, err := protocol.DecodeFinding(it.Finding)
 				if err != nil {
-					return fmt.Errorf("%w: finding %d: %v", nodeapi.ErrInvalid, it.Seq, err)
+					return fmt.Errorf("%w: finding %d: %w", nodeapi.ErrInvalid, it.Seq, err)
 				}
 				if f.Node == "" {
 					f.Node = node

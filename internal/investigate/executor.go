@@ -9,16 +9,17 @@ import (
 	"slices"
 	"time"
 
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql"
+	"github.com/prometheus/prometheus/promql/parser"
+	"github.com/prometheus/prometheus/storage"
+
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/redact"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/logql"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/evidence"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/logs"
-	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/promql"
-	"github.com/prometheus/prometheus/promql/parser"
-	"github.com/prometheus/prometheus/storage"
 )
 
 // Executor defaults.

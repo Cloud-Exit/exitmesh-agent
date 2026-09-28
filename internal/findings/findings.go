@@ -578,7 +578,7 @@ func (t *Tracker) transition(e *episode, tr protocol.Transition, eval uint64, em
 	if len(f.Coverage) > 0 {
 		f.Flags |= protocol.FindingIncompleteCoverage
 	}
-	if now.Sub(time.UnixMilli(int64(eval))) > t.o.LateThreshold {
+	if now.Sub(protocol.UnixMilli(eval)) > t.o.LateThreshold {
 		f.Flags |= protocol.FindingLateAtWriter
 	}
 	if e.EvDirty {

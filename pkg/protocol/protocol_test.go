@@ -539,8 +539,18 @@ func TestDiffRoundTrip(t *testing.T) {
 	}
 }
 
+func TestUnixMilliSaturates(t *testing.T) {
+	if got := UnixMilli(1_700_000_000_123); !got.Equal(time.UnixMilli(1_700_000_000_123)) {
+		t.Fatalf("UnixMilli = %v", got)
+	}
+	if got := UnixMilli(math.MaxUint64); !got.Equal(time.UnixMilli(math.MaxInt64)) {
+		t.Fatalf("UnixMilli beyond int64 = %v", got)
+	}
+}
+
 func TestFindingIDAndQueryHashDeterministic(t *testing.T) {
-	if FindingID("t", "k", 1) != FindingID("t", "k", 1) || FindingID("t", "k", 1) == FindingID("t", "k", 2) {
+	first, again := FindingID("t", "k", 1), FindingID("t", "k", 1)
+	if first != again || first == FindingID("t", "k", 2) {
 		t.Fatal("finding id")
 	}
 	if len(FindingID("t", "k", 1)) != 32 {

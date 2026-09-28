@@ -106,7 +106,7 @@ func readableScopes(s map[string]ScopeStatus) map[string]any {
 func readableScope(v ScopeStatus) map[string]any {
 	names := []string{"complete", "partial", "unavailable"}
 	m := map[string]any{"state": "unknown"}
-	if int(v.State) < len(names) {
+	if v.State < ScopeState(len(names)) {
 		m["state"] = names[v.State]
 	}
 	if v.Reason != "" {

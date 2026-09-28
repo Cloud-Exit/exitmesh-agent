@@ -16,7 +16,7 @@ func decodeCmd(_ context.Context, args []string, stdout, stderr io.Writer) error
 	fs := newFlags("decode", stderr)
 	in := fs.String("in", "", "export file path, or - for standard input")
 	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("%w: %v", errUsage, err)
+		return fmt.Errorf("%w: %w", errUsage, err)
 	}
 	if *in == "" {
 		return fmt.Errorf("%w: --in is required", errUsage)

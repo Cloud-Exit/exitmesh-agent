@@ -208,7 +208,7 @@ func (f *Finding) validate() error {
 		return fmt.Errorf("%w: provenance kind %d", ErrMalformed, f.Provenance.Kind)
 	}
 	for i := 1; i < len(f.Resources); i++ {
-		if !(f.Resources[i-1] < f.Resources[i]) {
+		if f.Resources[i-1] >= f.Resources[i] {
 			return fmt.Errorf("%w: finding resources not sorted and unique", ErrMalformed)
 		}
 	}

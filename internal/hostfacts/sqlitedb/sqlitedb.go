@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 )
@@ -43,11 +44,11 @@ func Open(path string) (*DB, error) {
 	}
 	db := &DB{f: f}
 	if err := db.readHeader(); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 	if err := db.openWAL(path + "-wal"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return db, nil
@@ -68,7 +69,7 @@ func (db *DB) Close() error {
 func (db *DB) readHeader() error {
 	h := make([]byte, 100)
 	if _, err := db.f.ReadAt(h, 0); err != nil {
-		return fmt.Errorf("%w: header: %v", ErrCorrupt, err)
+		return fmt.Errorf("%w: header: %w", ErrCorrupt, err)
 	}
 	if string(h[:16]) != headerMagic {
 		return fmt.Errorf("%w: not an SQLite 3 database", ErrCorrupt)
@@ -94,7 +95,11 @@ func (db *DB) readHeader() error {
 	}
 	n := binary.BigEndian.Uint32(h[28:32])
 	if n == 0 || binary.BigEndian.Uint32(h[24:28]) != binary.BigEndian.Uint32(h[92:96]) {
-		n = uint32(st.Size() / int64(ps))
+		pages := st.Size() / int64(ps)
+		if pages < 0 || pages > math.MaxUint32 {
+			return fmt.Errorf("%w: %d pages", ErrCorrupt, pages)
+		}
+		n = uint32(pages)
 	}
 	db.nPages = n
 	return nil
@@ -111,16 +116,16 @@ func (db *DB) openWAL(path string) error {
 	}
 	st, err := w.Stat()
 	if err != nil {
-		w.Close()
+		_ = w.Close()
 		return err
 	}
 	hdr := make([]byte, walHeaderSize)
 	if st.Size() < walHeaderSize {
-		w.Close()
+		_ = w.Close()
 		return nil
 	}
 	if _, err := w.ReadAt(hdr, 0); err != nil {
-		w.Close()
+		_ = w.Close()
 		return err
 	}
 	var order binary.ByteOrder
@@ -130,16 +135,16 @@ func (db *DB) openWAL(path string) error {
 	case walMagicBE:
 		order = binary.BigEndian
 	default:
-		w.Close()
+		_ = w.Close()
 		return nil
 	}
 	if int(binary.BigEndian.Uint32(hdr[8:12])) != db.pageSize {
-		w.Close()
+		_ = w.Close()
 		return nil
 	}
 	s0, s1 := walChecksum(order, hdr[:24], 0, 0)
 	if s0 != binary.BigEndian.Uint32(hdr[24:28]) || s1 != binary.BigEndian.Uint32(hdr[28:32]) {
-		w.Close()
+		_ = w.Close()
 		return nil
 	}
 	salt := hdr[16:24]
@@ -173,7 +178,7 @@ func (db *DB) openWAL(path string) error {
 		}
 	}
 	if len(committed) == 0 {
-		w.Close()
+		_ = w.Close()
 		return nil
 	}
 	db.wal = w
@@ -324,10 +329,11 @@ func (db *DB) leafCell(p []byte, off int) (int64, []byte, error) {
 		return 0, nil, fmt.Errorf("%w: payload length", ErrCorrupt)
 	}
 	off += n
-	rowid, n := varint(p[off:db.usable])
+	v, n := varint(p[off:db.usable])
 	if n == 0 {
 		return 0, nil, fmt.Errorf("%w: rowid", ErrCorrupt)
 	}
+	rowid := int64(v) //nolint:gosec // the varint carries the signed rowid's two's complement bits
 	off += n
 	if plen > 1<<31 {
 		return 0, nil, fmt.Errorf("%w: payload length %d", ErrCorrupt, plen)
@@ -340,7 +346,7 @@ func (db *DB) leafCell(p []byte, off int) (int64, []byte, error) {
 	out := make([]byte, 0, total)
 	out = append(out, p[off:off+local]...)
 	if local == total {
-		return int64(rowid), out, nil
+		return rowid, out, nil
 	}
 	if off+local+4 > db.usable {
 		return 0, nil, fmt.Errorf("%w: overflow pointer", ErrCorrupt)
@@ -358,7 +364,7 @@ func (db *DB) leafCell(p []byte, off int) (int64, []byte, error) {
 		out = append(out, op[4:4+chunk]...)
 		next = binary.BigEndian.Uint32(op[0:4])
 	}
-	return int64(rowid), out, nil
+	return rowid, out, nil
 }
 
 func (db *DB) localPayload(p int) int {
@@ -377,12 +383,16 @@ func (db *DB) localPayload(p int) int {
 
 // DecodeRecord decodes an SQLite record into int64, float64, string, []byte, or nil values.
 func DecodeRecord(rec []byte) ([]any, error) {
-	hlen, n := varint(rec)
-	if n == 0 || int(hlen) > len(rec) || int(hlen) < n {
+	hv, n := varint(rec)
+	if n == 0 || hv > math.MaxInt {
+		return nil, fmt.Errorf("%w: record header", ErrCorrupt)
+	}
+	hlen := int(hv)
+	if hlen > len(rec) || hlen < n {
 		return nil, fmt.Errorf("%w: record header", ErrCorrupt)
 	}
 	var types []uint64
-	for p := n; p < int(hlen); {
+	for p := n; p < hlen; {
 		t, m := varint(rec[p:hlen])
 		if m == 0 {
 			return nil, fmt.Errorf("%w: serial type", ErrCorrupt)
@@ -492,7 +502,7 @@ func (db *DB) Table(name string) (*Table, error) {
 		if withoutRowid {
 			return nil, fmt.Errorf("sqlitedb: table %s is WITHOUT ROWID, which is not supported", nm)
 		}
-		if root <= 0 || root > int64(db.nPages) {
+		if root <= 0 || root > math.MaxUint32 || uint32(root) > db.nPages {
 			return nil, fmt.Errorf("%w: table %s root page %d", ErrCorrupt, nm, root)
 		}
 		return &Table{Name: nm, Root: uint32(root), Columns: cols, RowidCol: rowidCol, real: real}, nil

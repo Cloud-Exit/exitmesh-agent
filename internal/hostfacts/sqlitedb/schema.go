@@ -74,7 +74,7 @@ func realAffinity(decl string) bool {
 	if strings.Contains(decl, "INT") || strings.Contains(decl, "CHAR") || strings.Contains(decl, "CLOB") || strings.Contains(decl, "TEXT") {
 		return false
 	}
-	return strings.Contains(decl, "REAL") || strings.Contains(decl, "FLOA") || strings.Contains(decl, "DOUB")
+	return strings.Contains(decl, "REAL") || strings.Contains(decl, "FLOA") || strings.Contains(decl, "DOUB") //nolint:misspell // "DOUB" is the SQLite REAL affinity substring rule
 }
 
 func isQuoted(def string) bool {

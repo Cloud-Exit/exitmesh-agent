@@ -78,7 +78,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 	}
 	caPath := filepath.Join(dir, "ca.pem")
-	if err := os.WriteFile(caPath, certPEM, 0o644); err != nil {
+	if err := os.WriteFile(caPath, certPEM, 0o644); err != nil { //nolint:gosec // public CA certificate, world readable by design
 		return err
 	}
 	log := slog.New(redact.NewHandler(slog.NewTextHandler(errOut, nil), redact.Default()))
@@ -128,7 +128,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		defer close(done)
 		<-ctx.Done()
 		cp.Close()
-		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sctx)
 	}()

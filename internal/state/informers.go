@@ -352,6 +352,13 @@ func (sc *scope) setAccessErr(err error) {
 	sc.mu.Unlock()
 }
 
+// getAccessErr lets a reflector that races its cancellation stop without another API call (PRD A7).
+func (sc *scope) getAccessErr() error {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.accessErr
+}
+
 func (sc *scope) markHealthy(t time.Time) {
 	sc.mu.Lock()
 	if !sc.listing {
@@ -366,6 +373,9 @@ func (c *Collector) watchScope(ctx context.Context, sc *scope) error {
 	sc.setAccessErr(nil)
 	lw := &cache.ListWatch{
 		ListWithContextFunc: func(lctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
+			if err := sc.getAccessErr(); err != nil {
+				return nil, err
+			}
 			c.beginList(sc)
 			obj, err := c.list(lctx, sc, opts)
 			if err != nil {
@@ -374,6 +384,9 @@ func (c *Collector) watchScope(ctx context.Context, sc *scope) error {
 			return obj, err
 		},
 		WatchFuncWithContext: func(wctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+			if err := sc.getAccessErr(); err != nil {
+				return nil, err
+			}
 			if opts.SendInitialEvents != nil && *opts.SendInitialEvents {
 				c.beginList(sc)
 			}

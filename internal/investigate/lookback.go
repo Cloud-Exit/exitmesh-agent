@@ -20,8 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/prometheus/common/model"
+
+	"github.com/cloud-exit/exitmesh-agent/internal/config"
 )
 
 // Lookback adapter bounds.
@@ -66,7 +67,7 @@ func newSource(cfg config.Lookback, hc *http.Client) (*source, error) {
 	if cfg.ProjectID != "" && cfg.AccountID == "" {
 		return nil, fmt.Errorf("lookback %s: projectID requires accountID", cfg.Name)
 	}
-	var rt http.RoundTripper = http.DefaultTransport
+	rt := http.DefaultTransport
 	if hc != nil && hc.Transport != nil {
 		rt = hc.Transport
 	}

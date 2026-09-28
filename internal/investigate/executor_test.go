@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/prometheus/model/labels"
+
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/logql"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/tsdb"
-	"github.com/prometheus/prometheus/model/labels"
 )
 
 var testNow = time.Now().Truncate(time.Second)

@@ -27,11 +27,11 @@ func offlineHost(cfg *config.Config, d Deps) (*Host, error) {
 		return nil, err
 	}
 	if err := h.open(); err != nil {
-		h.close()
+		cerr := h.close()
 		if errors.Is(err, errLockHeld) {
-			return nil, ErrRunning
+			err = ErrRunning
 		}
-		return nil, err
+		return nil, errors.Join(err, cerr)
 	}
 	return h, nil
 }
@@ -109,7 +109,7 @@ func Deenroll(ctx context.Context, cfg *config.Config, reason string, d Deps) (e
 		return err
 	}
 	var stop *client.StopError
-	if err := <-done; err != nil && !(errors.As(err, &stop) && stop.Code == client.HaltDeenrolled) {
+	if err := <-done; err != nil && (!errors.As(err, &stop) || stop.Code != client.HaltDeenrolled) {
 		return err
 	}
 	return nil

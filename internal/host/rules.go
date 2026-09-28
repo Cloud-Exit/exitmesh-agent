@@ -144,7 +144,7 @@ func (h *Host) activate(a *bundle.Active) error {
 		}
 	}
 	h.setErr(&h.st.bundleError, nil)
-	h.log.Info("rule bundle active", "version", b.Manifest.Version, "key_id", a.KeyID, "rules", len(a.Result.Active), "unsupported", len(a.Result.Unsupported))
+	h.log.Info("rule bundle active", "bundle_version", b.Manifest.Version, "key_id", a.KeyID, "rules", len(a.Result.Active), "unsupported", len(a.Result.Unsupported))
 	return nil
 }
 
@@ -288,7 +288,7 @@ func (h *Host) observation(ev engine.AlertEvent) findings.Observation {
 	meta := h.rules.meta[ev.RuleID]
 	h.rules.mu.Unlock()
 	o := findings.Observation{
-		Kind: findings.Firing, RuleID: ev.RuleID, RuleVersion: uint64(ev.RuleVersion), BundleVersion: ev.BundleVersion,
+		Kind: findings.Firing, RuleID: ev.RuleID, RuleVersion: uint64(max(ev.RuleVersion, 0)), BundleVersion: ev.BundleVersion,
 		DedupLabels: meta.DedupLabels(), Labels: ev.Labels, Category: ev.Category, Severity: protocol.ParseSeverity(ev.Severity),
 		EvalTime: ev.EvalTime, Resources: ev.ResourceUIDs, Summary: ev.Summary, Facts: map[string]any{"value": ev.Value},
 		MaxSamples: meta.Evidence.MaxSamples, MaxBytes: meta.Evidence.MaxBytes,

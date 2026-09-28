@@ -3,6 +3,7 @@ package spool
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
@@ -73,12 +74,12 @@ func seqKey(seq uint64) []byte {
 func (m *recMeta) encode() []byte {
 	b := make([]byte, metaSize)
 	b[0] = metaVersion
-	b[1] = byte(m.Type)
+	b[1] = byte(m.Type) //nolint:gosec // record types are the constants 1 to 4, checked again by decodeMeta
 	b[2] = byte(m.State)
 	b[3] = m.Flags
 	copy(b[4:36], m.Hash[:])
 	binary.BigEndian.PutUint64(b[36:44], m.Seg)
-	binary.BigEndian.PutUint64(b[44:52], uint64(m.Off))
+	binary.BigEndian.PutUint64(b[44:52], uint64(m.Off)) //nolint:gosec // segment offsets are non-negative, checked again by decodeMeta
 	binary.BigEndian.PutUint32(b[52:56], m.Len)
 	binary.BigEndian.PutUint64(b[56:64], m.Time)
 	binary.BigEndian.PutUint64(b[64:72], m.From)
@@ -96,7 +97,11 @@ func decodeMeta(k, b []byte) (recMeta, error) {
 	m.Flags = b[3]
 	copy(m.Hash[:], b[4:36])
 	m.Seg = binary.BigEndian.Uint64(b[36:44])
-	m.Off = int64(binary.BigEndian.Uint64(b[44:52]))
+	off := binary.BigEndian.Uint64(b[44:52])
+	if off > math.MaxInt64 {
+		return m, fmt.Errorf("%w: record %d has offset %d", ErrCorrupt, m.Seq, off)
+	}
+	m.Off = int64(off)
 	m.Len = binary.BigEndian.Uint32(b[52:56])
 	m.Time = binary.BigEndian.Uint64(b[56:64])
 	m.From = binary.BigEndian.Uint64(b[64:72])

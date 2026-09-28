@@ -9,9 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloud-exit/exitmesh-agent/internal/rules/bundle"
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
+
+	"github.com/cloud-exit/exitmesh-agent/internal/rules/bundle"
 )
 
 type ruleInfo struct {
@@ -273,7 +275,7 @@ func promInputs(expr parser.Expr) []string {
 		name := vs.Name
 		if name == "" {
 			for _, m := range vs.LabelMatchers {
-				if m.Name == labels.MetricName && m.Type == labels.MatchEqual {
+				if m.Name == model.MetricNameLabel && m.Type == labels.MatchEqual {
 					name = m.Value
 				}
 			}

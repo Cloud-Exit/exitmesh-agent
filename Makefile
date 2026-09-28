@@ -18,7 +18,7 @@ KUBE_VERSIONS ?= 1.27.0 1.30.0 1.34.0 1.37.0
 all: vet test build
 
 build:
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/exitmesh-agent ./cmd/exitmesh-agent
+	$(GO) build -trimpath -buildvcs=false -ldflags "$(LDFLAGS)" -o bin/exitmesh-agent ./cmd/exitmesh-agent
 
 test:
 	$(GO) test ./...
@@ -47,7 +47,7 @@ check-deps:
 	.github/scripts/check-forbidden-modules.sh
 
 licenses:
-	$(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./... --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC --ignore github.com/cloud-exit/exitmesh-agent
+	$(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./... --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC --ignore github.com/cloud-exit/exitmesh-agent --ignore github.com/cyphar/filepath-securejoin --ignore github.com/hashicorp/go-envparse
 
 vuln:
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...

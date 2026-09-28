@@ -91,6 +91,12 @@ type counters struct {
 	lines, bytes, truncated, unparsed, gaps atomic.Uint64
 }
 
+func (c *counters) addBytes(n int64) {
+	if n > 0 {
+		c.bytes.Add(uint64(n))
+	}
+}
+
 var criStreams = [2]string{"stdout", "stderr"}
 
 const podStatePrefix = "pod/"
@@ -550,7 +556,7 @@ func (t *Tailer) pollStream(s *podStream) {
 		}
 		n, eof, err := tf.read(t.scratch, budget, t.physCap(), func(pl physLine) { t.handle(s, tf, pl) })
 		budget -= n
-		t.c.bytes.Add(uint64(n))
+		t.c.addBytes(n)
 		if err != nil {
 			t.gap(s, tf.path, GapReadError, -1, err.Error())
 			return
@@ -571,7 +577,7 @@ func (t *Tailer) drain(s *podStream) {
 	for _, tf := range t.ordered(s) {
 		for {
 			n, eof, err := tf.read(t.scratch, t.o.ReadBudget, t.physCap(), func(pl physLine) { t.handle(s, tf, pl) })
-			t.c.bytes.Add(uint64(n))
+			t.c.addBytes(n)
 			if err != nil || eof {
 				break
 			}
@@ -674,7 +680,8 @@ func (t *Tailer) restoreFromGzip(s *podStream, fs fileState, entries []*dirEntry
 		return false
 	}
 	for _, e := range entries {
-		if !e.gz || e.n != n || consumed[e.name] || !((rot != "" && e.rot == rot) || (rot == "" && e.rot > s.rotated[n])) {
+		sameRotation := rot != "" && e.rot == rot || rot == "" && e.rot > s.rotated[n]
+		if !e.gz || e.n != n || consumed[e.name] || !sameRotation {
 			continue
 		}
 		pseudo := &tracked{name: e.name, path: e.path, replayUntil: fs.Offset, replay: fs.Pending}

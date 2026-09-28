@@ -282,7 +282,7 @@ func ParseSignedManifest(b []byte) (*SignedManifest, *KeyManifest, error) {
 		return nil, nil, untrustedf("key manifest: %v", err)
 	}
 	if err := m.Validate(); err != nil {
-		return nil, nil, fmt.Errorf("%w: %v", ErrUntrusted, err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrUntrusted, err)
 	}
 	return &sm, &m, nil
 }

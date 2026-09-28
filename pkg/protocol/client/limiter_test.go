@@ -44,6 +44,6 @@ func TestLimiterChargesBeforeSending(t *testing.T) {
 	cancel()
 	blocked := limiter{rate: 1}
 	if err := blocked.wait(ctx, realClock{}, 10); err == nil {
-		t.Fatal("cancelled wait returned nil")
+		t.Fatal("canceled wait returned nil")
 	}
 }

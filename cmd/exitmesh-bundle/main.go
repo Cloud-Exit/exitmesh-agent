@@ -257,7 +257,7 @@ func manifest(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(*dst, append(signed, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(*dst, append(signed, '\n'), 0o644); err != nil { //nolint:gosec // a signed key manifest is a public distribution artifact
 		return err
 	}
 	fmt.Fprintf(out, "wrote key manifest sequence %d with %d signing key(s), %d successor root(s), %d signature(s)\n", m.Sequence, len(mks), len(srs), len(signers))
@@ -285,7 +285,7 @@ func build(args []string, out io.Writer) error {
 	if _, err := bundle.Validate(b, validators.For(b.Manifest.TargetType), bundle.DefaultPolicy()); err != nil {
 		return err
 	}
-	if err := os.WriteFile(*dst, a, 0o644); err != nil {
+	if err := os.WriteFile(*dst, a, 0o644); err != nil { //nolint:gosec // a rule bundle is a public distribution artifact
 		return err
 	}
 	fmt.Fprintf(out, "wrote %s: version %s, %d rule(s), sha256 %x\n", *dst, b.Manifest.Version, len(b.Manifest.Rules), b.Digest)
@@ -318,7 +318,7 @@ func signCmd(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(*dst, append(sig, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(*dst, append(sig, '\n'), 0o644); err != nil { //nolint:gosec // a detached signature is a public distribution artifact
 		return err
 	}
 	fmt.Fprintf(out, "wrote %s signed by %q\n", *dst, k.ID)

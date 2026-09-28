@@ -15,7 +15,7 @@ const (
 	MethodAudit            = "investigation.audit"
 	MethodDeenroll         = "target.deenroll"
 	MethodDeenrolled       = "target.deenrolled"
-	MethodCredentialRotate = "credential.rotate"
+	MethodCredentialRotate = "credential.rotate" //nolint:gosec // an RPC method name, not a credential
 	MethodInitialize       = "initialize"
 	MethodPing             = "ping"
 	MethodToolsList        = "tools/list"

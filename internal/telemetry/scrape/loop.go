@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/textparse"
 	"github.com/prometheus/prometheus/model/value"
@@ -92,8 +93,8 @@ func (l *loop) snapshot() TargetStatus {
 func (l *loop) run() {
 	defer close(l.done)
 	h := fnv.New64a()
-	h.Write([]byte(l.key))
-	offset := time.Duration(h.Sum64() % uint64(l.t.Interval))
+	_, _ = h.Write([]byte(l.key))
+	offset := time.Duration(h.Sum64() % uint64(l.t.Interval)) //nolint:gosec // the manager defaults non-positive intervals
 	timer := time.NewTimer(offset)
 	defer timer.Stop()
 	select {
@@ -197,7 +198,7 @@ func (l *loop) scrapeOnce(start time.Time) {
 
 func (l *loop) reportLabels(name string) labels.Labels {
 	b := labels.NewBuilder(l.base)
-	b.Set(labels.MetricName, name)
+	b.Set(model.MetricNameLabel, name)
 	return b.Labels()
 }
 
@@ -245,7 +246,7 @@ func (l *loop) appendBody(app storage.Appender, body []byte, ctype string, ts in
 		if !cached {
 			p.Labels(&lset)
 			final := l.mutate(lset)
-			if final.Get(labels.MetricName) == "" {
+			if final.Get(model.MetricNameLabel) == "" {
 				res.appendErrors++
 				continue
 			}

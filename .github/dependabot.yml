@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Tags after v1.43.1 declare another module path; upgrade this parser by hand.
+      - dependency-name: github.com/VictoriaMetrics/VictoriaLogs
     open-pull-requests-limit: 10
     groups:
       kubernetes:

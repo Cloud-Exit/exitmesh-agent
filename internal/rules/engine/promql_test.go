@@ -2,13 +2,15 @@ package engine
 
 import (
 	"context"
-	"github.com/prometheus/prometheus/promql/parser"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/prometheus/prometheus/promql/parser"
+
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/storage"
@@ -84,7 +86,7 @@ type slowQuerier struct{ storage.Querier }
 
 func (s slowQuerier) Select(ctx context.Context, sort bool, h *storage.SelectHints, ms ...*labels.Matcher) storage.SeriesSet {
 	for _, m := range ms {
-		if m.Name == labels.MetricName && m.Value == "slow_metric" {
+		if m.Name == model.MetricNameLabel && m.Value == "slow_metric" {
 			<-ctx.Done()
 			return storage.ErrSeriesSet(ctx.Err())
 		}

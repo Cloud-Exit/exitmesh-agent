@@ -33,7 +33,7 @@ const (
 	EdgeIDTimerUnit       = "edge/timer_unit"
 )
 
-// Entry catalogues one fact or edge with its source and the permission it needs (H4a).
+// Entry catalogs one fact or edge with its source and the permission it needs (H4a).
 type Entry struct {
 	ID         string
 	Kind       string

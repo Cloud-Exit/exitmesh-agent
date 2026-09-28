@@ -205,7 +205,7 @@ func decode(b []byte, v any, limit int64, validate bool) error {
 	}
 	rest, err := decMode.UnmarshalFirst(b, v)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalid, err)
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if len(rest) != 0 {
 		return fmt.Errorf("%w: %d trailing bytes", ErrInvalid, len(rest))
@@ -347,7 +347,7 @@ func (it Item) claims() ([]string, error) {
 		}
 		f, err := protocol.DecodeFinding(it.Finding)
 		if err != nil {
-			return nil, fmt.Errorf("%w: item %d finding: %v", ErrInvalid, it.Seq, err)
+			return nil, fmt.Errorf("%w: item %d finding: %w", ErrInvalid, it.Seq, err)
 		}
 		if f.Node != "" {
 			nodes = append(nodes, f.Node)
@@ -361,7 +361,7 @@ func (it Item) claims() ([]string, error) {
 				return nil, invalid("item %d fact identifies no resource", it.Seq)
 			}
 			if _, err := protocol.NormalizeFields(f.Fields, false); err != nil {
-				return nil, fmt.Errorf("%w: item %d fact %s: %v", ErrInvalid, it.Seq, f.Key(), err)
+				return nil, fmt.Errorf("%w: item %d fact %s: %w", ErrInvalid, it.Seq, f.Key(), err)
 			}
 			if f.Node != "" {
 				nodes = append(nodes, f.Node)
@@ -397,7 +397,7 @@ func (it *Item) normalize() error {
 		}
 		n, err := protocol.NormalizeFields(it.Facts[i].Fields, false)
 		if err != nil {
-			return fmt.Errorf("%w: item %d fact: %v", ErrInvalid, it.Seq, err)
+			return fmt.Errorf("%w: item %d fact: %w", ErrInvalid, it.Seq, err)
 		}
 		it.Facts[i].Fields = n
 	}

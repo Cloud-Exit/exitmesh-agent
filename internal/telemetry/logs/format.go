@@ -130,7 +130,7 @@ func decodeJSONPrefix(b []byte) []byte {
 				return out
 			}
 			v, err := strconv.ParseUint(string(b[i+1:i+5]), 16, 32)
-			if err != nil {
+			if err != nil || v > utf8.MaxRune {
 				return out
 			}
 			out = utf8.AppendRune(out, rune(v))

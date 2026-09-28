@@ -2,7 +2,9 @@ package hostfacts
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -22,9 +24,9 @@ const (
 type socketGroup struct {
 	proto  string
 	addr   string
-	port   uint64
-	uids   map[uint64]bool
-	inodes []uint64
+	port   uint16
+	uids   map[uint32]bool
+	inodes []int64
 }
 
 type sockLine struct {
@@ -53,8 +55,8 @@ func (c *Collector) readSockets() ([]*socketGroup, error) {
 		optional bool
 		fn       func() ([]sockLine, error)
 	}{
-		{"tcp", false, func() ([]sockLine, error) { v, err := pfs.NetTCP(); return toLines(procfs.NetIPSocket(v)), err }},
-		{"tcp6", true, func() ([]sockLine, error) { v, err := pfs.NetTCP6(); return toLines(procfs.NetIPSocket(v)), err }},
+		{"tcp", false, func() ([]sockLine, error) { v, err := pfs.NetTCP(); return toLines(procfs.NetIPSocket(v)), err }},  //nolint:staticcheck // reads the configured ProcRoot (host mount, fixtures), which netlink cannot
+		{"tcp6", true, func() ([]sockLine, error) { v, err := pfs.NetTCP6(); return toLines(procfs.NetIPSocket(v)), err }}, //nolint:staticcheck // reads the configured ProcRoot (host mount, fixtures), which netlink cannot
 		{"udp", false, func() ([]sockLine, error) { v, err := pfs.NetUDP(); return toLines(procfs.NetIPSocket(v)), err }},
 		{"udp6", true, func() ([]sockLine, error) { v, err := pfs.NetUDP6(); return toLines(procfs.NetIPSocket(v)), err }},
 	} {
@@ -70,15 +72,19 @@ func (c *Collector) readSockets() ([]*socketGroup, error) {
 			if tcp && l.state != tcpListen || !tcp && (l.state != udpClose || l.rport != 0 || l.remote != nil && !l.remote.IsUnspecified()) {
 				continue
 			}
+			if l.lport > math.MaxUint16 || l.uid > math.MaxUint32 || l.inode > math.MaxInt64 {
+				return nil, fmt.Errorf("hostfacts: %s socket port %d uid %d inode %d out of range", r.proto, l.lport, l.uid, l.inode)
+			}
+			port, owner, inode := uint16(l.lport), uint32(l.uid), int64(l.inode)
 			addr := l.local.String()
-			key := r.proto + "|" + addr + "|" + strconv.FormatUint(l.lport, 10)
+			key := r.proto + "|" + addr + "|" + strconv.FormatUint(uint64(port), 10)
 			g, ok := groups[key]
 			if !ok {
-				g = &socketGroup{proto: r.proto, addr: addr, port: l.lport, uids: map[uint64]bool{}}
+				g = &socketGroup{proto: r.proto, addr: addr, port: port, uids: map[uint32]bool{}}
 				groups[key] = g
 			}
-			g.uids[l.uid] = true
-			g.inodes = append(g.inodes, l.inode)
+			g.uids[owner] = true
+			g.inodes = append(g.inodes, inode)
 		}
 	}
 	out := make([]*socketGroup, 0, len(groups))
@@ -98,9 +104,15 @@ func (c *Collector) readSockets() ([]*socketGroup, error) {
 	return out, nil
 }
 
+// ownsSocket reports whether the agent's own UID is among the owners of g.
+func (c *Collector) ownsSocket(g *socketGroup) bool {
+	u := int64(c.o.UID)
+	return u >= 0 && u <= math.MaxUint32 && g.uids[uint32(u)]
+}
+
 // ownSocketHolders maps socket inodes to the lowest PID of the agent's own UID holding them.
-func (c *Collector) ownSocketHolders() map[uint64]int {
-	out := map[uint64]int{}
+func (c *Collector) ownSocketHolders() map[int64]int {
+	out := map[int64]int{}
 	ents, err := os.ReadDir(c.o.ProcRoot)
 	if err != nil {
 		return out
@@ -132,8 +144,8 @@ func (c *Collector) ownSocketHolders() map[uint64]int {
 			if !ok {
 				continue
 			}
-			n, err := strconv.ParseUint(strings.TrimSuffix(ino, "]"), 10, 64)
-			if err != nil {
+			n, err := strconv.ParseInt(strings.TrimSuffix(ino, "]"), 10, 64)
+			if err != nil || n < 0 {
 				continue
 			}
 			if cur, ok := out[n]; !ok || pid < cur {
@@ -154,24 +166,24 @@ func (c *Collector) collectSockets(s *Snapshot, units *unitSet, procs *processSe
 	}
 	needFDs := false
 	for _, g := range groups {
-		if g.uids[uint64(c.o.UID)] {
+		if c.ownsSocket(g) {
 			needFDs = true
 		}
 	}
-	var holders map[uint64]int
+	var holders map[int64]int
 	if needFDs {
 		holders = c.ownSocketHolders()
 	}
 	var pt, ut tally
 	for _, g := range groups {
-		uids := make([]uint64, 0, len(g.uids))
+		uids := make([]uint32, 0, len(g.uids))
 		for u := range g.uids {
 			uids = append(uids, u)
 		}
 		sort.Slice(uids, func(i, j int) bool { return uids[i] < uids[j] })
 		inodes := make([]any, len(g.inodes))
 		for i, n := range g.inodes {
-			inodes[i] = int64(n)
+			inodes[i] = n
 		}
 		fields := map[string]any{"protocol": g.proto, "address": g.addr, "port": int64(g.port), "uid": int64(uids[0]), "inodes": inodes}
 		if len(uids) > 1 {
@@ -185,8 +197,9 @@ func (c *Collector) collectSockets(s *Snapshot, units *unitSet, procs *processSe
 		if strings.Contains(host, ":") {
 			host = "[" + host + "]"
 		}
-		name := g.proto + " " + net.JoinHostPort(g.addr, strconv.FormatUint(g.port, 10))
-		suid := uid(KindSocket, g.proto, host, strconv.FormatUint(g.port, 10))
+		port := strconv.FormatUint(uint64(g.port), 10)
+		name := g.proto + " " + net.JoinHostPort(g.addr, port)
+		suid := uid(KindSocket, g.proto, host, port)
 		pid := 0
 		for _, n := range g.inodes {
 			if p, ok := holders[n]; ok && (pid == 0 || p < pid) {
@@ -196,7 +209,7 @@ func (c *Collector) collectSockets(s *Snapshot, units *unitSet, procs *processSe
 		var unavailable []string
 		reason := ""
 		switch {
-		case pid == 0 && !g.uids[uint64(c.o.UID)]:
+		case pid == 0 && !c.ownsSocket(g):
 			reason = ReasonOtherUserFD
 		case pid == 0:
 			reason = ReasonOwnerNotFound

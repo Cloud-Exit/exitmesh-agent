@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -126,7 +127,7 @@ func (h *hostFileSource) scanFile(p string, lbls map[string]string, req logql.So
 		if err == nil {
 			break
 		}
-		if err != bufio.ErrBufferFull {
+		if !errors.Is(err, bufio.ErrBufferFull) {
 			return fi.Size() - off, true, nil
 		}
 	}
@@ -167,7 +168,7 @@ func readLine(r *bufio.Reader, st *readStats) (string, error) {
 			long = true
 		}
 		buf = append(buf, chunk...)
-		if err == bufio.ErrBufferFull {
+		if errors.Is(err, bufio.ErrBufferFull) {
 			continue
 		}
 		if long {

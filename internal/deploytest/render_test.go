@@ -121,6 +121,19 @@ func renderFails(t *testing.T, want string, args ...string) {
 	}
 }
 
+// schemaFails expects a values schema pattern rejection naming field, in the wording of any helm 3 release.
+func schemaFails(t *testing.T, field string, args ...string) {
+	t.Helper()
+	_, err := helmTemplate(t, args...)
+	if err == nil {
+		t.Fatalf("helm template %v succeeded, want a schema rejection of %s", args, field)
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "does not match pattern") || !strings.Contains(msg, strings.ToLower(field)) {
+		t.Fatalf("helm template %v failed with %v, want a pattern rejection of %s", args, err, field)
+	}
+}
+
 func parseManifest(s string) (*manifest, error) {
 	dec := yaml.NewDecoder(strings.NewReader(s))
 	m := &manifest{}

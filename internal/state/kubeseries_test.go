@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -74,13 +75,13 @@ func TestKubeSeriesSemantics(t *testing.T) {
 	}
 	produced := map[string]bool{}
 	for _, s := range series {
-		name := s.Labels.Get(labels.MetricName)
+		name := s.Labels.Get(model.MetricNameLabel)
 		produced[name] = true
 		if !subset[name] || s.T != 1000 {
 			t.Fatalf("series %s outside the subset or wrong time", s.Labels)
 		}
 		s.Labels.Range(func(l labels.Label) {
-			if l.Name != labels.MetricName && !slices.Contains(specs[name].Labels, l.Name) {
+			if l.Name != model.MetricNameLabel && !slices.Contains(specs[name].Labels, l.Name) {
 				t.Fatalf("series %s has undocumented label %s", name, l.Name)
 			}
 			if l.Value == "" {
@@ -117,7 +118,7 @@ func TestKubePodOwnerWithoutOwners(t *testing.T) {
 func podScoped(s []Series) []Series {
 	var out []Series
 	for _, x := range s {
-		if strings.HasPrefix(x.Labels.Get(labels.MetricName), "kube_pod_") {
+		if strings.HasPrefix(x.Labels.Get(model.MetricNameLabel), "kube_pod_") {
 			out = append(out, x)
 		}
 	}
@@ -129,7 +130,7 @@ func TestNodeScopedSubsetAndNodeDerivedParity(t *testing.T) {
 	all := KubeSeries(tr.Snapshot(), 42)
 	scoped := NodeScoped(all, "node-a")
 	for _, s := range scoped {
-		name := s.Labels.Get(labels.MetricName)
+		name := s.Labels.Get(model.MetricNameLabel)
 		switch {
 		case strings.HasPrefix(name, "kube_pod_"):
 			if s.Labels.Get("uid") != "pod-1" {
@@ -145,7 +146,7 @@ func TestNodeScopedSubsetAndNodeDerivedParity(t *testing.T) {
 	}
 	hasNode := false
 	for _, s := range scoped {
-		hasNode = hasNode || s.Labels.Get(labels.MetricName) == "kube_node_info"
+		hasNode = hasNode || s.Labels.Get(model.MetricNameLabel) == "kube_node_info"
 	}
 	if !hasNode || len(NodeScoped(all, "node-z")) != 0 {
 		t.Fatal("node scoping")

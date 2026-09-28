@@ -214,6 +214,18 @@ func recordLoc(t *testing.T, s *Spool, seq uint64) recMeta {
 	return m
 }
 
+func TestDecodeMetaRejectsOffsetBeyondInt64(t *testing.T) {
+	m := recMeta{Seq: 3, Type: protocol.TypeDelta, State: NeverTransmitted, Seg: 1, Off: 64, Len: 10, Time: 1, From: 3}
+	b := m.encode()
+	if got, err := decodeMeta(seqKey(3), b); err != nil || got != m {
+		t.Fatalf("round trip %+v %v", got, err)
+	}
+	b[44] = 0x80
+	if _, err := decodeMeta(seqKey(3), b); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("offset beyond int64: %v", err)
+	}
+}
+
 func TestOpenRejectsCorruptOrMissingBodies(t *testing.T) {
 	t.Run("corrupt", func(t *testing.T) {
 		w := newWriter(t, nil)

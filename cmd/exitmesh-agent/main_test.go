@@ -14,11 +14,12 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/admin"
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
@@ -62,6 +63,10 @@ func TestUsageVersionAndFlags(t *testing.T) {
 		{[]string{"version", "extra"}, "unexpected argument"},
 		{[]string{"prepare-state", "--dir", t.TempDir()}, "--uid and --gid"},
 		{[]string{"cleanup"}, "--dir is required"},
+		{[]string{"cleanup", "--dir", "var/lib/exitmesh"}, "--dir must be an absolute path"},
+		{[]string{"purge-state", "--dir", "/var/.."}, "--dir must not be the filesystem root"},
+		{[]string{"prepare-image", "--dir", "/"}, "--dir must not be the filesystem root"},
+		{[]string{"prepare-state", "--dir", "state", "--uid", "0", "--gid", "0"}, "--dir must be an absolute path"},
 		{[]string{"export", "--config", cfg}, "--out is required"},
 		{[]string{"commit", "--config", cfg}, "--receipt is required"},
 		{[]string{"investigate", "--config", cfg}, "--tool is required"},

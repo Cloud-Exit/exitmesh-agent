@@ -15,7 +15,7 @@ git worktree add --detach "$work/b" "$commit" >/dev/null
 build() {
 	local src=$1 out=$2 arch
 	for arch in amd64 arm64; do
-		(cd "$src" && GOOS=linux GOARCH=$arch go build -trimpath \
+		(cd "$src" && GOOS=linux GOARCH=$arch go build -trimpath -buildvcs=false \
 			-ldflags "-s -w -buildid= -X main.version=$version -X main.commit=$commit -X main.date=$date" \
 			-o "$out/exitmesh-agent-linux-$arch" ./cmd/exitmesh-agent)
 	done

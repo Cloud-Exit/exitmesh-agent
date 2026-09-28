@@ -167,14 +167,15 @@ func Open(o Options) (*Reader, error) {
 
 // Close closes every open file.
 func (r *Reader) Close() error {
+	var errs []error
 	for _, f := range r.files {
-		f.obj.f.Close()
+		errs = append(errs, f.obj.f.Close())
 	}
 	r.files = nil
 	if r.zstd != nil {
 		r.zstd.Close()
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Cursor returns the position of the last delivered entry, or the loaded cursor.
@@ -266,7 +267,7 @@ func (r *Reader) consider(path string) {
 	id := f.obj.h.fileID
 	r.paths[path] = pathInfo{ino: ino, id: id}
 	if existing, ok := r.byID[id]; ok || r.done[id] {
-		f.obj.f.Close()
+		_ = f.obj.f.Close()
 		if ok {
 			existing.path = path
 		}
@@ -276,12 +277,12 @@ func (r *Reader) consider(path string) {
 	r.initialSeek(f)
 	if f.err != nil {
 		r.errs[path] = f.err
-		f.obj.f.Close()
+		_ = f.obj.f.Close()
 		return
 	}
 	if f.finished() && f.obj.h.state == stateArchived {
 		r.done[id] = true
-		f.obj.f.Close()
+		_ = f.obj.f.Close()
 		return
 	}
 	r.files = append(r.files, f)
@@ -295,13 +296,13 @@ func (r *Reader) openFile(path string) (*jfile, error) {
 	}
 	o := &objects{f: fh, maxBytes: r.o.MaxObjectBytes}
 	if err := o.refresh(); err != nil {
-		fh.Close()
+		_ = fh.Close()
 		return nil, fmt.Errorf("journal: %s: %w", path, err)
 	}
 	if r.zstd == nil {
-		d, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(uint64(r.o.MaxObjectBytes)))
+		d, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(uint64(r.o.MaxObjectBytes))) //nolint:gosec // Open defaults MaxObjectBytes to a positive value
 		if err != nil {
-			fh.Close()
+			_ = fh.Close()
 			return nil, err
 		}
 		r.zstd = d
@@ -322,7 +323,7 @@ func (o *objects) refresh() error {
 		if err == nil {
 			err = fmt.Errorf("%w: short header", ErrCorrupt)
 		}
-		return fmt.Errorf("%w: header: %v", ErrCorrupt, err)
+		return fmt.Errorf("%w: header: %w", ErrCorrupt, err)
 	}
 	h, err := parseHeader(b[:n])
 	if err != nil {
@@ -426,7 +427,7 @@ func (r *Reader) reap() {
 			}
 		}
 		if f.err != nil || (f.obj.h.state == stateArchived && f.finished()) {
-			f.obj.f.Close()
+			_ = f.obj.f.Close()
 			delete(r.byID, f.obj.h.fileID)
 			r.done[f.obj.h.fileID] = true
 			continue

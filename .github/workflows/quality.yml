@@ -66,11 +66,16 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: module sources
+        run: for i in 1 2 3; do go mod download && exit 0; sleep 15; done; exit 1
       - name: go-licenses check
+        # Two MPL-2.0 modules arrive unmodified through node_exporter collectors; file-level copyleft is compatible with Apache-2.0 distribution (NOTICE).
         run: >-
           go run github.com/google/go-licenses/v2@v2.0.1 check ./...
           --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC
           --ignore github.com/cloud-exit/exitmesh-agent
+          --ignore github.com/cyphar/filepath-securejoin
+          --ignore github.com/hashicorp/go-envparse
 
   forbidden-modules:
     runs-on: ubuntu-24.04

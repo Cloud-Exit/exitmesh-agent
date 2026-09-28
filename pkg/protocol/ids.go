@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"time"
 )
@@ -101,6 +102,9 @@ func NewEpoch(t time.Time) (EpochID, error) {
 	id[8] = (id[8] & 0x3f) | 0x80
 	return id, nil
 }
+
+// UnixMilli returns the instant of a millisecond wire timestamp, saturating values beyond the int64 range.
+func UnixMilli(ms uint64) time.Time { return time.UnixMilli(int64(min(ms, math.MaxInt64))) }
 
 var targetIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 

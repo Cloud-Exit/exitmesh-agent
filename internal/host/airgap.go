@@ -171,8 +171,7 @@ func (h *Host) startExport(st kv.Store, epoch protocol.EpochID, first uint64, no
 		LastCommitted: lc.Seq, ExportedAt: uint64(now.UnixMilli()), AgentVersion: Version,
 	})
 	if err != nil {
-		f.Close()
-		return err
+		return errors.Join(err, f.Close())
 	}
 	h.exp = x
 	return nil
@@ -186,8 +185,7 @@ func (h *Host) finishExport(st kv.Store) error {
 	}
 	h.exp = nil
 	if err := x.f.Sync(); err != nil {
-		x.f.Close()
-		return err
+		return errors.Join(err, x.f.Close())
 	}
 	if err := x.f.Close(); err != nil {
 		return err
@@ -204,7 +202,7 @@ func (h *Host) finishExport(st kv.Store) error {
 	}
 	if d, err := os.Open(filepath.Dir(final)); err == nil {
 		_ = d.Sync()
-		d.Close()
+		_ = d.Close()
 	}
 	h.mu.Lock()
 	h.st.exportFiles++

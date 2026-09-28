@@ -219,8 +219,7 @@ func (h *Host) Run(ctx context.Context) (err error) {
 	h.cancel, h.runCtx = cancel, ctx
 	defer cancel()
 	if err := h.open(); err != nil {
-		h.close()
-		return err
+		return errors.Join(err, h.close())
 	}
 	defer func() {
 		cancel()

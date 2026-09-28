@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,16 +39,32 @@ func prepareStateCmd(_ context.Context, args []string, stdout, stderr io.Writer)
 	if *uid < 0 || *gid < 0 {
 		return fmt.Errorf("%w: --uid and --gid are required", errUsage)
 	}
-	changed, err := prepareState(stateFS, *dir, *uid, *gid)
+	d, err := stateDir(*dir)
+	if err != nil {
+		return err
+	}
+	changed, err := prepareState(stateFS, d, *uid, *gid)
 	if err != nil {
 		return err
 	}
 	if changed {
-		fmt.Fprintf(stdout, "%s: owner %d:%d, mode 0700\n", *dir, *uid, *gid)
+		fmt.Fprintf(stdout, "%s: owner %d:%d, mode 0700\n", d, *uid, *gid)
 	} else {
-		fmt.Fprintf(stdout, "%s: already owned by %d:%d with mode 0700\n", *dir, *uid, *gid)
+		fmt.Fprintf(stdout, "%s: already owned by %d:%d with mode 0700\n", d, *uid, *gid)
 	}
 	return nil
+}
+
+// stateDir accepts only an absolute directory other than the filesystem root, lexically cleaned.
+func stateDir(raw string) (string, error) {
+	if !filepath.IsAbs(raw) {
+		return "", fmt.Errorf("%w: --dir must be an absolute path, got %q", errUsage, raw)
+	}
+	dir := filepath.Clean(raw)
+	if dir == string(filepath.Separator) {
+		return "", fmt.Errorf("%w: --dir must not be the filesystem root", errUsage)
+	}
+	return dir, nil
 }
 
 // prepareState fixes the top directory only: chown to root first, so chmod needs only CAP_CHOWN, then to uid:gid.
@@ -93,7 +110,7 @@ func dirFlag(name string, args []string, stderr io.Writer, extra func(*flag.Flag
 	if err := parse(fs, args, "dir"); err != nil {
 		return "", err
 	}
-	return *dir, nil
+	return stateDir(*dir)
 }
 
 // lockedError explains a held state lock.
@@ -103,7 +120,7 @@ func lockedError(dir string) error {
 
 // removeState takes the directory lock, deletes the contents (the lock file last), and the directory unless it is a mount point.
 func removeState(dir string, keepDir bool) (removedDir bool, err error) {
-	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) { //nolint:gosec // dir passed stateDir: absolute, cleaned, not the root
 		return false, nil
 	}
 	unlock, err := spool.LockDir(dir)
@@ -114,19 +131,7 @@ func removeState(dir string, keepDir bool) (removedDir bool, err error) {
 		return false, err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return false, err
-	}
-	for _, e := range ents {
-		if e.Name() == "LOCK" {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
-			return false, err
-		}
-	}
-	if err := os.Remove(filepath.Join(dir, "LOCK")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := removeContents(dir); err != nil {
 		return false, err
 	}
 	if keepDir {
@@ -139,13 +144,38 @@ func removeState(dir string, keepDir bool) (removedDir bool, err error) {
 	if mp {
 		return false, nil
 	}
-	if err := os.Remove(dir); err != nil {
+	if err := os.Remove(dir); err != nil { //nolint:gosec // dir passed stateDir: absolute, cleaned, not the root
 		if errors.Is(err, syscall.EBUSY) {
 			return false, nil
 		}
 		return false, err
 	}
 	return true, nil
+}
+
+// removeContents deletes the entries of dir, the lock file last, through an os.Root so no removal escapes dir.
+func removeContents(dir string) (err error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	ents, err := fs.ReadDir(root.FS(), ".")
+	if err != nil {
+		return err
+	}
+	for _, e := range ents {
+		if e.Name() == "LOCK" {
+			continue
+		}
+		if err := root.RemoveAll(e.Name()); err != nil {
+			return err
+		}
+	}
+	if err := root.Remove("LOCK"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func isMountPoint(dir string) (bool, error) {

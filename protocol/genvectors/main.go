@@ -30,7 +30,7 @@ func main() {
 	}
 	sort.Strings(names)
 	if !*check {
-		if err := os.MkdirAll(*out, 0o755); err != nil {
+		if err := os.MkdirAll(*out, 0o755); err != nil { //nolint:gosec // committed protocol vectors use normal source tree permissions
 			fatal(err)
 		}
 	}
@@ -45,7 +45,7 @@ func main() {
 			}
 			continue
 		}
-		if err := os.WriteFile(path, files[n], 0o644); err != nil {
+		if err := os.WriteFile(path, files[n], 0o644); err != nil { //nolint:gosec // committed protocol vectors use normal source tree permissions
 			fatal(err)
 		}
 	}

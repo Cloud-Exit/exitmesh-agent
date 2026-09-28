@@ -2,6 +2,8 @@ module github.com/cloud-exit/exitmesh-agent
 
 go 1.26.0
 
+toolchain go1.27.1
+
 require (
 	cel.dev/cel-go v0.32.0
 	github.com/VictoriaMetrics/VictoriaLogs v1.43.1

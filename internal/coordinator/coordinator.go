@@ -459,7 +459,7 @@ func (c *Coordinator) setup(ctx context.Context) error {
 	if c.nfi, err = loadNodeFindings(sp.KV("node-findings")); err != nil {
 		return fmt.Errorf("coordinator: node findings: %w", err)
 	}
-	roots := bundle.Roots{}
+	var roots bundle.Roots
 	if c.d.Roots != nil {
 		roots = *c.d.Roots
 	} else if roots, err = bundle.LoadRoots(c.cfg.Trust.RootsFile, c.cfg.Trust.Roots, c.cfg.Trust.Threshold); err != nil {

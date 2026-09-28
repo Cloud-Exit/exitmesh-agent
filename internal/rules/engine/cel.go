@@ -328,7 +328,7 @@ func compileCEL(env *cel.Env, id, src string, b bundle.Budget, wantBool bool) (c
 	if n > b.MaxComplexity {
 		return nil, n, reject(id, "expression complexity %d exceeds the budget of %d nodes", n, b.MaxComplexity)
 	}
-	prog, err := env.Program(a, cel.CostLimit(uint64(b.MaxSamples)), cel.InterruptCheckFrequency(64))
+	prog, err := env.Program(a, cel.CostLimit(celCost(b.MaxSamples)), cel.InterruptCheckFrequency(64))
 	if err != nil {
 		return nil, n, reject(id, "CEL program error: %v", err)
 	}
@@ -347,7 +347,7 @@ func compileState(env *cel.Env, rule bundle.StateRule, b bundle.Budget) (*stateP
 	if err != nil {
 		return nil, err
 	}
-	sp := &stateProgram{prog: prog, cost: uint64(b.MaxSamples)}
+	sp := &stateProgram{prog: prog, cost: celCost(b.MaxSamples)}
 	names := make([]string, 0, len(rule.Labels))
 	for k := range rule.Labels {
 		names = append(names, k)
@@ -401,3 +401,6 @@ func celString(v ref.Val) string {
 	}
 	return fmt.Sprint(v.Value())
 }
+
+// celCost is the CEL cost limit for a sample budget, which budget normalization keeps positive.
+func celCost(maxSamples int) uint64 { return uint64(max(maxSamples, 0)) }

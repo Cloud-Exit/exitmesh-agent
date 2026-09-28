@@ -3,7 +3,6 @@ package journal
 import (
 	"errors"
 	"fmt"
-	"time"
 )
 
 const itemWindow = 512
@@ -149,7 +148,7 @@ func (f *jfile) read() (Entry, error) {
 		}
 	}
 	f.advance()
-	return Entry{Realtime: time.UnixMicro(int64(h.realtime)), Fields: fields, Cursor: Cursor{Seqnum: h.seqnum, Realtime: h.realtime}}, nil
+	return Entry{Realtime: h.when, Fields: fields, Cursor: Cursor{Seqnum: h.seqnum, Realtime: h.realtime}}, nil
 }
 
 // seekEnd positions the file after its last entry by walking the entry array chain.

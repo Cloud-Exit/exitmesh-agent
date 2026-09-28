@@ -43,19 +43,19 @@ func newTrust(dir string, now time.Time) (*trust, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // holds only public trust roots that agents under other users read
 		return nil, err
 	}
 	rp := root.Public()
 	entry := rp.ID + ":" + base64.StdEncoding.EncodeToString(rp.PublicKey)
-	if err := os.WriteFile(filepath.Join(dir, "roots.txt"), []byte(entry+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "roots.txt"), []byte(entry+"\n"), 0o644); err != nil { //nolint:gosec // public trust roots, world readable by design
 		return nil, err
 	}
 	doc, err := json.Marshal(bundle.Roots{Keys: []bundle.RootKey{rp}})
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "roots.json"), doc, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "roots.json"), doc, 0o644); err != nil { //nolint:gosec // public trust roots, world readable by design
 		return nil, err
 	}
 	return &trust{root: root, signing: signing, manifest: signed}, nil

@@ -145,7 +145,7 @@ func (c *Coordinator) activate(a *bundle.Active, p *nodeapi.BundlePayload, persi
 	}
 	c.bundles.set(a, p)
 	c.setErr("bundle", nil)
-	c.log.Info("rule bundle active", "version", a.Bundle.Manifest.Version, "rules", len(a.Result.Active), "unsupported", len(a.Result.Unsupported))
+	c.log.Info("rule bundle active", "bundle_version", a.Bundle.Manifest.Version, "rules", len(a.Result.Active), "unsupported", len(a.Result.Unsupported))
 	return nil
 }
 

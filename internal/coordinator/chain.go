@@ -46,7 +46,7 @@ func reasonFor(open string) protocol.CheckpointReason {
 	return protocol.ReasonInitial
 }
 
-func (c *Coordinator) clientEpoch() (client.EpochState, bool) { return c.store.ClientStore.Epoch() }
+func (c *Coordinator) clientEpoch() (client.EpochState, bool) { return c.store.Epoch() }
 
 // do runs fn under the spool lock; a new epoch without records first receives its opening checkpoint.
 func (c *Coordinator) do(fn func(t *txn) error) error {
@@ -177,7 +177,7 @@ func applicable(st *protocol.State, ops []protocol.Op) error {
 		}
 	}
 	if err := mini.ApplyOps(ops); err != nil {
-		return fmt.Errorf("%w: %v", errInapplicable, err)
+		return fmt.Errorf("%w: %w", errInapplicable, err)
 	}
 	return nil
 }
@@ -236,8 +236,8 @@ func (c *Coordinator) sink(ops []protocol.Op, synthetic bool, unc *protocol.Inte
 		obs = carryOver(c.stateView(), c.tracker.Snapshot())
 	}
 	c.observed, c.resyncSince = obs, c.now()
-	if unc != nil && time.UnixMilli(int64(unc.Start)).Before(c.resyncSince) {
-		c.resyncSince = time.UnixMilli(int64(unc.Start))
+	if unc != nil && protocol.UnixMilli(unc.Start).Before(c.resyncSince) {
+		c.resyncSince = protocol.UnixMilli(unc.Start)
 	}
 }
 
@@ -503,7 +503,7 @@ func (c *Coordinator) replay(ep spool.EpochState, useSnapshot bool) (*protocol.S
 			if sf.Epoch == ep.ID && sf.Seq <= ep.Chain.Head {
 				r, err := protocol.Decode(sf.Record)
 				if err != nil || r.Checkpoint == nil {
-					return nil, last, fmt.Errorf("decode recovery snapshot record: %v", err)
+					return nil, last, fmt.Errorf("decode recovery snapshot record: %w", err)
 				}
 				st, from, last = protocol.StateFromCheckpoint(r.Checkpoint), sf.Seq, time.UnixMilli(sf.SavedAt)
 			}
@@ -520,7 +520,7 @@ func (c *Coordinator) replay(ep spool.EpochState, useSnapshot bool) (*protocol.S
 			if err != nil {
 				return nil, last, fmt.Errorf("decode spooled record %d: %w", e.Seq, err)
 			}
-			if t := time.UnixMilli(int64(r.Time)); t.After(last) {
+			if t := protocol.UnixMilli(r.Time); t.After(last) {
 				last = t
 			}
 			switch r.Type {
@@ -626,7 +626,7 @@ func (w *commitStore) commit(epoch protocol.EpochID, seq uint64, hash protocol.H
 	}
 	if w.snapEpoch == epoch && w.snapSeq > 0 {
 		lc, _ := w.ClientStore.LastCommitted()
-		if es := w.ClientStore.Entries(w.snapSeq); w.snapSeq > lc.Seq && len(es) > 0 && es[0].Seq == w.snapSeq {
+		if es := w.Entries(w.snapSeq); w.snapSeq > lc.Seq && len(es) > 0 && es[0].Seq == w.snapSeq {
 			return w.commitLocked(epoch, w.snapSeq, es[0].ChainHash)
 		}
 	}
@@ -635,14 +635,14 @@ func (w *commitStore) commit(epoch protocol.EpochID, seq uint64, hash protocol.H
 
 // verify checks a deferred commit against the spool so divergence is still reported at once.
 func (w *commitStore) verify(epoch protocol.EpochID, seq uint64, hash protocol.Hash) error {
-	ep, ok := w.ClientStore.Epoch()
+	ep, ok := w.Epoch()
 	if !ok || ep.ID != epoch {
 		return client.ErrWrongEpoch
 	}
 	if seq > ep.Chain.Head {
 		return fmt.Errorf("%w: commit %d above the highest assigned sequence %d", client.ErrDivergence, seq, ep.Chain.Head)
 	}
-	es := w.ClientStore.Entries(seq)
+	es := w.Entries(seq)
 	if len(es) == 0 || es[0].Seq != seq {
 		return fmt.Errorf("%w: commit %d is not a spooled record boundary", client.ErrDivergence, seq)
 	}
@@ -660,7 +660,7 @@ func (w *commitStore) flush(force bool) {
 	if p == nil {
 		return
 	}
-	if ep, ok := w.ClientStore.Epoch(); !ok || ep.ID != p.epoch {
+	if ep, ok := w.Epoch(); !ok || ep.ID != p.epoch {
 		w.pending = nil
 		return
 	}
@@ -681,7 +681,7 @@ func (w *commitStore) LastCommitted() (protocol.ChainPoint, bool) {
 	w.mu.Unlock()
 	lc, ok := w.ClientStore.LastCommitted()
 	if p != nil {
-		if ep, eok := w.ClientStore.Epoch(); eok && ep.ID == p.epoch && p.seq > lc.Seq {
+		if ep, eok := w.Epoch(); eok && ep.ID == p.epoch && p.seq > lc.Seq {
 			return protocol.ChainPoint{Seq: p.seq, ChainHash: p.hash}, true
 		}
 	}

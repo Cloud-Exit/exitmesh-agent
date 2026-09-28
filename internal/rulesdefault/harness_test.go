@@ -288,7 +288,7 @@ func TestFixtures(t *testing.T) {
 				t.Fatalf("%d instances fired, want %d: %v", len(fired), want, evs)
 			}
 			earliest, latest := t0.Add(tl.w.start+forD), t0.Add(tl.w.end)
-			labelled := len(f.labels) == 0
+			labeled := len(f.labels) == 0
 			for key, ev := range fired {
 				if ev.EvalTime.Before(earliest) || ev.EvalTime.After(latest) {
 					t.Fatalf("instance %s fired at %s, want within [%s, %s] (for %s)", key, ev.EvalTime, earliest, latest, forD)
@@ -306,9 +306,9 @@ func TestFixtures(t *testing.T) {
 				}
 				sub := maps.Clone(ev.Labels)
 				maps.DeleteFunc(sub, func(k, _ string) bool { _, ok := f.labels[k]; return !ok })
-				labelled = labelled || maps.Equal(sub, f.labels)
+				labeled = labeled || maps.Equal(sub, f.labels)
 			}
-			if !labelled {
+			if !labeled {
 				var got []map[string]string
 				for _, ev := range fired {
 					got = append(got, ev.Labels)

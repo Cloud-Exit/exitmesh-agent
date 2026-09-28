@@ -68,7 +68,7 @@ func DecodeBatchFrame(frame []byte) ([][]byte, error) {
 		_, dec := zstdCodecs()
 		out, err := dec.DecodeAll(payload, nil)
 		if err != nil {
-			return nil, fmt.Errorf("%w: zstd: %v", ErrMalformed, err)
+			return nil, fmt.Errorf("%w: zstd: %w", ErrMalformed, err)
 		}
 		payload = out
 	default:
@@ -200,7 +200,7 @@ func ReadExport(r io.Reader) (ExportHeader, []*Record, error) {
 	}
 	dec := decMode.NewDecoder(br)
 	if err := dec.Decode(&h); err != nil {
-		return h, nil, fmt.Errorf("%w: export header: %v", ErrMalformed, err)
+		return h, nil, fmt.Errorf("%w: export header: %w", ErrMalformed, err)
 	}
 	var out []*Record
 	for {
@@ -210,7 +210,7 @@ func ReadExport(r io.Reader) (ExportHeader, []*Record, error) {
 			return h, out, nil
 		}
 		if err != nil {
-			return h, out, fmt.Errorf("%w: export record: %v", ErrMalformed, err)
+			return h, out, fmt.Errorf("%w: export record: %w", ErrMalformed, err)
 		}
 		rec, err := Decode(b)
 		if err != nil {

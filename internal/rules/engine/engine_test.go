@@ -429,7 +429,7 @@ func TestEvidenceLimitedAndCancelledCycle(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 	if st := stateOf(e, "ev"); !st.LastEval.Equal(at(0)) {
-		t.Fatalf("cancelled cycle evaluated: %+v", st)
+		t.Fatalf("canceled cycle evaluated: %+v", st)
 	}
 }
 
