@@ -30,6 +30,7 @@ type Conn interface {
 	Notify(ctx context.Context, method string, params any) error
 	SendBinary(ctx context.Context, frame []byte) error
 	Handle(h Handler)
+	// Done is closed after the session ends and no Handler invocation is running.
 	Done() <-chan struct{}
 	Close() error
 }

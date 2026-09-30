@@ -75,7 +75,7 @@ kind-e2e:
 	.github/scripts/kind-integration.sh
 
 next-version:
-	@.github/scripts/next-version.sh $(or $(BUMP),patch)
+	@.github/scripts/next-version.sh $(or $(BUMP),minor)
 
 clean:
 	rm -rf bin dist dist-chart dist-tools

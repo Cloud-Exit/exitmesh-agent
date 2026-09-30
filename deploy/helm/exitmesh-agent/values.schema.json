@@ -14,7 +14,7 @@
     },
     "endpoint": {
       "type": "string",
-      "pattern": "^(|https://.+)$"
+      "pattern": "^(|https://[^:/?#]+.*)$"
     },
     "endpointCA": {
       "type": "string"

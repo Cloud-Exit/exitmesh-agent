@@ -293,7 +293,10 @@ func (c *Client) connect(ctx context.Context) (bool, error) {
 		}
 		return false, err
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+		<-conn.Done()
+	}()
 	s := newSession(ctx, c, conn)
 	defer s.close()
 	conn.Handle(s.handle)

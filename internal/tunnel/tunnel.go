@@ -79,7 +79,7 @@ func endpointURL(ep string) (*url.URL, error) {
 	default:
 		return nil, fmt.Errorf("tunnel: endpoint scheme %q, TLS is required", u.Scheme)
 	}
-	if u.Host == "" {
+	if u.Hostname() == "" {
 		return nil, errors.New("tunnel: endpoint host required")
 	}
 	u.Path = strings.TrimSuffix(u.Path, "/")

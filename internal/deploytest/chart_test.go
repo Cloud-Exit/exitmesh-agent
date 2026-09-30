@@ -491,6 +491,7 @@ func TestPrecreatedNamespaces(t *testing.T) {
 func TestRequiredInputs(t *testing.T) {
 	renderFails(t, "endpoint is required", "--set", "enrollment.token=emx1_c_t-1_s")
 	schemaFails(t, "endpoint", "--set", "enrollment.token=emx1_c_t-1_s", "--set", "endpoint=http://insecure.example.com")
+	schemaFails(t, "endpoint", "--set", "enrollment.token=emx1_c_t-1_s", "--set", "endpoint=https://:18443")
 	renderFails(t, "an enrollment token is required", "--set", "endpoint=https://cp.example.com")
 	schemaFails(t, "token", "--set", "endpoint=https://cp.example.com", "--set", "enrollment.token=abc")
 	render(t, "--set", "enrollment.token=emx1_c_t-1_s", "--set", "airgap.enabled=true")

@@ -74,6 +74,6 @@ sudo dnf install exitmesh-agent-0.2.0                              # RHEL family
 sudo zypper install exitmesh-agent-0.2.0                           # SUSE
 ```
 
-These use the signed package repository described in [install-host.md](install-host.md#package-repository). Every merge to `main` publishes a new patch release ([release.md](release.md)); pin versions in configuration management and upgrade deliberately.
+These use the signed package repository described in [install-host.md](install-host.md#package-repository). Every merge to `main` publishes a new minor release ([release.md](release.md)); pin versions in configuration management and upgrade deliberately.
 
 For tarball installs, run `install.sh` from the newer tarball. Package upgrades restart the service on the new binary and keep `/etc/exitmesh/agent.yaml` and `/var/lib/exitmesh`; the writer ID does not change. Where a configuration repository is recorded at enrollment, ExitMesh opens a pull request bumping the version pin in it. Air-gapped hosts install packages mirrored from the signed repository.

@@ -327,14 +327,15 @@ func TestReadLimit(t *testing.T) {
 	s := newServer(t, ConnOptions{ReadLimit: 1024}, func(c *Conn) { c.Handle(echo) })
 	c, sc := s.dial(t, nil)
 	c.Handle(echo)
-	// The send can observe the server's close frame first; either way the server must drop the connection.
-	if err := c.SendBinary(context.Background(), make([]byte, 4096)); err != nil && !strings.Contains(err.Error(), "MessageTooBig") {
-		t.Fatal(err)
-	}
+	// The send may fail once the server has dropped the connection; the server side is what must reject it.
+	_ = c.SendBinary(context.Background(), make([]byte, 4096))
 	select {
 	case <-sc.Done():
 	case <-time.After(5 * time.Second):
 		t.Fatal("oversized message accepted")
+	}
+	if err := sc.Err(); err == nil || errors.Is(err, ErrClosed) {
+		t.Fatalf("server ended with %v, want a read limit failure", err)
 	}
 	if DefaultReadLimit <= protocol.MaxFramePayload {
 		t.Fatal("default read limit below the frame payload limit")

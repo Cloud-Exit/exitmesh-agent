@@ -109,8 +109,17 @@ func TestWorkflowsParse(t *testing.T) {
 			Push struct {
 				Branches []string `yaml:"branches"`
 			} `yaml:"push"`
+			Dispatch struct {
+				Inputs struct {
+					Bump struct {
+						Options []string `yaml:"options"`
+						Default string   `yaml:"default"`
+					} `yaml:"bump"`
+				} `yaml:"inputs"`
+			} `yaml:"workflow_dispatch"`
 		} `yaml:"on"`
-		Jobs map[string]struct {
+		Concurrency any `yaml:"concurrency"`
+		Jobs        map[string]struct {
 			If    string         `yaml:"if"`
 			Needs yaml.Node      `yaml:"needs"`
 			Uses  string         `yaml:"uses"`
@@ -124,8 +133,14 @@ func TestWorkflowsParse(t *testing.T) {
 	if len(rel.On.Push.Branches) != 1 || rel.On.Push.Branches[0] != "main" {
 		t.Errorf("release must trigger on push to main, got %v", rel.On.Push.Branches)
 	}
-	if !strings.Contains(rel.Jobs["version"].If, "[skip ci]") {
-		t.Error("release version job must skip [skip ci] bump commits")
+	if v := rel.Jobs["version"].If; !strings.Contains(v, "[skip ci]") || !strings.Contains(v, "github.ref == 'refs/heads/main'") {
+		t.Error("release version job must skip [skip ci] bump commits and release only main")
+	}
+	if b := rel.On.Dispatch.Inputs.Bump; !slices.Equal(b.Options, []string{"minor", "major"}) || b.Default != "minor" || !strings.Contains(string(relText), "inputs.bump || 'minor'") {
+		t.Errorf("pushes must bump minor and only a manual run may bump major, got %+v", b)
+	}
+	if rel.Concurrency != nil {
+		t.Error("a workflow concurrency group cancels pending release runs, so a push could go unreleased")
 	}
 	if a := rel.Jobs["artifacts"]; a.Uses != "./.github/workflows/artifacts.yml" || a.With["release"] != true {
 		t.Error("release must build release artifacts through artifacts.yml")
@@ -138,7 +153,7 @@ func TestWorkflowsParse(t *testing.T) {
 	if n := needs; !slices.Contains(n, "quality") || !slices.Contains(n, "artifacts") {
 		t.Errorf("publish must be gated on quality and artifacts, needs %v", n)
 	}
-	for _, s := range []string{"next-version.sh", "release-push.sh", "TAG_COMMIT", "crane tag", "cosign sign", "cosign sign-blob", "helm push", "package-repo.sh", "gh release create", "cosign verify"} {
+	for _, s := range []string{"reserve-version.sh", "release-push.sh", "unreserve", "crane tag", "cosign sign", "cosign sign-blob", "helm push", "package-repo.sh", "gh release create", "cosign verify"} {
 		if !strings.Contains(string(relText), s) {
 			t.Errorf("release.yml does not run %s", s)
 		}

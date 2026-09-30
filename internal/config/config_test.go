@@ -44,6 +44,7 @@ func TestValidate(t *testing.T) {
 	bad := []string{
 		"role: bogus\n",
 		"role: coordinator\nendpoint: http://x\nenrollmentTokenFile: /t\n",
+		"role: coordinator\nendpoint: https://:18443\nenrollmentTokenFile: /t\n",
 		"role: node\n",
 		"role: host\nendpoint: https://x\nenrollmentTokenFile: /t\nhost:\n  diskCap: 1Gi\n",
 		"role: coordinator\nairgap:\n  enabled: true\nlookback:\n- name: a\n  type: graphite\n  url: http://x\n",

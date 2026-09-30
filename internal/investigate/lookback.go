@@ -55,7 +55,7 @@ func newSource(cfg config.Lookback, hc *http.Client) (*source, error) {
 		return nil, fmt.Errorf("lookback %s: unknown type %q", cfg.Name, cfg.Type)
 	}
 	u, err := url.Parse(cfg.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return nil, fmt.Errorf("lookback %s: url must be http(s)", cfg.Name)
 	}
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {

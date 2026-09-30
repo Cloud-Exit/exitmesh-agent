@@ -9,7 +9,7 @@ Every push to `main` that passes every gate publishes a new version. There are n
 |`ci.yml`|pull requests, merge queue, pushes to other branches|Runs `quality.yml` and `artifacts.yml` in snapshot mode, plus the DCO check.|
 |`quality.yml`|called|`go build`, `go vet`, gofmt, golangci-lint, `go test -race`, govulncheck, go-licenses (Apache-2.0, MIT, BSD, ISC only), forbidden-module check, protocol contract suite (Go vectors and the Python oracle), fuzz smoke, chart lint (`helm lint`, `ct lint`), kubeconform schema validation across Kubernetes 1.27 to 1.37, chart render assertions (`internal/deploytest`), reproducible build.|
 |`artifacts.yml`|called|Builds once and gates on those exact artifacts (list below).|
-|`release.yml`|push to `main`, or manual with a bump level|Version, quality, artifacts, publish, verify.|
+|`release.yml`|push to `main` (minor bump), or manual (minor or major)|Version, quality, artifacts, publish, verify.|
 |`loki-oracle.yml`|LogQL changes, nightly|Differential tests of the LogQL subset against a real Loki.|
 
 `artifacts.yml` builds:
@@ -30,20 +30,29 @@ It then runs these gates against the artifacts it built:
 
 ## Versioning
 
-The next version is `max(Chart.yaml version, latest vX.Y.Z tag)` incremented at the patch level (or minor or major when started manually with `workflow_dispatch`). Because the latest tag counts, a release that fails after tagging never lets a later run reuse its version.
+Every push or merge to `main` releases a new minor version (`0.2.0`, `0.3.0`, ...). A major version is only ever released by running `release` manually (Actions, release, Run workflow, bump `major`). The image, the binaries and packages, and the chart all carry the same version.
+
+The `version` job computes `max(Chart.yaml version, latest vX.Y.Z tag)` plus one minor (or major) and reserves it by pushing the annotated tag `vX.Y.Z` on the built commit. Tags cannot be overwritten, so a run that loses the race takes the next version; every run gets its own version even when several pushes land together, which is why the workflow has no concurrency group (a group would cancel pending runs). A run whose gates fail deletes its reserved tag again; a run that fails while publishing keeps it, so a version is never reused for different artifacts.
 
 The publish job, in order:
 
-1. commits the `Chart.yaml` `version` and `appVersion` bump as `release: vX.Y.Z [skip ci]`, tags the built commit `vX.Y.Z`, and pushes both with `git push --atomic`, rebasing and retrying when `main` moved;
-2. signs every release file with cosign keyless signing;
-3. tags the gated candidate image `X.Y.Z` and `latest` (same digest) and signs it;
-4. pushes the chart package to `oci://ghcr.io/<owner>/charts/exitmesh-agent` and signs it;
-5. updates the signed APT and YUM repository on GitHub Pages (newest 10 versions per architecture; every version stays attached to its GitHub release);
-6. creates the GitHub release with the contract versions (History Protocol, state schema, rule engine), the image and chart digests, pinned `helm`, `apt`, and `dnf` commands, and verification commands.
+1. signs every release file with cosign keyless signing;
+2. tags the gated candidate image `X.Y.Z` and signs it, and moves `latest` to it when it is the newest release;
+3. pushes the chart package to `oci://ghcr.io/<owner>/charts/exitmesh-agent` as version `X.Y.Z` and signs it;
+4. updates the signed APT and YUM repository on GitHub Pages (newest 10 versions per architecture; every version stays attached to its GitHub release), rebuilding on the new tip when a concurrent release pushed first;
+5. creates the GitHub release with the contract versions (History Protocol, state schema, rule engine), the image and chart digests, pinned `helm`, `apt`, and `dnf` commands, and verification commands;
+6. commits the `Chart.yaml` `version` and `appVersion` bump to `main` as `release: vX.Y.Z [skip ci]`, unless `main` already records a newer version.
 
 The `verify` job then checks every signature, pulls the published chart and renders it with the published digest, and installs the published package from the APT and YUM repositories in clean Debian and Rocky containers.
 
 The bump commit contains `[skip ci]`, so it starts no workflow.
+
+Installing a published version:
+
+```sh
+helm install exitmesh-agent oci://ghcr.io/cloud-exit/charts/exitmesh-agent --version X.Y.Z --namespace default ...
+docker pull ghcr.io/cloud-exit/exitmesh-agent:X.Y.Z
+```
 
 ## One-time setup
 
@@ -52,7 +61,7 @@ The bump commit contains `[skip ci]`, so it starts no workflow.
 |Secret `PACKAGE_SIGNING_KEY`|ASCII-armored GPG private key that signs deb and rpm packages and the repository metadata. Separate from rule bundle signing keys, which belong to each ExitMesh deployment. Without it, packages are unsigned and the repository is not published (the run warns).|
 |Secret `PACKAGE_SIGNING_PASSPHRASE`|Passphrase of that key, if it has one.|
 |GitHub Pages|Serve from the `gh-pages` branch, root folder. The first release creates the branch.|
-|Branch protection on `main`|Allow `github-actions[bot]` to push the bump commit and the tag (bypass list), or the publish job fails at the push.|
+|Branch protection on `main`, tag rules|Allow `github-actions[bot]` to push the bump commit to `main` and to create and delete `v*` tags (bypass list), or the version or publish job fails at the push.|
 |ghcr package visibility|`exitmesh-agent` and `charts/exitmesh-agent` are private after their first push; make them public, or install with `imagePullSecrets`.|
 |Actions permissions|Workflows need read and write permissions (`contents`, `packages`) and OIDC tokens (`id-token: write`) for keyless signing.|
 |Token scope for maintainers|Pushing changes to `.github/workflows` requires a token with the `workflow` scope.|

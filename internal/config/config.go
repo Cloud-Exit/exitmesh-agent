@@ -352,7 +352,7 @@ func (c *Config) Validate() error {
 	}
 	if (c.Role == RoleCoordinator || c.Role == RoleHost) && !c.AirGap.Enabled {
 		u, err := url.Parse(c.Endpoint)
-		if c.Endpoint == "" || err != nil || u.Scheme != "https" || u.Host == "" {
+		if c.Endpoint == "" || err != nil || u.Scheme != "https" || u.Hostname() == "" {
 			errs = append(errs, "endpoint must be an https URL unless airgap.enabled")
 		}
 		if c.EnrollmentTokenFile == "" {
@@ -396,7 +396,7 @@ func (c *Config) Validate() error {
 		default:
 			errs = append(errs, fmt.Sprintf("lookback %s: unknown type %q", l.Name, l.Type))
 		}
-		if u, err := url.Parse(l.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		if u, err := url.Parse(l.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 			errs = append(errs, fmt.Sprintf("lookback %s: url must be http(s)", l.Name))
 		}
 	}

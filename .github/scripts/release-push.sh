@@ -1,36 +1,32 @@
 #!/usr/bin/env bash
-# Commits the Chart.yaml bump for VERSION with [skip ci], tags vVERSION (on TAG_COMMIT, the built commit, when set), and pushes both atomically, rebasing on races.
+# Commits the Chart.yaml bump to VERSION on the release branch with [skip ci], unless the branch already records the same or a newer version.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 version=${1:?usage: release-push.sh VERSION}
 branch=${RELEASE_BRANCH:-main}
 chart=deploy/helm/exitmesh-agent/Chart.yaml
-tag="v$version"
+work=$(mktemp -d)
+trap 'git worktree remove --force "$work" >/dev/null 2>&1 || true' EXIT
 
-git config user.name "github-actions[bot]"
-git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-bump() {
-	sed -i -E "s/^version:.*/version: $version/; s/^appVersion:.*/appVersion: \"$version\"/" "$chart"
-	git add "$chart"
-	if git diff --cached --quiet; then
-		return 0
-	fi
-	git commit -q -m "release: $tag [skip ci]"
-}
-
-bump
 for attempt in 1 2 3 4 5; do
-	git tag -f "$tag" "${TAG_COMMIT:-HEAD}" >/dev/null
-	if git push --atomic origin "HEAD:refs/heads/$branch" "refs/tags/$tag"; then
-		echo "pushed $tag"
+	git fetch -q origin "$branch"
+	git worktree remove --force "$work" >/dev/null 2>&1 || true
+	git worktree add -q --detach "$work" FETCH_HEAD
+	current=$(sed -n 's/^version:[[:space:]]*"\{0,1\}\([0-9][0-9.]*\)"\{0,1\}[[:space:]]*$/\1/p' "$work/$chart")
+	if [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n1)" != "$version" ] || [ "$current" = "$version" ]; then
+		echo "$branch already records version $current"
 		exit 0
 	fi
-	echo "push rejected (attempt $attempt), rebasing onto origin/$branch" >&2
-	git fetch -q origin "$branch"
-	git rebase -q "origin/$branch" || { git rebase --abort; git reset -q --hard "origin/$branch"; bump; }
+	sed -i -E "s/^version:.*/version: $version/; s/^appVersion:.*/appVersion: \"$version\"/" "$work/$chart"
+	git -C "$work" -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+		commit -q -m "release: v$version [skip ci]" -- "$chart"
+	if git -C "$work" push -q origin "HEAD:refs/heads/$branch"; then
+		echo "recorded v$version on $branch"
+		exit 0
+	fi
+	echo "push rejected (attempt $attempt), retrying on the new $branch" >&2
 	sleep $((attempt * 3))
 done
-echo "release-push: could not push $tag after 5 attempts" >&2
+echo "release-push: could not record v$version after 5 attempts" >&2
 exit 1

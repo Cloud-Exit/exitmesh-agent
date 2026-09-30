@@ -81,6 +81,7 @@ type Conn struct {
 
 	closing   chan struct{}
 	done      chan struct{}
+	serving   sync.WaitGroup
 	closeOnce sync.Once
 	err       error
 }
@@ -105,9 +106,16 @@ func (c *Conn) pong(context.Context, []byte) { c.touch() }
 func (c *Conn) start(ws *websocket.Conn) {
 	c.ws = ws
 	ws.SetReadLimit(c.opts.ReadLimit)
-	go c.readLoop()
-	go c.dispatchLoop()
+	read, dispatch := make(chan struct{}), make(chan struct{})
+	go func() { defer close(read); c.readLoop() }()
+	go func() { defer close(dispatch); c.dispatchLoop() }()
 	go c.keepalive()
+	go func() {
+		<-read
+		c.serving.Wait()
+		<-dispatch
+		close(c.done)
+	}()
 }
 
 // Accept upgrades an HTTP request to a tunnel connection (control plane side).
@@ -139,7 +147,7 @@ func (c *Conn) Handle(h client.Handler) {
 // HandleBinary installs the binary frame handler; install it before Handle.
 func (c *Conn) HandleBinary(h BinaryHandler) { c.binary.Store(&h) }
 
-// Done is closed once the connection has ended and everything received before the end is dispatched.
+// Done is closed once the connection has ended and every handler invocation has returned.
 func (c *Conn) Done() <-chan struct{} { return c.done }
 
 // Err returns the reason the connection ended, or nil while it is open.
@@ -207,7 +215,8 @@ func (c *Conn) readLoop() {
 				continue
 			}
 			if m.ID != nil {
-				go c.serve(&m)
+				c.serving.Add(1)
+				go func() { defer c.serving.Done(); c.serve(&m) }()
 				continue
 			}
 			c.enqueue(inbound{msg: &m})
@@ -245,7 +254,6 @@ func (c *Conn) enqueue(in inbound) {
 }
 
 func (c *Conn) dispatchLoop() {
-	defer close(c.done)
 	select {
 	case <-c.ready:
 	case <-c.closing:

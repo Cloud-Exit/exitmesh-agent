@@ -275,7 +275,7 @@ func buildVersion() string {
 func kubeletAddress(d Deps, cfg *config.Config) (string, int, error) {
 	if d.KubeletURL != "" {
 		u, err := url.Parse(d.KubeletURL)
-		if err != nil || u.Host == "" {
+		if err != nil || u.Hostname() == "" {
 			return "", 0, fmt.Errorf("node: kubelet URL %q is invalid", d.KubeletURL)
 		}
 		host, p, err := net.SplitHostPort(u.Host)

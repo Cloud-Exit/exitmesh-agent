@@ -88,7 +88,7 @@ type Client struct {
 // NewClient builds a client for the coordinator Service.
 func NewClient(o ClientOptions) (*Client, error) {
 	u, err := url.Parse(o.BaseURL)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
 		return nil, fmt.Errorf("nodeapi: base URL %q must be an https URL", o.BaseURL)
 	}
 	if o.TokenFile == "" {

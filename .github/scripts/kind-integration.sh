@@ -37,7 +37,11 @@ fi
 
 refcp=${REFCP:-$work/exitmesh-refcp}
 [ -x "$refcp" ] || go build -o "$refcp" ./cmd/exitmesh-refcp
-gw=$(docker network inspect kind -f '{{(index .IPAM.Config 0).Gateway}}')
+# Newer Docker lists the IPv6 subnet first and may omit gateways, so fall back to the node's default route.
+gw=$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' | tr ' ' '\n' | grep -m1 -E '^[0-9]+(\.[0-9]+){3}$' || true)
+[ -n "$gw" ] || gw=$(docker exec "$cluster-control-plane" ip -4 route show default | awk '{print $3; exit}')
+[ -n "$gw" ] || fail "no IPv4 gateway on the kind network"
+echo "control plane reachable from the cluster at $gw:$port"
 "$refcp" -listen "0.0.0.0:$port" -hostnames "$gw" -create-cluster -cert-dir "$work" -trust-dir "$work/trust" -bundle-kubernetes rules/kubernetes -status >"$work/refcp.out" 2>"$work/refcp.log" &
 refcp_pid=$!
 trap 'kill $refcp_pid 2>/dev/null || true' EXIT

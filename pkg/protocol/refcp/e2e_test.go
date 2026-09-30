@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -104,18 +105,25 @@ func TestDroppedAndDelayedAcks(t *testing.T) {
 	tid, _, w := h.target(protocol.TargetKubernetes, "")
 	h.start(w, nil)
 	h.waitDrained(w)
+	ep := currentEpoch(w)
+	committed := func() {
+		waitFor(t, "commit", func() bool {
+			heads, _ := h.cp.Heads(tid)
+			e, _ := w.Store.Epoch()
+			return heads[ep].Seq == e.Chain.Head
+		})
+	}
 	h.cp.DropAcks(2)
 	h.cp.DelayAcks(20 * time.Millisecond)
-	workload(t, w, "a", 4)
+	// Committing each step separately keeps a later frame whose cumulative ack covers the dropped ones.
+	for i := range 4 {
+		workload(t, w, fmt.Sprintf("a%d", i), 1)
+		committed()
+	}
 	h.waitDrained(w)
 	h.cp.DropAcks(1)
 	mustApply(t, w, deployment("last", 1))
-	ep := currentEpoch(w)
-	waitFor(t, "commit", func() bool {
-		heads, _ := h.cp.Heads(tid)
-		e, _ := w.Store.Epoch()
-		return heads[ep].Seq == e.Chain.Head
-	})
+	committed()
 	if drained(w) {
 		t.Fatal("dropped acknowledgement was applied")
 	}

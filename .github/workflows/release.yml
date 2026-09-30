@@ -6,34 +6,32 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: version component to increment
+        description: version component to increment (pushes to main always bump minor)
         type: choice
-        options: [patch, minor, major]
-        default: patch
+        options: [minor, major]
+        default: minor
 
 permissions:
   contents: read
-
-concurrency:
-  group: release
-  cancel-in-progress: false
 
 env:
   HELM_VERSION: v3.22.0
 
 jobs:
   version:
-    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    if: ${{ github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.next.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: next version = max(Chart.yaml, latest tag) + 1
+      - name: reserve max(Chart.yaml, latest tag) + 1 by pushing its tag
         id: next
-        run: echo "version=$(.github/scripts/next-version.sh "${{ inputs.bump || 'patch' }}")" >>"$GITHUB_OUTPUT"
+        run: echo "version=$(.github/scripts/reserve-version.sh "${{ inputs.bump || 'minor' }}" "$GITHUB_SHA")" >>"$GITHUB_OUTPUT"
 
   quality:
     needs: version
@@ -96,11 +94,14 @@ jobs:
           echo "CHART_REPO=oci://ghcr.io/$owner/charts" >>"$GITHUB_ENV"
           echo "PAGES_URL=https://$owner.github.io/${GITHUB_REPOSITORY#*/}" >>"$GITHUB_ENV"
           go run ./internal/deploytest/releaseinfo >>"$GITHUB_ENV"
-      - name: commit the version bump and tag the built commit
+      - name: is this the newest release
         env:
-          TAG_COMMIT: ${{ github.sha }}
-          RELEASE_BRANCH: ${{ github.ref_name }}
-        run: .github/scripts/release-push.sh "$VERSION"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          top=$(gh release list --limit 200 --exclude-drafts --json tagName --jq '.[].tagName' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+          newest=false
+          [ "$(printf '%s\n%s\n' "${top:-0.0.0}" "$VERSION" | sort -V | tail -n1)" = "$VERSION" ] && newest=true
+          echo "NEWEST=$newest" >>"$GITHUB_ENV"
       - name: sign release files
         run: |
           for f in dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sbom.json dist/checksums.txt dist-chart/*.tgz; do
@@ -111,7 +112,7 @@ jobs:
         run: |
           digest=${CANDIDATE##*@}
           crane tag "$CANDIDATE" "$VERSION"
-          crane tag "$CANDIDATE" latest
+          if [ "$NEWEST" = true ]; then crane tag "$CANDIDATE" latest; fi
           cosign sign --yes "$IMAGE@$digest"
           echo "digest=$digest" >>"$GITHUB_OUTPUT"
           echo "IMAGE_DIGEST=$digest" >>"$GITHUB_ENV"
@@ -140,17 +141,25 @@ jobs:
           export GPG_KEY_ID=$(gpg --batch --list-secret-keys --with-colons | awk -F: '$1=="fpr"{print $10; exit}')
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git fetch -q origin gh-pages; then
-            git worktree add pages FETCH_HEAD
-            git -C pages switch -q -C gh-pages
-          else
-            git worktree add --orphan -b gh-pages pages
-          fi
-          REPO_URL="$PAGES_URL" .github/scripts/package-repo.sh pages dist
-          git -C pages add -A
-          git -C pages commit -q -m "packages: v$VERSION"
-          git -C pages push -q origin gh-pages
-          echo "published=true" >>"$GITHUB_OUTPUT"
+          # Concurrent releases race on gh-pages; rebuild the metadata on the new tip and push again.
+          for attempt in 1 2 3 4 5; do
+            git worktree remove --force pages 2>/dev/null || true
+            if git fetch -q origin gh-pages; then
+              git worktree add -q --detach pages FETCH_HEAD
+            else
+              git worktree add -q --orphan -b "pages-$attempt" pages
+            fi
+            REPO_URL="$PAGES_URL" .github/scripts/package-repo.sh pages dist
+            git -C pages add -A
+            git -C pages commit -q -m "packages: v$VERSION"
+            if git -C pages push -q origin HEAD:refs/heads/gh-pages; then
+              echo "published=true" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "could not update gh-pages" >&2
+          exit 1
       - name: GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -194,9 +203,13 @@ jobs:
           cosign verify-blob checksums.txt --certificate checksums.txt.pem --signature checksums.txt.sig --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
           \`\`\`
           NOTES
-          gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes-file notes.md \
+          gh release create "v$VERSION" --verify-tag --latest="$NEWEST" --title "v$VERSION" --notes-file notes.md \
             dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sbom.json dist/checksums.txt dist-chart/*.tgz \
             dist/*.pem dist/*.sig dist-chart/*.pem dist-chart/*.sig
+      - name: record the version in Chart.yaml on main
+        env:
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        run: .github/scripts/release-push.sh "$VERSION"
 
   verify:
     needs: [version, publish]
@@ -253,3 +266,18 @@ jobs:
             curl -fsSL $url/exitmesh-agent.repo -o /etc/yum.repos.d/exitmesh-agent.repo
             dnf install -y --setopt=install_weak_deps=False exitmesh-agent-$VERSION
             exitmesh-agent version | grep -q $VERSION"
+
+  unreserve:
+    needs: [version, publish]
+    if: ${{ always() && needs.version.result == 'success' && needs.publish.result == 'skipped' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: release the reserved tag of a run that published nothing
+        run: |
+          at=$(git ls-remote --tags origin "refs/tags/v$VERSION^{}" | cut -f1)
+          if [ "$at" = "$GITHUB_SHA" ]; then git push -q origin ":refs/tags/v$VERSION"; fi

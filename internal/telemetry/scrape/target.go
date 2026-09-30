@@ -64,7 +64,7 @@ func (t Target) targetLabels() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return nil, fmt.Errorf("scrape: unsupported target URL %q", t.URL)
 	}
 	out := make(map[string]string, len(t.Labels)+2)
