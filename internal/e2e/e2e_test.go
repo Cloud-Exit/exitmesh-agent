@@ -117,10 +117,7 @@ func TestStartupEnrollCheckpointAndBundleDistribution(t *testing.T) {
 func TestNodeLocalJoinFindingAndRecovery(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	a := e.nodes[nodeA]
-	n := a.kubelet.count()
-	a.kubelet.setMem(0.95 * memLimit)
-	e.waitFor("high memory scraped", func() bool { return a.kubelet.count() >= n+2 })
+	e.kubeletChange(nodeA, func(k *kubelet) { k.setMem(0.95 * memLimit) })
 	e.until("join finding at refcp", 5, func() bool {
 		fs := e.findingState("mem-near-limit")
 		return len(fs) == 1 && fs[0].State == protocol.LifecycleFiring
@@ -142,9 +139,7 @@ func TestNodeLocalJoinFindingAndRecovery(t *testing.T) {
 			t.Fatalf("finding from %s, only node A is over its limit", r.Node)
 		}
 	}
-	n = a.kubelet.count()
-	a.kubelet.setMem(0.5 * memLimit)
-	e.waitFor("recovered memory scraped", func() bool { return a.kubelet.count() >= n+2 })
+	e.kubeletChange(nodeA, func(k *kubelet) { k.setMem(0.5 * memLimit) })
 	e.until("join finding resolved", 5, func() bool {
 		fs := e.findingState("mem-near-limit")
 		return len(fs) == 1 && fs[0].State == protocol.LifecycleResolved
@@ -227,6 +222,7 @@ func (e *env) ruleHealth(id string) (lastEval time.Time, firing int, state strin
 func TestClusterRuleFromBothNodesIncompleteWhenOneStops(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
+	e.kubeletChange(nodeA, (*kubelet).startCPU)
 	for i := 0; i < 2; i++ {
 		e.advance(step)
 	}
@@ -239,10 +235,7 @@ func TestClusterRuleFromBothNodesIncompleteWhenOneStops(t *testing.T) {
 	if last, firing, _ := e.ruleHealth("cluster-cpu"); last.IsZero() || firing != 0 || len(e.findingRecords("cluster-cpu")) != 0 {
 		t.Fatalf("cluster rule fired on node A's contribution alone: last eval %v firing %d", last, firing)
 	}
-	b := e.nodes[nodeB]
-	n := b.kubelet.count()
-	b.kubelet.startCPU()
-	e.waitFor("node B CPU scraped", func() bool { return b.kubelet.count() >= n+2 })
+	e.kubeletChange(nodeB, (*kubelet).startCPU)
 	e.until("cluster finding at refcp", 5, func() bool {
 		fs := e.findingState("cluster-cpu")
 		return len(fs) == 1 && fs[0].State == protocol.LifecycleFiring
@@ -445,12 +438,12 @@ func TestCoordinatorRestartKeepsEpochAndDeliversSpooledFindingsOnce(t *testing.T
 	a, b := e.nodes[nodeA], e.nodes[nodeB]
 	e.stopCoordinator()
 
-	n := a.kubelet.count()
 	a.kubelet.setMem(0.95 * memLimit)
+	at := time.Now()
 	lb := b.a.Status().Logs.Lines
 	b.writeLog(t, e.clk.Now(), "app", "ERROR one", "ERROR two", "ERROR three")
 	e.waitFor("inputs observed while the coordinator is down", func() bool {
-		return a.kubelet.count() >= n+2 && b.a.Status().Logs.Lines >= lb+3
+		return a.stored(at) && b.a.Status().Logs.Lines >= lb+3
 	})
 	e.advance(step)
 	e.waitFor("findings spooled in the node queues", func() bool {

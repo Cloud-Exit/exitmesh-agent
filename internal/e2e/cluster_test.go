@@ -33,7 +33,8 @@ const (
 	kubeToken = "kubelet-token"
 	cpuBase   = 1000.0
 	// cpuJump over the 5m rate window contributes about 0.6 cores per node against a threshold of 1.
-	cpuJump = 180.0
+	cpuJump          = 180.0
+	firstScrapeDelay = 400 * time.Millisecond
 )
 
 var depGVR = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
@@ -182,8 +183,8 @@ type kubelet struct {
 	srv     *httptest.Server
 }
 
-func newKubelet(t testing.TB, pod string, cpuInc bool) *kubelet {
-	k := &kubelet{pod: pod, mem: memLimit / 2, cpuInc: cpuInc}
+func newKubelet(t testing.TB, pod string) *kubelet {
+	k := &kubelet{pod: pod, mem: memLimit / 2}
 	k.srv = httptest.NewTLSServer(k)
 	t.Cleanup(k.srv.Close)
 	return k
@@ -201,8 +202,14 @@ func (k *kubelet) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	k.mu.Lock()
 	k.scrapes++
+	// The first answer outlasts the 200ms scrape timeout, so no test can mistake a served scrape for a stored one.
+	if k.scrapes == 1 {
+		k.mu.Unlock()
+		time.Sleep(firstScrapeDelay)
+		k.mu.Lock()
+	}
 	cpu := cpuBase
-	if k.cpuInc && k.scrapes > 1 {
+	if k.cpuInc {
 		cpu += cpuJump
 	}
 	lbl := fmt.Sprintf(`container="app",namespace=%q,pod=%q,id="/kubepods/%s/app"`, ns, k.pod, k.pod)

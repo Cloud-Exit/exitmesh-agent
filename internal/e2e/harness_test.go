@@ -36,6 +36,7 @@ import (
 	"github.com/cloud-exit/exitmesh-agent/internal/node"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/bundle"
+	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/scrape"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol/refcp"
 )
@@ -443,7 +444,7 @@ func (e *env) startNode(name string, extra ...string) *agent {
 	p := podOf[name]
 	base := t.TempDir()
 	a := &agent{name: name, dir: filepath.Join(base, "state"), logs: filepath.Join(base, "pods"), pod: p.name, uid: p.uid,
-		kubelet: newKubelet(t, p.name, name == nodeA), log: &syncBuf{}}
+		kubelet: newKubelet(t, p.name), log: &syncBuf{}}
 	for _, c := range []string{"app", "sidecar"} {
 		writeFile(t, a.logPath(c), nil)
 	}
@@ -629,6 +630,25 @@ func (e *env) advance(d time.Duration) {
 		}
 		return h.Session.Connected && h.Session.CommittedHead == h.Chain.Head
 	})
+}
+
+// stored reports whether the node agent stored a cadvisor scrape that started after at; a served scrape can still time out client-side.
+func (a *agent) stored(at time.Time) bool {
+	for _, ts := range a.a.Status().Targets {
+		if strings.HasSuffix(ts.URL, "/metrics/cadvisor") && ts.Health == scrape.HealthUp && ts.LastScrape.After(at) {
+			return true
+		}
+	}
+	return false
+}
+
+// kubeletChange applies change to the node's kubelet fixture and waits until the agent stored a scrape that reflects it.
+func (e *env) kubeletChange(name string, change func(*kubelet)) {
+	e.t.Helper()
+	a := e.nodes[name]
+	change(a.kubelet)
+	at := time.Now()
+	e.waitFor(name+" stored a cadvisor scrape after the change", func() bool { return a.stored(at) })
 }
 
 // until advances the clock in rule intervals until cond holds, at most n times.
