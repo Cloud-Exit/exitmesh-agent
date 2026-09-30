@@ -60,7 +60,7 @@ Signing protects integrity, not secrecy. Bundles are proprietary in licensing te
 
 ## Verifying releases
 
-Container images, the Helm chart, release archives, checksums, and SBOMs are signed with cosign keyless signing by this repository's release workflow:
+Container images, the Helm chart, release archives, checksums, and SBOMs are signed with cosign keyless signing by this repository's release workflow. Signatures use the Sigstore bundle format (cosign 3): each release file has a `<file>.sigstore.json` bundle attached to the GitHub release, and image and chart signatures are stored as OCI referrers.
 
 ```sh
 cosign verify ghcr.io/cloud-exit/exitmesh-agent@<digest> \
@@ -69,7 +69,7 @@ cosign verify ghcr.io/cloud-exit/exitmesh-agent@<digest> \
 cosign verify ghcr.io/cloud-exit/charts/exitmesh-agent@<chart digest> \
   --certificate-identity-regexp '^https://github.com/cloud-exit/exitmesh-agent/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-cosign verify-blob checksums.txt --certificate checksums.txt.pem --signature checksums.txt.sig \
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-identity-regexp '^https://github.com/cloud-exit/exitmesh-agent/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum --check --ignore-missing checksums.txt

@@ -36,7 +36,7 @@ func newGitEnv(t *testing.T) *gitEnv {
 	if err := os.WriteFile(chart, []byte("apiVersion: v2\nname: exitmesh-agent\nversion: 0.1.0\nappVersion: \"0.1.0\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{"next-version.sh", "reserve-version.sh", "release-push.sh"} {
+	for _, s := range []string{"next-version.sh", "reserve-version.sh", "release-push.sh", "unreserve-version.sh"} {
 		b, err := os.ReadFile(filepath.Join(g.root, ".github/scripts", s))
 		if err != nil {
 			t.Fatal(err)
@@ -193,5 +193,43 @@ func TestReleasePushRecordsOnlyNewerVersions(t *testing.T) {
 	}
 	if out := g.run(b, "git", "worktree", "list"); strings.Count(out, "\n") != 0 {
 		t.Fatalf("temporary worktrees left behind:\n%s", out)
+	}
+}
+
+func TestUnreserveVersionReleasesOnlyItsOwnTag(t *testing.T) {
+	g := newGitEnv(t)
+	a := g.clone("a")
+	head := g.run(a, "git", "rev-parse", "HEAD")
+	if v := g.run(a, ".github/scripts/reserve-version.sh", "minor", head); v != "0.2.0" {
+		t.Fatalf("reservation %s", v)
+	}
+	if err := os.WriteFile(filepath.Join(a, "README"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g.run(a, "git", "add", "README")
+	g.run(a, "git", "commit", "-q", "-m", "next")
+	g.run(a, "git", "push", "-q", "origin", "main")
+	next := g.run(a, "git", "rev-parse", "HEAD")
+	if v := g.run(a, ".github/scripts/reserve-version.sh", "minor", next); v != "0.3.0" {
+		t.Fatalf("second reservation %s", v)
+	}
+
+	// The unreserve job checks out only its own commit, one level deep.
+	shallow := g.path("shallow")
+	g.run(g.dir, "git", "clone", "-q", "--depth=1", "file://"+g.path("remote.git"), shallow)
+	if out := g.run(shallow, ".github/scripts/unreserve-version.sh", "0.2.0", next); !strings.Contains(g.run(g.path("remote.git"), "git", "tag", "--list"), "v0.2.0") {
+		t.Fatalf("a tag of another commit was deleted: %s", out)
+	}
+	if out := g.run(shallow, ".github/scripts/unreserve-version.sh", "0.3.0", next); !strings.Contains(out, "released v0.3.0") {
+		t.Fatalf("unreserve output %q", out)
+	}
+	if tags := g.remoteTags(); !slices.Equal(tags, []string{"v0.2.0"}) {
+		t.Fatalf("remote tags %v, want only v0.2.0", tags)
+	}
+	if out := g.run(shallow, ".github/scripts/unreserve-version.sh", "0.9.0", next); !strings.Contains(out, "not on origin") {
+		t.Fatalf("absent tag: %q", out)
+	}
+	if v := g.run(a, ".github/scripts/reserve-version.sh", "minor", next); v != "0.3.0" {
+		t.Fatalf("a released version is reserved again by the next run, got %s", v)
 	}
 }

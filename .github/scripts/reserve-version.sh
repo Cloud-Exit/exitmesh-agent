@@ -10,7 +10,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 run="${GITHUB_SERVER_URL:-local}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-$$}"
 
 for attempt in $(seq 1 10); do
-	git fetch -q --force --tags origin
+	git fetch -q --force --prune --prune-tags --tags origin
 	version=$("$here/next-version.sh" "$level")
 	tag="v$version"
 	# The nonce makes each run's tag object unique; an identical object would push as "up to date" for two runs on one commit.

@@ -59,6 +59,7 @@ jobs:
       image_digest: ${{ steps.image.outputs.digest }}
       chart_digest: ${{ steps.chart.outputs.digest }}
       repository: ${{ steps.repo.outputs.published }}
+      published: ${{ steps.first-publication.outputs.published }}
     env:
       VERSION: ${{ needs.version.outputs.version }}
       CANDIDATE: ${{ needs.artifacts.outputs.image_ref }}
@@ -79,6 +80,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: helm registry login
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<<"$GH_TOKEN"
       - uses: actions/download-artifact@v8
         with:
           name: dist
@@ -105,8 +110,12 @@ jobs:
       - name: sign release files
         run: |
           for f in dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sbom.json dist/checksums.txt dist-chart/*.tgz; do
-            cosign sign-blob --yes --output-certificate "$f.pem" --output-signature "$f.sig" "$f" >/dev/null
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f" >/dev/null
           done
+      # Every later step publishes something under VERSION, so from here on a failure keeps the reserved tag.
+      - name: first publication
+        id: first-publication
+        run: echo "published=true" >>"$GITHUB_OUTPUT"
       - name: tag and sign the gated image
         id: image
         run: |
@@ -200,12 +209,12 @@ jobs:
           \`\`\`sh
           cosign verify $IMAGE@$IMAGE_DIGEST --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
           cosign verify ${CHART_REPO#oci://}/exitmesh-agent@$CHART_DIGEST --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
-          cosign verify-blob checksums.txt --certificate checksums.txt.pem --signature checksums.txt.sig --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
           \`\`\`
           NOTES
           gh release create "v$VERSION" --verify-tag --latest="$NEWEST" --title "v$VERSION" --notes-file notes.md \
             dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sbom.json dist/checksums.txt dist-chart/*.tgz \
-            dist/*.pem dist/*.sig dist-chart/*.pem dist-chart/*.sig
+            dist/*.sigstore.json dist-chart/*.sigstore.json
       - name: record the version in Chart.yaml on main
         env:
           RELEASE_BRANCH: ${{ github.ref_name }}
@@ -229,6 +238,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: helm registry login
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<<"$GH_TOKEN"
       - name: signatures
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -239,7 +252,7 @@ jobs:
           cosign verify "ghcr.io/$owner/exitmesh-agent@$IMAGE_DIGEST" --certificate-identity-regexp "$identity" --certificate-oidc-issuer "$issuer" >/dev/null
           cosign verify "ghcr.io/$owner/charts/exitmesh-agent@$CHART_DIGEST" --certificate-identity-regexp "$identity" --certificate-oidc-issuer "$issuer" >/dev/null
           gh release download "v$VERSION" --dir rel --pattern 'checksums.txt*'
-          cosign verify-blob rel/checksums.txt --certificate rel/checksums.txt.pem --signature rel/checksums.txt.sig --certificate-identity-regexp "$identity" --certificate-oidc-issuer "$issuer"
+          cosign verify-blob rel/checksums.txt --bundle rel/checksums.txt.sigstore.json --certificate-identity-regexp "$identity" --certificate-oidc-issuer "$issuer"
       - name: published chart renders with the published image
         run: |
           owner=${GITHUB_REPOSITORY_OWNER,,}
@@ -269,7 +282,7 @@ jobs:
 
   unreserve:
     needs: [version, publish]
-    if: ${{ always() && needs.version.result == 'success' && needs.publish.result == 'skipped' }}
+    if: ${{ always() && needs.version.result == 'success' && needs.publish.outputs.published != 'true' && needs.publish.result != 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -278,6 +291,4 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: release the reserved tag of a run that published nothing
-        run: |
-          at=$(git ls-remote --tags origin "refs/tags/v$VERSION^{}" | cut -f1)
-          if [ "$at" = "$GITHUB_SHA" ]; then git push -q origin ":refs/tags/v$VERSION"; fi
+        run: .github/scripts/unreserve-version.sh "$VERSION" "$GITHUB_SHA"

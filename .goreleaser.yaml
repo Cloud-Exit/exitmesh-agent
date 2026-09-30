@@ -122,14 +122,12 @@ signs:
   - id: cosign
     cmd: cosign
     artifacts: all
-    certificate: "${artifact}.pem"
-    signature: "${artifact}.sig"
+    signature: "${artifact}.sigstore.json"
     output: true
     args:
       - sign-blob
       - --yes
-      - --output-certificate=${certificate}
-      - --output-signature=${signature}
+      - --bundle=${signature}
       - ${artifact}
 
 snapshot:

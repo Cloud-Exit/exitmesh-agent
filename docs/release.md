@@ -32,11 +32,11 @@ It then runs these gates against the artifacts it built:
 
 Every push or merge to `main` releases a new minor version (`0.2.0`, `0.3.0`, ...). A major version is only ever released by running `release` manually (Actions, release, Run workflow, bump `major`). The image, the binaries and packages, and the chart all carry the same version.
 
-The `version` job computes `max(Chart.yaml version, latest vX.Y.Z tag)` plus one minor (or major) and reserves it by pushing the annotated tag `vX.Y.Z` on the built commit. Tags cannot be overwritten, so a run that loses the race takes the next version; every run gets its own version even when several pushes land together, which is why the workflow has no concurrency group (a group would cancel pending runs). A run whose gates fail deletes its reserved tag again; a run that fails while publishing keeps it, so a version is never reused for different artifacts.
+The `version` job computes `max(Chart.yaml version, latest vX.Y.Z tag)` plus one minor (or major) and reserves it by pushing the annotated tag `vX.Y.Z` on the built commit. Tags cannot be overwritten, so a run that loses the race takes the next version; every run gets its own version even when several pushes land together, which is why the workflow has no concurrency group (a group would cancel pending runs). A run that published nothing (its gates failed, or publishing stopped before the first image tag) deletes its reserved tag again (`unreserve-version.sh`); once the image tag, chart, packages, or release exist, the tag stays, so a version is never reused for different artifacts.
 
 The publish job, in order:
 
-1. signs every release file with cosign keyless signing;
+1. signs every release file with cosign keyless signing, writing a `<file>.sigstore.json` Sigstore bundle next to it;
 2. tags the gated candidate image `X.Y.Z` and signs it, and moves `latest` to it when it is the newest release;
 3. pushes the chart package to `oci://ghcr.io/<owner>/charts/exitmesh-agent` as version `X.Y.Z` and signs it;
 4. updates the signed APT and YUM repository on GitHub Pages (newest 10 versions per architecture; every version stays attached to its GitHub release), rebuilding on the new tip when a concurrent release pushed first;

@@ -153,10 +153,24 @@ func TestWorkflowsParse(t *testing.T) {
 	if n := needs; !slices.Contains(n, "quality") || !slices.Contains(n, "artifacts") {
 		t.Errorf("publish must be gated on quality and artifacts, needs %v", n)
 	}
-	for _, s := range []string{"reserve-version.sh", "release-push.sh", "unreserve", "crane tag", "cosign sign", "cosign sign-blob", "helm push", "package-repo.sh", "gh release create", "cosign verify"} {
+	for _, s := range []string{"reserve-version.sh", "release-push.sh", "unreserve-version.sh", "crane tag", "cosign sign", "cosign sign-blob", "helm push", "package-repo.sh", "gh release create", "cosign verify"} {
 		if !strings.Contains(string(relText), s) {
 			t.Errorf("release.yml does not run %s", s)
 		}
+	}
+	// cosign 3 ignores the detached certificate and signature outputs and requires a Sigstore bundle.
+	for _, line := range strings.Split(string(relText), "\n") {
+		if strings.Contains(line, "cosign sign-blob") || strings.Contains(line, "cosign verify-blob") {
+			if !strings.Contains(line, "--bundle") || strings.Contains(line, "--output-") || strings.Contains(line, "--signature") {
+				t.Errorf("release.yml must sign and verify blobs with --bundle: %s", strings.TrimSpace(line))
+			}
+		}
+	}
+	if strings.Contains(string(relText), ".pem") || !strings.Contains(string(relText), ".sigstore.json") {
+		t.Error("release assets must be Sigstore bundles, not detached .pem and .sig files")
+	}
+	if u := rel.Jobs["unreserve"].If; !strings.Contains(u, "needs.publish.outputs.published != 'true'") {
+		t.Errorf("unreserve must release the tag of any run that published nothing, if = %q", u)
 	}
 }
 
@@ -212,6 +226,9 @@ func TestReleaseConfigsParse(t *testing.T) {
 	}
 	if !contains(gr.Nfpms[0].Formats, "deb") || !contains(gr.Nfpms[0].Formats, "rpm") || len(gr.Signs) == 0 || len(gr.Sboms) == 0 {
 		t.Fatal("goreleaser must build deb and rpm, sign artifacts, and produce SBOMs")
+	}
+	if args, _ := gr.Signs[0]["args"].([]any); !slices.Contains(args, any("--bundle=${signature}")) || gr.Signs[0]["signature"] != "${artifact}.sigstore.json" {
+		t.Fatalf("goreleaser must sign with cosign 3 Sigstore bundles: %v", gr.Signs[0])
 	}
 	gl := string(readFile(t, ".golangci.yml"))
 	if !strings.HasPrefix(strings.TrimSpace(gl), `version: "2"`) {
