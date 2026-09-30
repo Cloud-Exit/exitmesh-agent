@@ -37,6 +37,15 @@ CI additionally installs the chart into kind clusters across the supported Kuber
 
 Dependencies are pinned in `go.mod`. A new module must be pure Go and licensed under Apache 2.0, MIT, BSD, or ISC; open an issue before adding one. Never import Loki, Grafana, or any AGPL or GPL code.
 
+Approved license exceptions (MPL-2.0, approved by Cloud Exit B.V. on 2026-09-30):
+
+|Module|Reached through|
+|---|---|
+|`github.com/cyphar/filepath-securejoin`|node_exporter collectors, via `github.com/opencontainers/selinux`|
+|`github.com/hashicorp/go-envparse`|node_exporter collectors|
+
+Both are used unmodified. MPL-2.0 is copyleft per file: these modules stay under MPL-2.0, the rest of the agent stays under Apache 2.0, and `NOTICE` names them with their source locations. Modifying their files, or adding any other exception, needs a new explicit approval. `internal/deploytest` fails when the go-licenses ignore lists in CI and the `Makefile` differ from this table.
+
 ## Style
 
 - Comments are at most one short line and explain a non-obvious why. Rationale belongs in `docs/`.

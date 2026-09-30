@@ -160,6 +160,29 @@ func TestWorkflowsParse(t *testing.T) {
 	}
 }
 
+func TestLicenseExceptionsApproved(t *testing.T) {
+	approved := []string{"github.com/cyphar/filepath-securejoin", "github.com/hashicorp/go-envparse"}
+	ignore := regexp.MustCompile(`--ignore\s+(\S+)`)
+	for _, f := range []string{".github/workflows/quality.yml", "Makefile"} {
+		var got []string
+		for _, m := range ignore.FindAllStringSubmatch(string(readFile(t, f)), -1) {
+			if m[1] != "github.com/cloud-exit/exitmesh-agent" {
+				got = append(got, m[1])
+			}
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, approved) {
+			t.Errorf("%s ignores %v in the license check, approved exceptions are %v (CONTRIBUTING.md)", f, got, approved)
+		}
+	}
+	notice, contributing := string(readFile(t, "NOTICE")), string(readFile(t, "CONTRIBUTING.md"))
+	for _, m := range approved {
+		if !strings.Contains(notice, m) || !strings.Contains(contributing, "`"+m+"`") {
+			t.Errorf("approved exception %s must be named in NOTICE and CONTRIBUTING.md", m)
+		}
+	}
+}
+
 func TestReleaseConfigsParse(t *testing.T) {
 	for _, f := range []string{".goreleaser.yaml", ".ko.yaml", ".golangci.yml"} {
 		var v map[string]any
