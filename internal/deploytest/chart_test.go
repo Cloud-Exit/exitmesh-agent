@@ -15,6 +15,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
+	"github.com/cloud-exit/exitmesh-agent/internal/state"
 )
 
 const (
@@ -158,6 +159,21 @@ func TestRBACPerCapability(t *testing.T) {
 	if len(inv) == 0 {
 		t.Fatal("inventory ClusterRole missing")
 	}
+	granted := map[string]bool{}
+	for _, r := range inv {
+		if slices.Contains(r.Verbs, "list") && slices.Contains(r.Verbs, "watch") {
+			for _, g := range r.APIGroups {
+				for _, res := range r.Resources {
+					granted[g+"/"+res] = true
+				}
+			}
+		}
+	}
+	for _, k := range state.Catalog() {
+		if !granted[k.GVR.Group+"/"+k.GVR.Resource] {
+			t.Errorf("the coordinator collects %s by default but the inventory ClusterRole does not grant list and watch on %s", k.Kind, k.GVR.GroupResource())
+		}
+	}
 	if got := rs["ClusterRole//"+nodeDS+"-metrics"]; len(got) != 1 || !reflect.DeepEqual(got[0].Resources, []string{"nodes/metrics"}) {
 		t.Fatalf("metrics ClusterRole = %+v", got)
 	}
@@ -251,14 +267,15 @@ func TestNodeAgentSecurityContext(t *testing.T) {
 	if sc == nil || sc.Capabilities == nil {
 		t.Fatal("node-agent securityContext missing")
 	}
-	if !reflect.DeepEqual(sc.Capabilities.Add, []corev1.Capability{"DAC_READ_SEARCH"}) || !reflect.DeepEqual(sc.Capabilities.Drop, []corev1.Capability{"ALL"}) {
+	// SETGID and SETUID only let the agent switch to UID 65532; the running agent keeps CAP_DAC_READ_SEARCH alone.
+	if !reflect.DeepEqual(sc.Capabilities.Add, []corev1.Capability{"DAC_READ_SEARCH", "SETGID", "SETUID"}) || !reflect.DeepEqual(sc.Capabilities.Drop, []corev1.Capability{"ALL"}) {
 		t.Fatalf("capabilities = %+v", sc.Capabilities)
 	}
 	if sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem {
 		t.Error("root filesystem must be read-only")
 	}
-	if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot || sc.RunAsUser == nil || *sc.RunAsUser != 65532 {
-		t.Error("node agent must run as the fixed non-root UID 65532")
+	if sc.RunAsUser == nil || *sc.RunAsUser != 0 || sc.RunAsNonRoot == nil || *sc.RunAsNonRoot {
+		t.Error("node agent must start as root to switch to UID 65532 with CAP_DAC_READ_SEARCH")
 	}
 	if sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation {
 		t.Error("allowPrivilegeEscalation must be false")
@@ -276,7 +293,7 @@ func TestNodeAgentSecurityContext(t *testing.T) {
 	if !reflect.DeepEqual(ic.Args, []string{"prepare-state", "--dir", "/var/lib/exitmesh", "--uid", "65532", "--gid", "65532"}) {
 		t.Fatalf("init args = %v", ic.Args)
 	}
-	if !reflect.DeepEqual(c.Args, []string{"run", "--config", "/etc/exitmesh/config/agent.yaml"}) {
+	if !reflect.DeepEqual(c.Args, []string{"run", "--config", "/etc/exitmesh/config/agent.yaml", "--run-as", "65532:65532"}) {
 		t.Fatalf("args = %v", c.Args)
 	}
 	if ds.Spec.UpdateStrategy.RollingUpdate == nil || ds.Spec.UpdateStrategy.RollingUpdate.MaxSurge.IntValue() != 0 {
@@ -309,7 +326,14 @@ func TestNodeAgentSecurityContext(t *testing.T) {
 		t.Fatal("root fallback must run as UID 0 and be flagged")
 	}
 	if !reflect.DeepEqual(fc.Capabilities.Add, []corev1.Capability{"DAC_READ_SEARCH"}) {
-		t.Fatal("root fallback must keep the capability set")
+		t.Fatal("root fallback must hold CAP_DAC_READ_SEARCH alone")
+	}
+	if args := fb.Spec.Template.Spec.Containers[0].Args; slices.Contains(args, "--run-as") {
+		t.Fatalf("root fallback must not switch users: %v", args)
+	}
+	custom := daemonSet(t, render(t, append([]string{"--set", "node.uid=4000", "--set", "node.gid=4001"}, baseArgs...)...), nodeDS)
+	if args := custom.Spec.Template.Spec.Containers[0].Args; !slices.Equal(args[len(args)-2:], []string{"--run-as", "4000:4001"}) {
+		t.Fatalf("custom identity args = %v", args)
 	}
 }
 

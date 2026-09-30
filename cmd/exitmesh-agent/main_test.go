@@ -72,6 +72,7 @@ func TestUsageVersionAndFlags(t *testing.T) {
 		{[]string{"investigate", "--config", cfg}, "--tool is required"},
 		{[]string{"investigate", "--config", cfg, "--tool", "x", "--args", "{nope"}, "not valid JSON"},
 		{[]string{"status", "--bogus"}, "flag provided but not defined"},
+		{[]string{"run", "--config", cfg, "--run-as", "0:0"}, "not a non-root UID:GID"},
 	} {
 		code, _, e := runArgs(t, ctx, c.args...)
 		if code != 2 || !strings.Contains(e, c.want) {

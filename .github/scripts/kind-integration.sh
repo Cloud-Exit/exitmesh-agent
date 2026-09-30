@@ -62,7 +62,9 @@ common=(--namespace default
 	--set enrollment.token="$token"
 	--set-json "trust.roots=[\"$root\"]"
 	"${image[@]}"
-	--set coordinator.persistence.accessMode=ReadWriteOnce)
+	--set coordinator.persistence.accessMode=ReadWriteOnce
+	# kind kubelets serve self-signed certificates that the cluster CA does not sign.
+	--set node.kubeletTLS=skip)
 
 echo "== createNamespaces=false validation against the live cluster"
 kubectl create namespace "$nodens"
@@ -98,6 +100,21 @@ for _ in $(seq 1 90); do
 	sleep 3
 done
 [ -n "$ok" ] || fail "coordinator did not commit, or node agents did not converge on bundle $bundle_version: $(status || true)"
+
+echo "== node agents read logs and metrics as UID 65532 with only CAP_DAC_READ_SEARCH"
+ok=
+for _ in $(seq 1 40); do
+	if st=$(status) && jq -e '.targets[0].last_health | (.nodes | length) > 0 and all(.nodes[];
+		(.coverage.logs | startswith("unavailable") | not) and (.coverage.metrics | startswith("unavailable") | not) and
+		.process.uid == 65532 and .process.gid == 65532 and .process.capabilities == ["CAP_DAC_READ_SEARCH"])' >/dev/null <<<"$st"; then
+		ok=1
+		break
+	fi
+	sleep 3
+done
+[ -n "$ok" ] || fail "node agent coverage or identity: $(status | jq -c '.targets[0].last_health.nodes[] | {name, coverage, process}' || true)"
+forbidden=$(status | jq -c '[.targets[0].last_health.coverage[] | select(.reason == "forbidden") | .key]')
+[ "$forbidden" = "[]" ] || fail "the coordinator lacks RBAC for $forbidden"
 
 echo "== RBAC is read-only"
 coordsa=system:serviceaccount:$coordns:$release-coordinator

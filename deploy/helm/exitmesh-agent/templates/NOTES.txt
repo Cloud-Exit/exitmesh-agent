@@ -7,7 +7,7 @@ Workloads
 
 Permission summary (verbs get, list, watch only; no writes, no Secrets, no exec, attach, port-forward, nodes/proxy, or nodes/log)
 {{- if .Values.capabilities.inventory }}
-  inventory: coordinator reads workload, networking, storage, and policy objects {{ if eq .Values.kubernetes.scope "cluster" }}cluster-wide{{ else }}in namespaces {{ join ", " .Values.kubernetes.namespaces }}{{ end }}. ConfigMaps are watched metadata-only; RBAC cannot express metadata-only, so the role permits reading ConfigMap contents.
+  inventory: coordinator reads workload, networking, storage, and policy objects and events {{ if eq .Values.kubernetes.scope "cluster" }}cluster-wide{{ else }}in namespaces {{ join ", " .Values.kubernetes.namespaces }}{{ end }}. ConfigMaps are watched metadata-only; RBAC cannot express metadata-only, so the role permits reading ConfigMap contents.
 {{- end }}
   coordinator: get nodes and persistentvolumes{{ if not .Values.rbac.clusterReads }} (disabled by rbac.clusterReads=false){{ end }}, get pods in {{ .Values.namespaces.node }} to resolve node agent tokens.
   node agents: list and watch pods {{ if eq .Values.kubernetes.scope "cluster" }}CLUSTER-WIDE. RBAC cannot limit this to the node's own pods; the agent uses a spec.nodeName field selector.{{ else }}in {{ join ", " .Values.kubernetes.namespaces }}.{{ end }}
@@ -20,10 +20,14 @@ Host-mount summary (node agents)
 {{- if .Values.capabilities.logs }}
   /var/log/pods      read-only, for log rules and investigation.
 {{- end }}
+{{- if .Values.node.runAsRootFallback }}
   Capabilities: all dropped except CAP_DAC_READ_SEARCH; read-only root filesystem; never privileged. An init container runs as root with only CAP_CHOWN to set ownership of /var/lib/exitmesh.
+{{- else }}
+  Identity: the agent starts as root only to switch to UID {{ .Values.node.uid }} and GID {{ .Values.node.gid }}, keeping CAP_DAC_READ_SEARCH as its one capability (container runtimes never grant added capabilities to non-root). Read-only root filesystem; never privileged. An init container runs as root with only CAP_CHOWN to set ownership of /var/lib/exitmesh.
+{{- end }}
 {{- if .Values.node.runAsRootFallback }}
 
-WARNING: node.runAsRootFallback=true. Node agents run as UID 0. Use this only where the container runtime does not grant CAP_DAC_READ_SEARCH to non-root processes. The connector flags this installation.
+WARNING: node.runAsRootFallback=true. Node agents run as UID 0. Use this only where policy forbids CAP_SETUID. The connector flags this installation.
 {{- end }}
 
 Export preview

@@ -43,6 +43,8 @@ type NodeStatus struct {
 	Rules []NodeRule `json:"rules,omitempty"`
 	// RuleStates counts the node's rules per state.
 	RuleStates map[string]int `json:"rule_states,omitempty"`
+	// Process is the node agent's user and effective capabilities; UID 0 means the root fallback is in use.
+	Process *nodeapi.Process `json:"process,omitempty"`
 
 	rules []nodeapi.RuleStatus
 }
@@ -207,6 +209,10 @@ func (b nodeBackend) Register(_ context.Context, node string, req nodeapi.Regist
 			n.Coverage[k] = v
 		}
 		n.setRules(req.Rules)
+		n.Process = nil
+		if p := req.Process; p != nil {
+			n.Process = &nodeapi.Process{UID: p.UID, GID: p.GID, Capabilities: append([]string{}, p.Capabilities...)}
+		}
 	})
 	c.log.Info("node agent registered", "node", node, "version", req.AgentVersion, "bundle", req.BundleVersion, "warming", req.Warming)
 	return nodeapi.RegisterResponse{TargetBundle: c.bundles.version()}, nil

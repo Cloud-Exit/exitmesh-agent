@@ -70,7 +70,7 @@ rbac:
     # Namespaced resources for list and watch. ConfigMaps are watched metadata-only by the agent; RBAC cannot express metadata-only access, so remove configmaps to deny it entirely.
     namespaced:
       - apiGroups: [""]
-        resources: [pods, services, persistentvolumeclaims, configmaps, serviceaccounts, replicationcontrollers, resourcequotas, limitranges]
+        resources: [pods, services, persistentvolumeclaims, configmaps, events, serviceaccounts, replicationcontrollers, resourcequotas, limitranges]
       - apiGroups: [apps]
         resources: [deployments, replicasets, statefulsets, daemonsets, controllerrevisions]
       - apiGroups: [batch]
@@ -148,10 +148,10 @@ node:
     limits:
       cpu: 100m
       memory: 192Mi
-  # Fixed non-root UID and GID of the node agent and the owner of /var/lib/exitmesh.
+  # Non-root UID and GID the node agent switches to at start, keeping only CAP_DAC_READ_SEARCH; owner of /var/lib/exitmesh.
   uid: 65532
   gid: 65532
-  # FALLBACK ONLY: run the node agent as UID 0 where the container runtime does not grant CAP_DAC_READ_SEARCH to non-root processes. Flagged on the connector and in the install notes.
+  # FALLBACK ONLY: stay UID 0 with CAP_DAC_READ_SEARCH alone instead of switching users, where policy forbids CAP_SETUID. Flagged on the connector and in the install notes.
   runAsRootFallback: false
   diskCap: 1Gi
   evidenceRing: 16Mi

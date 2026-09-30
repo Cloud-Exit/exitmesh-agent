@@ -1,6 +1,7 @@
 package node
 
 import (
+	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/engine"
 	"github.com/cloud-exit/exitmesh-agent/internal/spool"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/disk"
@@ -14,6 +15,7 @@ import (
 type Status struct {
 	Node          string
 	AgentVersion  string
+	Process       nodeapi.Process
 	BundleVersion string
 	TargetBundle  string
 	BundleError   string
@@ -37,7 +39,7 @@ func (a *Agent) Status() Status {
 	s := Status{
 		Node: a.node, AgentVersion: a.deps.AgentVersion, BundleVersion: a.eng.BundleVersion(), Warming: a.warming(),
 		Coverage: a.coverageReport(), Rules: a.eng.RuleStates(), Queue: a.queue.Usage(), Dropped: a.deliv.droppedSummary(),
-		OpenFindings: a.tracker.OpenCount(), Evidence: a.ring.Stats(),
+		OpenFindings: a.tracker.OpenCount(), Evidence: a.ring.Stats(), Process: *a.process,
 	}
 	a.rules.mu.Lock()
 	s.BundleError = a.rules.lastError

@@ -76,7 +76,21 @@ type RegisterRequest struct {
 	QueueUsage    QueueUsage        `cbor:"7,keyasint"`
 	// Rules are the node-local rule states, at most MaxRuleStatuses, most severe first.
 	Rules []RuleStatus `cbor:"8,keyasint,omitempty"`
+	// Process is the node agent's user and effective capabilities, so a root agent is visible on the connector.
+	Process *Process `cbor:"9,keyasint,omitempty"`
 }
+
+// Process is a process identity.
+type Process struct {
+	UID          int      `cbor:"1,keyasint" json:"uid"`
+	GID          int      `cbor:"2,keyasint" json:"gid"`
+	Capabilities []string `cbor:"3,keyasint,omitempty" json:"capabilities"`
+}
+
+const (
+	maxProcessCaps = 64
+	maxCapName     = 32
+)
 
 // Bounds of the rule states a registration carries.
 const (
@@ -328,6 +342,16 @@ func (r RegisterRequest) validate() error {
 	for _, rs := range r.Rules {
 		if err := rs.validate(); err != nil {
 			return err
+		}
+	}
+	if p := r.Process; p != nil {
+		if p.UID < 0 || p.GID < 0 || len(p.Capabilities) > maxProcessCaps {
+			return invalid("process identity out of range")
+		}
+		for _, c := range p.Capabilities {
+			if c == "" || len(c) > maxCapName {
+				return invalid("capability name length %d", len(c))
+			}
 		}
 	}
 	return nil

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/cloud-exit/exitmesh-agent/internal/findings"
 	"github.com/cloud-exit/exitmesh-agent/internal/kv"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
+	"github.com/cloud-exit/exitmesh-agent/internal/privdrop"
 	"github.com/cloud-exit/exitmesh-agent/internal/redact"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/bundle"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/engine"
@@ -74,8 +76,10 @@ type Deps struct {
 	Coordinator  nodeapi.ClientOptions
 	Executor     TaskExecutor
 	AgentVersion string
-	Logger       *slog.Logger
-	Timing       Timing
+	// Process overrides the identity read from /proc/self/status.
+	Process *privdrop.Identity
+	Logger  *slog.Logger
+	Timing  Timing
 }
 
 // Run starts a node agent with in-cluster dependencies until ctx ends.
@@ -115,6 +119,7 @@ type Agent struct {
 
 	kubeletHost string
 	kubeletPort int
+	process     *nodeapi.Process
 
 	startMu sync.Mutex
 	started bool
@@ -233,7 +238,19 @@ func New(cfg *config.Config, d Deps) (*Agent, error) {
 		return nil, fmt.Errorf("node: coordinator client: %w", err)
 	}
 	a.vals = validators()
-	a.bpol = bundlePolicy(cfg.Policy)
+	a.bpol = cfg.Policy.Bundle(bundle.TargetKubernetes)
+	id := d.Process
+	if id == nil {
+		cur, err := privdrop.Current()
+		if err != nil {
+			return nil, fmt.Errorf("node: process identity: %w", err)
+		}
+		id = &cur
+	}
+	a.process = &nodeapi.Process{UID: id.UID, GID: id.GID, Capabilities: slices.Clone(id.Capabilities)}
+	if id.Root() {
+		log.Warn("node agent runs as root (node.runAsRootFallback)", "capabilities", id.Capabilities)
+	}
 	return a, nil
 }
 

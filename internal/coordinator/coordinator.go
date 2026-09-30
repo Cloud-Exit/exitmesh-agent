@@ -473,7 +473,7 @@ func (c *Coordinator) setup(ctx context.Context) error {
 		return fmt.Errorf("coordinator: trust roots: %w", err)
 	}
 	ver.SetClock(c.now)
-	c.bundles = newBundleState(bundle.NewStore(sp.KV("bundles"), ver, 0), ver, sp.KV("bundle-dist"), c.bundlePolicy(), validators.For(bundle.TargetKubernetes))
+	c.bundles = newBundleState(bundle.NewStore(sp.KV("bundles"), ver, 0), ver, sp.KV("bundle-dist"), c.cfg.Policy.Bundle(bundle.TargetKubernetes), validators.For(bundle.TargetKubernetes))
 	c.mem = engine.NewMemSeries(time.Hour, c.now)
 	c.nodes = newRegistry(c.now, c.t.NodeTimeout)
 	c.tasks = newTaskQueue()
@@ -546,28 +546,6 @@ func (c *Coordinator) tunnelOptions() tunnel.Options {
 	sp := c.sp
 	opts.Credential = func() string { return sp.Identity().Credential }
 	return opts
-}
-
-func (c *Coordinator) bundlePolicy() bundle.Policy {
-	p := bundle.DefaultPolicy()
-	p.TargetType = bundle.TargetKubernetes
-	pol := c.cfg.Policy
-	capd := func(cur *time.Duration, v time.Duration) {
-		if v > 0 && (*cur == 0 || v < *cur) {
-			*cur = v
-		}
-	}
-	capi := func(cur *int, v int) {
-		if v > 0 && (*cur == 0 || v < *cur) {
-			*cur = v
-		}
-	}
-	capd(&p.MaxBudget.MaxEvalTime, pol.MaxRuleEvalTime.D())
-	capi(&p.MaxBudget.MaxSamples, pol.MaxRuleSamples)
-	capi(&p.MaxBudget.MaxSeries, pol.MaxRuleSeries)
-	capi(&p.MaxBudget.CounterBytes, int(pol.MaxCounterBytes))
-	capi(&p.MaxEvidence.MaxBytes, int(pol.MaxEvidenceBytes))
-	return p
 }
 
 func (c *Coordinator) enginePolicy() engine.Policy {

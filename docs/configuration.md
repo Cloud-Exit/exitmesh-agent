@@ -129,7 +129,7 @@ Local administrator upper bounds; rules cannot exceed them.
 |`policy.maxRuleEvalTime`|`2s`|Maximum evaluation time per rule.|
 |`policy.maxRuleSamples`|`5000000`|Maximum samples loaded per PromQL evaluation.|
 |`policy.maxRuleSeries`|`10000`|Maximum series per rule.|
-|`policy.maxCounterBytes`|`4Mi`|Maximum LogQL counter state per rule.|
+|`policy.maxCounterBytes`|`8Mi`|Maximum LogQL counter state per rule.|
 |`policy.maxEvidenceBytes`|`1Mi`|Maximum evidence per rule.|
 |`policy.disabledRules`|empty|Rule IDs never evaluated; reported as disabled.|
 |`policy.lateThreshold`|`15m`|Delay after which a finding is marked late-delivered.|
@@ -193,8 +193,8 @@ Local administrator upper bounds; rules cannot exceed them.
 |`coordinator.spool.capacity`, `.window`, `.coalesceAt`|`10Gi`, `8Mi`, `0.90`|Rendered to `spool`.|
 |`coordinator.nodeSelector`, `.tolerations`, `.affinity`, `.priorityClassName`, `.podAnnotations`, `.podLabels`, `.terminationGracePeriodSeconds`|empty, `60`|Scheduling and metadata.|
 |`node.resources`|requests and limits `100m`/`192Mi`|Node agent resources (Guaranteed QoS).|
-|`node.uid`, `node.gid`|`65532`|Fixed non-root identity and owner of `/var/lib/exitmesh`.|
-|`node.runAsRootFallback`|`false`|Run node agents as UID 0 where the runtime does not grant capabilities to non-root. Flagged.|
+|`node.uid`, `node.gid`|`65532`|Non-root identity the node agent switches to at start (`--run-as`) and owner of `/var/lib/exitmesh`.|
+|`node.runAsRootFallback`|`false`|Run node agents as UID 0 with `CAP_DAC_READ_SEARCH` alone instead of switching to `node.uid` (for policies that forbid `CAP_SETUID`). Flagged.|
 |`node.diskCap` ... `node.kubeletPort`|see `node` above|Rendered to `node`.|
 |`node.tolerations`|`[{operator: Exists}]`|Run on every node.|
 |`node.nodeSelector`, `.affinity`, `.priorityClassName`, `.podAnnotations`, `.podLabels`, `.terminationGracePeriodSeconds`|empty, `30`|Scheduling and metadata.|

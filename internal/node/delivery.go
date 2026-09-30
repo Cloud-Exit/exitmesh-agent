@@ -183,7 +183,7 @@ func (a *Agent) registerLoop(ctx context.Context) {
 		req := nodeapi.RegisterRequest{
 			Node: a.node, AgentVersion: a.deps.AgentVersion, BundleVersion: a.eng.BundleVersion(),
 			Capabilities: capList(a.cfg.Capabilities), Coverage: a.coverageReport(), Warming: a.warming(),
-			QueueUsage: queueUsage(a.queue.Usage()), Rules: a.ruleStatuses(),
+			QueueUsage: queueUsage(a.queue.Usage()), Rules: a.ruleStatuses(), Process: a.process,
 		}
 		rctx, cancel := context.WithTimeout(ctx, a.t.Register)
 		resp, err := a.client.Register(rctx, req)

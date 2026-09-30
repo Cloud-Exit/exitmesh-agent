@@ -46,12 +46,6 @@ func (rs *ruleSet) programs() []*logProgram {
 	return rs.active
 }
 
-func (h *Host) bundlePolicy() bundle.Policy {
-	p := bundle.DefaultPolicy()
-	p.TargetType = bundle.TargetHost
-	return p
-}
-
 func (h *Host) openRules() error {
 	alerts, err := h.bucket("alerts")
 	if err != nil {
@@ -151,7 +145,7 @@ func (h *Host) activate(a *bundle.Active) error {
 func (h *Host) loadBundle() {
 	h.bundleMu.Lock()
 	defer h.bundleMu.Unlock()
-	a, ok, err := h.bundles.LoadLastKnownGood(validators.For(bundle.TargetHost), h.bundlePolicy())
+	a, ok, err := h.bundles.LoadLastKnownGood(validators.For(bundle.TargetHost), h.cfg.Policy.Bundle(bundle.TargetHost))
 	switch {
 	case err != nil:
 		h.setErr(&h.st.bundleError, fmt.Errorf("last known good bundle: %w", err))
@@ -184,7 +178,7 @@ func (h *Host) fetchBundle(ctx context.Context) {
 	if len(res.Bundle) == 0 || res.Version == have {
 		return
 	}
-	a, err := h.bundles.ActivateFetch(*res, validators.For(bundle.TargetHost), h.bundlePolicy())
+	a, err := h.bundles.ActivateFetch(*res, validators.For(bundle.TargetHost), h.cfg.Policy.Bundle(bundle.TargetHost))
 	if err != nil {
 		h.setErr(&h.st.bundleError, fmt.Errorf("bundle %s rejected, keeping %q: %w", res.Version, have, err))
 		h.log.Warn("rule bundle rejected; last known good stays active", "version", res.Version, "err", err)
@@ -217,7 +211,7 @@ func (h *Host) loadAirgapBundleLocked() {
 		h.setErr(&h.st.bundleError, fmt.Errorf("air-gap bundle in %s: %w", dir, err))
 		return
 	}
-	a, err := h.bundles.Activate(archive, signature, validators.For(bundle.TargetHost), h.bundlePolicy())
+	a, err := h.bundles.Activate(archive, signature, validators.For(bundle.TargetHost), h.cfg.Policy.Bundle(bundle.TargetHost))
 	if err != nil {
 		h.setErr(&h.st.bundleError, fmt.Errorf("air-gap bundle rejected, keeping the last known good: %w", err))
 		return

@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
+	"github.com/cloud-exit/exitmesh-agent/internal/privdrop"
 	"github.com/cloud-exit/exitmesh-agent/internal/redact"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/bundle"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
@@ -160,13 +161,27 @@ func loadConfig(fs *flag.FlagSet, args []string) (*config.Config, error) {
 }
 
 func runCmd(ctx context.Context, args []string, _, stderr io.Writer) error {
-	cfg, err := loadConfig(newFlags("run", stderr), args)
+	fs := newFlags("run", stderr)
+	path := fs.String("config", "", "agent configuration file")
+	runAs := fs.String("run-as", "", "UID:GID to switch to before anything else when started as root, keeping only CAP_DAC_READ_SEARCH")
+	if err := parse(fs, args, "config"); err != nil {
+		return err
+	}
+	if *runAs != "" {
+		if err := dropPrivileges(*runAs, os.Geteuid(), execAs); err != nil {
+			return err
+		}
+	}
+	cfg, err := config.Load(*path)
 	if err != nil {
 		return err
 	}
 	log, err := newLogger(cfg, stderr)
 	if err != nil {
 		return err
+	}
+	if id, err := privdrop.Current(); err == nil {
+		log.Info("process identity", "uid", id.UID, "gid", id.GID, "capabilities", id.Capabilities)
 	}
 	if limit, source, ok := applyMemoryLimit(os.Getenv, "/proc/self/cgroup", "/sys/fs/cgroup"); ok {
 		log.Info("memory limit set from the cgroup", "gomemlimit_bytes", limit, "source", source)

@@ -75,7 +75,11 @@ spec:
         - name: node-agent
           image: {{ include "exitmesh.image" . }}
           imagePullPolicy: {{ $v.image.pullPolicy }}
+          {{- if $v.node.runAsRootFallback }}
           args: ["run", "--config", "/etc/exitmesh/config/agent.yaml"]
+          {{- else }}
+          args: ["run", "--config", "/etc/exitmesh/config/agent.yaml", "--run-as", "{{ $uid }}:{{ $gid }}"]
+          {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:
@@ -96,16 +100,21 @@ spec:
             {{- include "exitmesh.goMemLimitEnv" (dict "container" "node-agent") | nindent 12 }}
           resources:
             {{- toYaml $v.node.resources | nindent 12 }}
+          # Starts as root only to switch to the agent UID keeping CAP_DAC_READ_SEARCH (runtimes never grant added capabilities to non-root).
           securityContext:
             allowPrivilegeEscalation: false
             privileged: false
             readOnlyRootFilesystem: true
-            runAsNonRoot: {{ not $v.node.runAsRootFallback }}
-            runAsUser: {{ $uid }}
-            runAsGroup: {{ $gid }}
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
             capabilities:
               drop: ["ALL"]
+              {{- if $v.node.runAsRootFallback }}
               add: ["DAC_READ_SEARCH"]
+              {{- else }}
+              add: ["DAC_READ_SEARCH", "SETGID", "SETUID"]
+              {{- end }}
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:

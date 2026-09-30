@@ -63,16 +63,6 @@ func validators() bundle.Validators {
 	}
 }
 
-func bundlePolicy(p config.Policy) bundle.Policy {
-	return bundle.Policy{
-		TargetType: bundle.TargetKubernetes,
-		MaxBudget: bundle.Budget{
-			MaxEvalTime: p.MaxRuleEvalTime.D(), MaxSamples: p.MaxRuleSamples, MaxSeries: p.MaxRuleSeries, CounterBytes: int(p.MaxCounterBytes),
-		},
-		MaxEvidence: bundle.EvidencePolicy{MaxBytes: int(p.MaxEvidenceBytes)},
-	}
-}
-
 func enginePolicy(cfg *config.Config) engine.Policy {
 	p := cfg.Policy
 	return engine.Policy{

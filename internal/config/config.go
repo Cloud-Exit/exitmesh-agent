@@ -311,7 +311,7 @@ func (c *Config) ApplyDefaults() {
 	setD(&c.Policy.MaxRuleEvalTime, 2*time.Second)
 	setI(&c.Policy.MaxRuleSamples, 5_000_000)
 	setI(&c.Policy.MaxRuleSeries, 10_000)
-	setB(&c.Policy.MaxCounterBytes, 4<<20)
+	setB(&c.Policy.MaxCounterBytes, 8<<20)
 	setB(&c.Policy.MaxEvidenceBytes, 1<<20)
 	setD(&c.Policy.LateThreshold, 15*time.Minute)
 	setI(&c.Investigation.MaxConcurrency, 4)

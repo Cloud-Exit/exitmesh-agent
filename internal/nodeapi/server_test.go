@@ -255,7 +255,8 @@ func TestRegisterAndSubmit(t *testing.T) {
 	e := newEnv(t, nil)
 	c := e.client(t, "node-1", e.token(t))
 	ctx := context.Background()
-	req := RegisterRequest{AgentVersion: "1.0.0", BundleVersion: "b1", Capabilities: []string{"metrics"}, Coverage: map[string]string{"logs": "covered"}, QueueUsage: QueueUsage{Items: 3}}
+	req := RegisterRequest{AgentVersion: "1.0.0", BundleVersion: "b1", Capabilities: []string{"metrics"}, Coverage: map[string]string{"logs": "covered"}, QueueUsage: QueueUsage{Items: 3},
+		Process: &Process{UID: 65532, GID: 65532, Capabilities: []string{"CAP_DAC_READ_SEARCH"}}}
 	resp, err := c.Register(ctx, req)
 	if err != nil {
 		t.Fatal(err)
@@ -281,6 +282,27 @@ func TestRegisterAndSubmit(t *testing.T) {
 	})
 	if len(e.auditLog()) != 0 {
 		t.Fatalf("unexpected audits: %+v", e.auditLog())
+	}
+}
+
+func TestRegisterRejectsInvalidProcess(t *testing.T) {
+	e := newEnv(t, nil)
+	c := e.client(t, "node-1", e.token(t))
+	many := make([]string, maxProcessCaps+1)
+	for i := range many {
+		many[i] = "CAP_X"
+	}
+	for _, p := range []*Process{{UID: -1}, {GID: -1}, {Capabilities: many}, {Capabilities: []string{""}}, {Capabilities: []string{strings.Repeat("C", maxCapName+1)}}} {
+		if _, err := c.Register(context.Background(), RegisterRequest{Process: p}); !errors.Is(err, ErrInvalid) || IsRetryable(err) {
+			t.Errorf("client sent process %+v: %v", p, err)
+		}
+		body, err := protocol.Marshal(RegisterRequest{Node: "node-1", Process: p})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r := e.raw(t, http.MethodPost, "/v1/node/register", ContentType, bytes.NewReader(body), e.token(t)); r.StatusCode != http.StatusBadRequest {
+			t.Errorf("server accepted process %+v: %d", p, r.StatusCode)
+		}
 	}
 }
 
