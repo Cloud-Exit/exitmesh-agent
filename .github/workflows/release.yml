@@ -256,6 +256,7 @@ jobs:
       - name: published chart renders with the published image
         run: |
           owner=${GITHUB_REPOSITORY_OWNER,,}
+          mkdir -p pulled
           helm pull "oci://ghcr.io/$owner/charts/exitmesh-agent" --version "$VERSION" --destination pulled
           helm template exitmesh-agent pulled/exitmesh-agent-"$VERSION".tgz --namespace default \
             --set endpoint=https://cp.example.com --set enrollment.token=emx1_c_t-verify_abcdefghijklmnop \

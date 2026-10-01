@@ -169,6 +169,13 @@ func TestWorkflowsParse(t *testing.T) {
 	if strings.Contains(string(relText), ".pem") || !strings.Contains(string(relText), ".sigstore.json") {
 		t.Error("release assets must be Sigstore bundles, not detached .pem and .sig files")
 	}
+	// helm pull does not create its --destination directory.
+	for _, m := range regexp.MustCompile(`helm pull [^\n]*--destination (\S+)`).FindAllStringSubmatchIndex(string(relText), -1) {
+		dir := string(relText)[m[2]:m[3]]
+		if !strings.Contains(string(relText)[:m[0]], "mkdir -p "+dir) {
+			t.Errorf("release.yml pulls a chart into %s without creating it", dir)
+		}
+	}
 	if u := rel.Jobs["unreserve"].If; !strings.Contains(u, "needs.publish.outputs.published != 'true'") {
 		t.Errorf("unreserve must release the tag of any run that published nothing, if = %q", u)
 	}
