@@ -22,7 +22,7 @@ purge)
 		fi
 	fi
 	rm -rf "$HELPER_DIR" /etc/systemd/system/exitmesh-agent.service.d
-	rm -f /etc/exitmesh/enrollment-token /etc/exitmesh/purge-on-remove
+	rm -f /etc/exitmesh/agent.yaml /etc/exitmesh/enrollment-token /etc/exitmesh/purge-on-remove
 	rmdir /etc/exitmesh 2>/dev/null || true
 	if [ -d /run/systemd/system ]; then
 		systemctl daemon-reload || true

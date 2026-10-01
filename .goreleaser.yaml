@@ -66,28 +66,34 @@ nfpms:
     bindir: /usr/bin
     mtime: "{{ .CommitDate }}"
     recommends: [systemd]
-    contents:
-      - src: deploy/packaging/systemd/exitmesh-agent.service
-        dst: /usr/lib/systemd/system/exitmesh-agent.service
-        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
-      - src: deploy/packaging/sysusers.d/exitmesh-agent.conf
-        dst: /usr/lib/sysusers.d/exitmesh-agent.conf
-        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
-      - src: deploy/packaging/config/agent.yaml
-        dst: /etc/exitmesh/agent.yaml
-        type: config|noreplace
-        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
-      - dst: /etc/exitmesh
-        type: dir
-        file_info: { mode: 0755, mtime: "{{ .CommitDate }}" }
-      - src: LICENSE
-        dst: /usr/share/doc/exitmesh-agent/LICENSE
-        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
-      - src: NOTICE
-        dst: /usr/share/doc/exitmesh-agent/NOTICE
-        file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+    # Per-format contents replace the shared list, so each format lists everything; shared entries are anchored once.
     overrides:
       deb:
+        contents:
+          - &unit
+            src: deploy/packaging/systemd/exitmesh-agent.service
+            dst: /usr/lib/systemd/system/exitmesh-agent.service
+            file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+          - &sysusers
+            src: deploy/packaging/sysusers.d/exitmesh-agent.conf
+            dst: /usr/lib/sysusers.d/exitmesh-agent.conf
+            file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+          - &etcdir
+            dst: /etc/exitmesh
+            type: dir
+            file_info: { mode: 0755, mtime: "{{ .CommitDate }}" }
+          - &license
+            src: LICENSE
+            dst: /usr/share/doc/exitmesh-agent/LICENSE
+            file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+          - &notice
+            src: NOTICE
+            dst: /usr/share/doc/exitmesh-agent/NOTICE
+            file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
+          # Not a dpkg conffile: postinst installs it only when missing, so a changed default never stops an upgrade at a prompt.
+          - src: deploy/packaging/config/agent.yaml
+            dst: /usr/share/exitmesh-agent/agent.yaml
+            file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
         scripts:
           postinstall: deploy/packaging/scripts/deb/postinst
           preremove: deploy/packaging/scripts/deb/prerm
@@ -95,6 +101,16 @@ nfpms:
       rpm:
         dependencies:
           - /usr/sbin/useradd
+        contents:
+          - *unit
+          - *sysusers
+          - *etcdir
+          - *license
+          - *notice
+          - src: deploy/packaging/config/agent.yaml
+            dst: /etc/exitmesh/agent.yaml
+            type: config|noreplace
+            file_info: { mode: 0644, mtime: "{{ .CommitDate }}" }
         scripts:
           postinstall: deploy/packaging/scripts/rpm/post
           preremove: deploy/packaging/scripts/rpm/preun

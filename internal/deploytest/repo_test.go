@@ -2,6 +2,7 @@ package deploytest
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -219,7 +220,11 @@ func TestReleaseConfigsParse(t *testing.T) {
 			ModTime string   `yaml:"mod_timestamp"`
 		} `yaml:"builds"`
 		Nfpms []struct {
-			Formats []string `yaml:"formats"`
+			Formats   []string         `yaml:"formats"`
+			Contents  []map[string]any `yaml:"contents"`
+			Overrides map[string]struct {
+				Contents []map[string]any `yaml:"contents"`
+			} `yaml:"overrides"`
 		} `yaml:"nfpms"`
 		Signs []map[string]any `yaml:"signs"`
 		Sboms []map[string]any `yaml:"sboms"`
@@ -233,6 +238,44 @@ func TestReleaseConfigsParse(t *testing.T) {
 	}
 	if !contains(gr.Nfpms[0].Formats, "deb") || !contains(gr.Nfpms[0].Formats, "rpm") || len(gr.Signs) == 0 || len(gr.Sboms) == 0 {
 		t.Fatal("goreleaser must build deb and rpm, sign artifacts, and produce SBOMs")
+	}
+	// Per-format contents replace the shared list, so every format must list every file itself.
+	nf := gr.Nfpms[0]
+	if len(nf.Contents) != 0 {
+		t.Error("nfpm contents must be listed per format: a shared list is dropped for every format that overrides contents")
+	}
+	common := []string{"/usr/lib/systemd/system/exitmesh-agent.service", "/usr/lib/sysusers.d/exitmesh-agent.conf", "/etc/exitmesh", "/usr/share/doc/exitmesh-agent/LICENSE", "/usr/share/doc/exitmesh-agent/NOTICE"}
+	want := map[string]map[string]string{
+		// A dpkg conffile that changes stops every upgrade of an edited host at an interactive prompt.
+		"deb": {"/usr/share/exitmesh-agent/agent.yaml": ""},
+		"rpm": {"/etc/exitmesh/agent.yaml": "config|noreplace"},
+	}
+	for format, extra := range want {
+		got := map[string]string{}
+		for _, c := range nf.Overrides[format].Contents {
+			typ, _ := c["type"].(string)
+			got[fmt.Sprint(c["dst"])] = typ
+		}
+		for _, dst := range common {
+			if _, ok := got[dst]; !ok {
+				t.Errorf("%s package lacks %s", format, dst)
+			}
+		}
+		for dst, typ := range extra {
+			if g, ok := got[dst]; !ok || g != typ {
+				t.Errorf("%s package must ship %s as %q, got %q (present %v)", format, dst, typ, g, ok)
+			}
+		}
+		if format == "deb" {
+			for dst, typ := range got {
+				if strings.HasPrefix(typ, "config") {
+					t.Errorf("deb package ships %s as a conffile", dst)
+				}
+			}
+		}
+	}
+	if pi := string(readFile(t, "deploy/packaging/scripts/deb/postinst")); !strings.Contains(pi, "[ -e /etc/exitmesh/agent.yaml ] || install -m 0644 /usr/share/exitmesh-agent/agent.yaml /etc/exitmesh/agent.yaml") {
+		t.Error("deb postinst must install the default configuration when it is missing")
 	}
 	if args, _ := gr.Signs[0]["args"].([]any); !slices.Contains(args, any("--bundle=${signature}")) || gr.Signs[0]["signature"] != "${artifact}.sigstore.json" {
 		t.Fatalf("goreleaser must sign with cosign 3 Sigstore bundles: %v", gr.Signs[0])

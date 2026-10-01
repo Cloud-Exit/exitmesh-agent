@@ -127,4 +127,7 @@ install_pkg "$newpkg"
 [ -f "$state/marker" ] || fail "reinstall lost state"
 purge_pkg
 [ ! -e "$state" ] || fail "$state left after purge: $(ls -A "$state")"
+if [ "$fmt" = deb ]; then
+	[ ! -e /etc/exitmesh/agent.yaml ] || fail "configuration left after purge"
+fi
 echo "package smoke passed ($fmt, $pkgarch)"

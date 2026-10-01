@@ -68,7 +68,7 @@ The package enables the unit at install. It starts only once `/etc/exitmesh/enro
 |`/usr/bin/exitmesh-agent`|The agent binary.|
 |`/usr/lib/systemd/system/exitmesh-agent.service`|Hardened unit.|
 |`/usr/lib/sysusers.d/exitmesh-agent.conf`|The `exitmesh` system user.|
-|`/etc/exitmesh/agent.yaml`|Configuration (a conffile, kept on upgrade). Keys are in [configuration.md](configuration.md).|
+|`/etc/exitmesh/agent.yaml`|Configuration, kept on upgrade without prompting. The deb installs it from `/usr/share/exitmesh-agent/agent.yaml` only when it is missing and removes it on purge; the rpm marks it `%config(noreplace)`, so a changed default arrives as `agent.yaml.rpmnew`. Keys are in [configuration.md](configuration.md).|
 |`/var/lib/exitmesh`|State: spool, TSDB, cursors, offsets, alert state, credential. Mode 0700, owned by `exitmesh`. The only path the agent writes.|
 |`/etc/systemd/system/exitmesh-agent.service.d/10-adm.conf`|Written at install only where an `adm` group exists.|
 

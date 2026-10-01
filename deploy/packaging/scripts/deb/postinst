@@ -27,6 +27,7 @@ case "$1" in
 configure)
 	create_user
 	install -d -m 0700 -o exitmesh -g exitmesh "$STATE"
+	[ -e /etc/exitmesh/agent.yaml ] || install -m 0644 /usr/share/exitmesh-agent/agent.yaml /etc/exitmesh/agent.yaml
 	rm -rf /usr/libexec/exitmesh-agent-purge
 	adm_dropin
 	if [ -d /run/systemd/system ]; then
