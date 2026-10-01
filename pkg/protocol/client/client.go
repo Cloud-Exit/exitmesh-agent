@@ -99,9 +99,10 @@ type Status struct {
 
 // Client is the writer session client.
 type Client struct {
-	opts  Options
-	clock Clock
-	log   *slog.Logger
+	opts     Options
+	clock    Clock
+	log      *slog.Logger
+	instance protocol.ID
 
 	mu     sync.Mutex
 	status Status
@@ -152,7 +153,11 @@ func New(opts Options) (*Client, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Client{opts: opts, clock: opts.Clock, log: log}, nil
+	instance, err := protocol.NewWriterID()
+	if err != nil {
+		return nil, fmt.Errorf("client: instance id: %w", err)
+	}
+	return &Client{opts: opts, clock: opts.Clock, log: log, instance: instance}, nil
 }
 
 // Run connects, resumes, and streams records until ctx ends or the writer must stop.

@@ -353,7 +353,7 @@ The control plane commits a record durably before acknowledging it. It accepts a
 
 ### 8.3 Ownership decision table
 
-On `history.hello` the control plane evaluates, in order, and the first matching row decides. `W` is the presented writer, `I` its incarnation, `E` its epoch, `L`/`P` its last committed sequence and chain hash.
+On `history.hello` the control plane evaluates, in order, and the first matching row decides. `W` is the presented writer, `I` its incarnation, `N` its instance, `E` its epoch, `L`/`P` its last committed sequence and chain hash.
 
 |#|Condition|Decision|Writer action|
 |---|---|---|---|
@@ -364,9 +364,9 @@ On `history.hello` the control plane evaluates, in order, and the first matching
 |5|`E` is known and closed|audit, reject `epoch_closed`|Stop writing, report. Never open a new epoch in response.|
 |6|`E` is known, open, and owned by a writer other than `W`|audit, reject `not_owner`|Stop writing, report.|
 |7|`I` is lower than the highest incarnation seen for `W`|audit, reject `stale_incarnation`|Stop writing.|
-|8|An active session exists with the same `W` and `I`|reject the new session `identity_conflict`, alarm|Keep spooling, retry with backoff.|
+|8|An active session exists with the same `W` and `I`, and `N` is absent or differs from that session's instance|reject the new session `identity_conflict`, alarm|Keep spooling, retry with backoff.|
 |9|`E` is known and open, owned by `W`, and `L`/`P` does not match the committed chain (L above the committed head, or chain hash at L differs)|reject `divergence`|Rebaseline (8.6).|
-|10|`E` is known, open, owned by `W`|resume; supersede any active session of `W` with lower `I`|Resume and drain (8.4).|
+|10|`E` is known, open, owned by `W`|resume; supersede any active session of `W` with lower `I`, or with the same `I` and `N`|Resume and drain (8.4).|
 |11|`E` is unknown and the target has no epochs|register `W` as owner, open `E`|Resume and drain from head 0.|
 |12|`E` is unknown, `W` owns the open epoch, and `E` declares that epoch as its previous epoch (rebaseline)|close the previous epoch at its committed head, open `E`|Resume and drain.|
 |13|`E` is unknown, `W` differs from the owner, cluster target|retire the previous owner, close its epoch at its committed head, register `W`, open `E`|Resume and drain.|
@@ -374,7 +374,9 @@ On `history.hello` the control plane evaluates, in order, and the first matching
 |15|`E` is unknown, `W` differs from the owner, host target|set conflict, reject `identity_conflict`|Keep spooling, report.|
 |16|Otherwise|reject `invalid_hello`|Report.|
 
-The highest incarnation seen for `W` is raised to `I` on rows 10 to 14. On rows 10 and 12 an active session of `W` with a lower incarnation is superseded; on rows 13 and 14 the active session of the retired owner, if any, is superseded. A superseded session receives `session.superseded`, and any frame it sends afterwards is rejected. Rows 3, 8, and 15 raise an alarm to the administrator; rows 12 to 14 are audited as ownership changes. Records for a closed epoch are audited and never applied. Every rejection is audited with the presented identity.
+The highest incarnation seen for `W` is raised to `I` on rows 10 to 14. On rows 10 and 12 an active session of `W` with a lower incarnation, or with the same incarnation and the same instance, is superseded; on rows 13 and 14 the active session of the retired owner, if any, is superseded. A superseded session receives `session.superseded`, and any frame it sends afterwards is rejected. Rows 3, 8, and 15 raise an alarm to the administrator; rows 12 to 14 are audited as ownership changes. Records for a closed epoch are audited and never applied. Every rejection is audited with the presented identity.
+
+A writer generates its instance `N`, 16 random bytes, once per process start and presents it on every hello of that process. A control plane can hold a session the writer has already lost for up to the 60 second keepalive interval (9.1), for example after a proxy restart. A hello with the same `W`, `I`, and `N` as that session is the same process reconnecting, and it supersedes the stale session instead of raising a conflict. The same `W` and `I` with a different or absent `N` remain an identity conflict (row 8): that is cloned writer state, or a writer that predates instances.
 
 ### 8.4 Resume and drain
 
@@ -452,7 +454,7 @@ Writer to control plane:
 
 |Method|Kind|Params|Result|
 |---|---|---|---|
-|`history.hello`|request|`target_id`, `writer_id`, `incarnation`, `epoch`, `epoch_open` (`{reason, prev_epoch, prev_head}` or null), `last_committed` (`{seq, chain_hash}` or null), `machine_id` (hosts), `agent` (`version`, `protocol`, `schema`, `engine`, `role`, `platform`)|`decision` (`resume` or `opened`), `session_id`, `epoch`, `head` (`{seq, chain_hash}`), `window_bytes`, `max_frame_bytes`, `compat` (`status`, `minimum_version`, `latest_version`, `message`)|
+|`history.hello`|request|`target_id`, `writer_id`, `incarnation`, `instance` (16-byte hex, random per process start, optional), `epoch`, `epoch_open` (`{reason, prev_epoch, prev_head}` or null), `last_committed` (`{seq, chain_hash}` or null), `machine_id` (hosts), `agent` (`version`, `protocol`, `schema`, `engine`, `role`, `platform`)|`decision` (`resume` or `opened`), `session_id`, `epoch`, `head` (`{seq, chain_hash}`), `window_bytes`, `max_frame_bytes`, `compat` (`status`, `minimum_version`, `latest_version`, `message`)|
 |`history.summary`|request|`epoch`, `watermark`, `head`, `entries` (`finding_id`, `dedup_key`, `state`, `first_seen`, `last_transition`, `eval_time`, `rule_id`, `bundle_version`, `severity`)|`{}`|
 |`bundle.fetch`|request|`target_type`, `have` (current version or empty)|`version`, `bundle` (base64), `signature` (base64), `key_manifest` (base64), `key_manifest_chain` (earlier signed manifests in ascending sequence, base64, optional)|
 |`agent.health`|notification|health report (agent health record, section 8.1 of the PRD)|none|
@@ -472,6 +474,8 @@ Control plane to writer:
 |`initialize`, `ping`, `tools/list`, `tools/call`|MCP requests|Investigation tools (9.5), served by the writer as an MCP server over the reverse channel|
 
 Errors use JSON-RPC error objects with `data.code` set to one of the decision codes in 8.3.
+
+`bundle.fetch` for a target type that has no published bundle is not an error: the result is `{"version": ""}` with no other members, and the writer keeps its last known good bundle (or none) until `bundle.available` announces one. A writer retries a failed `bundle.fetch` with exponential backoff and does not repeat an unchanged failure in its log at warning level.
 
 ### 9.5 Investigation tools
 

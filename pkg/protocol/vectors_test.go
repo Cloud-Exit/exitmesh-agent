@@ -536,9 +536,10 @@ func TestVectorsOwnership(t *testing.T) {
 					Incarnation uint64 `json:"incarnation"`
 				} `json:"highest_incarnation"`
 				Active *struct {
-					SessionID   string `json:"session_id"`
-					WriterID    string `json:"writer_id"`
-					Incarnation uint64 `json:"incarnation"`
+					SessionID   string  `json:"session_id"`
+					WriterID    string  `json:"writer_id"`
+					Incarnation uint64  `json:"incarnation"`
+					Instance    *string `json:"instance"`
 				} `json:"active"`
 			} `json:"state"`
 			Hello struct {
@@ -552,6 +553,7 @@ func TestVectorsOwnership(t *testing.T) {
 				} `json:"epoch_open"`
 				LastCommitted *vecPoint `json:"last_committed"`
 				MachineID     string    `json:"machine_id"`
+				Instance      *string   `json:"instance"`
 			} `json:"hello"`
 			Expect struct {
 				Row          int     `json:"row"`
@@ -623,8 +625,15 @@ func TestVectorsOwnership(t *testing.T) {
 		}
 		if s.Active != nil {
 			st.Active = &ActiveSession{SessionID: s.Active.SessionID, Writer: id(s.Active.WriterID), Incarnation: s.Active.Incarnation}
+			if s.Active.Instance != nil {
+				st.Active.Instance = id(*s.Active.Instance)
+			}
 		}
 		h := &HelloParams{WriterID: id(v.Hello.WriterID), Incarnation: v.Hello.Incarnation, Epoch: id(v.Hello.Epoch), MachineID: v.Hello.MachineID}
+		if v.Hello.Instance != nil {
+			n := id(*v.Hello.Instance)
+			h.Instance = &n
+		}
 		if eo := v.Hello.EpochOpen; eo != nil {
 			h.EpochOpen = &EpochOpen{Reason: eo.Reason, PrevHead: eo.PrevHead}
 			if eo.PrevEpoch != nil {

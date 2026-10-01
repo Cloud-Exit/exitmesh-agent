@@ -2,9 +2,12 @@ package coordinator
 
 import (
 	"context"
+	"log/slog"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/bundle"
@@ -76,4 +79,60 @@ func TestNodeProcessIdentityInHealth(t *testing.T) {
 	if p := nodeProcess(); p != nil {
 		t.Fatalf("stale process identity %+v after a registration without one", p)
 	}
+}
+
+// syncBuffer is a log sink safe for concurrent writers.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// A control plane that keeps failing bundle.fetch is retried with backoff and reported once, not once per retry.
+func TestBundleFetchFailuresBackOffAndLogOnce(t *testing.T) {
+	e := newEnv(t)
+	logs := &syncBuffer{}
+	e.logger = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	e.tune = func(tu *Tuning) { tu.HousekeepEvery, tu.BundleEvery = 10*time.Millisecond, 160*time.Millisecond }
+	const unpublished = "No rule bundle is published for Kubernetes targets yet."
+	e.cp.FailBundleFetch(unpublished)
+	r := e.start(e.config())
+	e.committed(r)
+	eventually(t, "first failed fetch", func() bool { return e.cp.BundleFetches() >= 1 })
+	start := e.cp.BundleFetches()
+	time.Sleep(time.Second)
+	// Constant 10ms retries would make about 100 attempts; doubling to the 160ms ceiling makes about 10.
+	if n := e.cp.BundleFetches() - start; n > 20 || n < 2 {
+		t.Fatalf("%d bundle.fetch attempts in 1s, want backoff between 10ms and 160ms", n)
+	}
+	if n := strings.Count(logs.String(), "bundle fetch failed"); n != 1 {
+		t.Fatalf("the unchanged failure was logged %d times, want once:\n%s", n, logs.String())
+	}
+
+	e.cp.FailBundleFetch("")
+	eventually(t, "fetch recovers with nothing published", func() bool { return strings.Contains(logs.String(), "bundle fetch recovered") })
+	if r.c.eng.BundleVersion() != "" {
+		t.Fatalf("a bundle became active without one being published")
+	}
+	settled := e.cp.BundleFetches()
+	time.Sleep(400 * time.Millisecond)
+	if n := e.cp.BundleFetches() - settled; n != 0 {
+		t.Fatalf("%d fetches after an empty answer; the coordinator should wait for bundle.available", n)
+	}
+	archive, sig := e.trust.signed(t, "2026.09.1", badImageExpr)
+	if err := e.cp.PublishBundle(protocol.TargetKubernetes, "2026.09.1", archive, sig, e.trust.manifest); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "published bundle active", func() bool { return r.c.eng.BundleVersion() == "2026.09.1" })
 }

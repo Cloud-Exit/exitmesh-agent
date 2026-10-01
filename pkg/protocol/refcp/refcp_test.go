@@ -32,6 +32,8 @@ type rawWriter struct {
 	state  *protocol.State
 	conn   client.Conn
 	notes  chan note
+	// instance is presented on hello when set.
+	instance *protocol.ID
 }
 
 func (h *harness) rawWriter(targetType string) *rawWriter {
@@ -73,6 +75,7 @@ func (r *rawWriter) hello(inc uint64, lc *protocol.ChainPoint) (*protocol.HelloR
 	p := protocol.HelloParams{
 		TargetID: r.tid, WriterID: r.writer, Incarnation: inc, Epoch: r.epoch, LastCommitted: lc, MachineID: "m-1",
 		EpochOpen: &protocol.EpochOpen{Reason: protocol.OpenInitial}, Agent: protocol.AgentInfo{Protocol: 1, Schema: 1},
+		Instance: r.instance,
 	}
 	var res protocol.HelloResult
 	err := r.conn.Call(context.Background(), protocol.MethodHello, p, &res)
@@ -374,5 +377,49 @@ func TestQueryErrors(t *testing.T) {
 	st, err := h.cp.StateAt(tid, ep, 1)
 	if err != nil || !bytes.Equal([]byte(st.Hash().String()), []byte(w.StateHashes(ep)[1].String())) {
 		t.Fatalf("state at 1: %v", err)
+	}
+}
+
+// The same process reconnecting before the control plane noticed its lost session supersedes that session (SPEC 8.3).
+func TestSameInstanceReconnectSupersedesStaleSession(t *testing.T) {
+	h := newHarness(t, refcp.Options{})
+	r := h.rawWriter(protocol.TargetKubernetes)
+	n1 := protocol.ID{0x4e, 0x31}
+	r.instance = &n1
+	if _, err := r.hello(1, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.send(r.checkpoint(protocol.ReasonInitial, r.state))
+	r.expect(protocol.MethodAck, nil)
+	stale, staleNotes := r.conn, r.notes
+
+	// The first connection is still attached at the control plane, as after a proxy restart within the keepalive window.
+	r.dial()
+	res, err := r.hello(1, &protocol.ChainPoint{Seq: 1, ChainHash: r.chain.HeadHash})
+	if err != nil || res.Decision != protocol.DecisionResume || res.Head.Seq != 1 {
+		t.Fatalf("reconnect of the same instance: %+v %v", res, err)
+	}
+	live, liveNotes := r.conn, r.notes
+	r.conn, r.notes = stale, staleNotes
+	var sup protocol.SupersededParams
+	r.expect(protocol.MethodSuperseded, &sup)
+	r.conn, r.notes = live, liveNotes
+	r.send(r.delta(deployment("after-reconnect", 1)))
+	r.expect(protocol.MethodAck, nil)
+
+	for name, inst := range map[string]*protocol.ID{"another instance": {0x4e, 0x32}, "no instance": nil} {
+		r.instance = inst
+		r.dial()
+		if _, err := r.hello(1, nil); client.RPCErrorCode(err) != protocol.CodeIdentityConflict {
+			t.Fatalf("%s with the same writer and incarnation: %v", name, err)
+		}
+	}
+	for _, e := range h.cp.Audit(r.tid) {
+		if e.Event == "hello" && e.Code == protocol.CodeIdentityConflict && (e.Row != 8 || !e.Alarm) {
+			t.Fatalf("conflict audited as row %d alarm %v", e.Row, e.Alarm)
+		}
+	}
+	if n := auditCount(h.cp, r.tid, "session_superseded", ""); n != 1 {
+		t.Fatalf("%d superseded sessions, want the stale one", n)
 	}
 }

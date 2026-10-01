@@ -81,6 +81,8 @@ type faults struct {
 	delayAcks       time.Duration
 	rejectNext      string
 	rejectHello     string
+	bundleFetchErr  string
+	bundleFetches   int
 }
 
 // Server is the reference control plane. It is safe for concurrent use.
@@ -380,6 +382,20 @@ func (s *Server) DisconnectAfterRecords(n int) {
 	s.mu.Lock()
 	s.faults.disconnectAfter = n
 	s.mu.Unlock()
+}
+
+// FailBundleFetch answers every bundle.fetch with an internal error carrying msg; an empty msg restores normal answers.
+func (s *Server) FailBundleFetch(msg string) {
+	s.mu.Lock()
+	s.faults.bundleFetchErr = msg
+	s.mu.Unlock()
+}
+
+// BundleFetches counts the bundle.fetch requests received.
+func (s *Server) BundleFetches() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.faults.bundleFetches
 }
 
 // DelayAcks delays every acknowledgement by d.

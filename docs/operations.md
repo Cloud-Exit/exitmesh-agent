@@ -64,6 +64,10 @@ Under pressure the coordinator relieves the spool in a fixed order: evict eviden
 
 When ExitMesh is unreachable, evaluation continues with the last valid rules, everything is spooled, and on reconnect the coordinator resumes and drains in order with no gap in the delta chain.
 
+If the tunnel is cut without a clean close (a proxy or control plane restart, logged as `history session` warnings ending in `502`), ExitMesh can still hold the old session for up to the 60 second keepalive. Each agent process presents a random instance ID on every hello, so a reconnect of the same process replaces that stale session instead of being refused. A control plane that does not yet implement instances answers `identity_conflict` until the stale session expires; the agent keeps spooling and retries with backoff, and delivery resumes on its own within about a minute. An `identity_conflict` that persists means two writers really share one identity, for example a copied `/var/lib/exitmesh` (see [install-host.md](install-host.md)) or a restored coordinator PVC snapshot running next to the original.
+
+Until a rule bundle is published for the target type, the coordinator logs `bundle fetch failed` once, retries with backoff up to one minute, and logs `bundle fetch recovered` when the control plane answers again. A control plane that answers "nothing published" with an empty version (SPEC 9.4) is not a failure: the coordinator waits for the `bundle.available` notification.
+
 ## Convergence
 
 A rule bundle rollout converges when every node agent runs the target bundle. Until then the cluster reports **converging**, cross-node rules treat missing nodes as incomplete, and a disconnected node agent keeps its last good bundle and receives the target on reconnect. An invalid bundle is rejected and the last known good bundle stays active. Rules that need a newer engine are reported **unsupported: agent upgrade required**, never skipped silently.

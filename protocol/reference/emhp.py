@@ -1240,9 +1240,13 @@ def decide(state, hello, credential_valid):
     if hi is not None and inc < hi:
         return _reject(7, "stale_incarnation")
     active = state["active"]
+    reconnect = False
     if active is not None and active["writer_id"] == w and active["incarnation"] == inc:
-        return _reject(8, "identity_conflict", alarm=True)
-    supersede = active is not None and active["writer_id"] == w and active["incarnation"] < inc
+        instance = hello.get("instance")
+        if not instance or instance != active.get("instance"):
+            return _reject(8, "identity_conflict", alarm=True)
+        reconnect = True
+    supersede = reconnect or (active is not None and active["writer_id"] == w and active["incarnation"] < inc)
     if ep is not None:
         lc = hello["last_committed"]
         if lc is not None:

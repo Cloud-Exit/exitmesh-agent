@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -392,6 +393,7 @@ type env struct {
 	capacity string
 	tune     func(*Tuning)
 	fault    func() error
+	logger   *slog.Logger
 }
 
 type envOpt func(*env)
@@ -484,7 +486,7 @@ func (e *env) start(cfg *config.Config) *running {
 		Getenv: func(k string) string {
 			return map[string]string{EnvNodeNamespace: nodeNS, EnvNodeSA: nodeSA}[k]
 		},
-		Tuning: tun,
+		Tuning: tun, Logger: e.logger,
 	})
 	if err != nil {
 		e.t.Fatal(err)

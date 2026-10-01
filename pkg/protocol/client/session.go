@@ -79,6 +79,8 @@ func (s *session) hello() (*protocol.HelloResult, error) {
 		TargetID: id.TargetID, TargetType: id.TargetType, WriterID: st.WriterID(), Incarnation: st.Incarnation(),
 		Epoch: ep.ID, MachineID: id.MachineID, Agent: s.c.opts.Agent,
 	}
+	instance := s.c.instance
+	p.Instance = &instance
 	if !ep.Registered {
 		p.EpochOpen = &protocol.EpochOpen{Reason: ep.OpenReason, PrevEpoch: ep.PrevEpoch, PrevHead: ep.PrevHead}
 	}

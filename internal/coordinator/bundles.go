@@ -151,6 +151,8 @@ func (c *Coordinator) activate(a *bundle.Active, p *nodeapi.BundlePayload, persi
 
 func (c *Coordinator) bundleLoop(ctx context.Context) {
 	b := c.bundles
+	var backoff time.Duration
+	lastErr := ""
 	for {
 		if c.airgap {
 			c.loadAirgapBundle()
@@ -163,8 +165,20 @@ func (c *Coordinator) bundleLoop(ctx context.Context) {
 					b.mu.Lock()
 					b.fetch = false
 					b.mu.Unlock()
+					backoff = 0
+					if lastErr != "" {
+						c.log.Info("bundle fetch recovered")
+						lastErr = ""
+					}
 				} else if ctx.Err() == nil {
-					c.log.Warn("bundle fetch", "err", err)
+					backoff = min(max(2*backoff, c.t.HousekeepEvery), c.t.BundleEvery)
+					// A control plane without a published bundle answers every retry the same way; say so once.
+					if msg := err.Error(); msg != lastErr {
+						c.log.Warn("bundle fetch failed; retrying with backoff", "err", err, "retry_in", backoff)
+						lastErr = msg
+					} else {
+						c.log.Debug("bundle fetch failed", "err", err, "retry_in", backoff)
+					}
 				}
 			}
 		}
@@ -172,6 +186,9 @@ func (c *Coordinator) bundleLoop(ctx context.Context) {
 		b.mu.Lock()
 		if b.fetch && !c.airgap {
 			wait = c.t.HousekeepEvery
+			if backoff > 0 {
+				wait = backoff
+			}
 		}
 		b.mu.Unlock()
 		select {

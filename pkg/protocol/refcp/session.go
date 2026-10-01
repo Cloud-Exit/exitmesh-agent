@@ -29,6 +29,7 @@ type session struct {
 	target      *target
 	writer      protocol.WriterID
 	incarnation uint64
+	instance    protocol.ID
 	epoch       protocol.EpochID
 	superseded  bool
 	closed      bool
@@ -195,7 +196,7 @@ func (t *target) ownership(s *Server) *protocol.OwnershipState {
 		st.Epochs[id] = &protocol.EpochInfo{ID: id, Owner: ep.owner, Open: ep.open, Head: ep.head, ClosedAt: ep.closedAt}
 	}
 	if a := t.active; a != nil && !a.closed {
-		st.Active = &protocol.ActiveSession{SessionID: a.id, Writer: a.writer, Incarnation: a.incarnation}
+		st.Active = &protocol.ActiveSession{SessionID: a.id, Writer: a.writer, Incarnation: a.incarnation, Instance: a.instance}
 	}
 	return st
 }
@@ -261,6 +262,9 @@ func (ss *session) hello(h *protocol.HelloParams) (any, error) {
 	}
 	t.active = ss
 	ss.target, ss.writer, ss.incarnation, ss.epoch = t, h.WriterID, h.Incarnation, h.Epoch
+	if h.Instance != nil {
+		ss.instance = *h.Instance
+	}
 	entry.Detail = d.Outcome
 	s.auditLocked(entry)
 	ep := t.epochs[h.Epoch]
@@ -334,9 +338,13 @@ func (ss *session) bundleFetch(p *protocol.BundleFetchParams) (any, error) {
 	if p.TargetType != t.typ {
 		return nil, &protocol.RPCError{Code: protocol.RPCInvalidParams, Message: "target type mismatch"}
 	}
+	s.faults.bundleFetches++
+	if msg := s.faults.bundleFetchErr; msg != "" {
+		return nil, &protocol.RPCError{Code: protocol.RPCInternalError, Message: msg}
+	}
 	b := s.bundles[t.typ]
 	if b == nil {
-		return nil, &protocol.RPCError{Code: protocol.RPCInvalidParams, Message: "no bundle published for " + t.typ}
+		return protocol.BundleFetchResult{}, nil
 	}
 	if p.Have == b.version {
 		return protocol.BundleFetchResult{Version: b.version}, nil

@@ -139,7 +139,9 @@ type HelloParams struct {
 	EpochOpen     *EpochOpen  `json:"epoch_open"`
 	LastCommitted *ChainPoint `json:"last_committed"`
 	MachineID     string      `json:"machine_id,omitempty"`
-	Agent         AgentInfo   `json:"agent"`
+	// Instance is random per writer process start, so a reconnect of the same process is told apart from a cloned writer.
+	Instance *ID       `json:"instance,omitempty"`
+	Agent    AgentInfo `json:"agent"`
 }
 
 // Compat is the control plane's compatibility verdict (PRD U2, U3).

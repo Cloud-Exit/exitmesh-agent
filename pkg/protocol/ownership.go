@@ -14,6 +14,8 @@ type ActiveSession struct {
 	SessionID   string
 	Writer      WriterID
 	Incarnation uint64
+	// Instance is the instance the session presented; zero when it presented none.
+	Instance ID
 }
 
 // OwnershipState is the per-target ownership registry input to Decide (SPEC 8.2).
@@ -79,12 +81,16 @@ func Decide(st *OwnershipState, h *HelloParams, credentialValid bool) Decision {
 	if hi, ok := st.HighestIncarnation[h.WriterID]; ok && h.Incarnation < hi {
 		return reject(7, CodeStaleIncarnation)
 	}
+	reconnect := false
 	if st.Active != nil && st.Active.Writer == h.WriterID && st.Active.Incarnation == h.Incarnation {
-		d := reject(8, CodeIdentityConflict)
-		d.Alarm = true
-		return d
+		if h.Instance == nil || h.Instance.IsZero() || st.Active.Instance != *h.Instance {
+			d := reject(8, CodeIdentityConflict)
+			d.Alarm = true
+			return d
+		}
+		reconnect = true
 	}
-	supersede := st.Active != nil && st.Active.Writer == h.WriterID && st.Active.Incarnation < h.Incarnation
+	supersede := reconnect || st.Active != nil && st.Active.Writer == h.WriterID && st.Active.Incarnation < h.Incarnation
 	if known {
 		if h.LastCommitted != nil {
 			if h.LastCommitted.Seq > ep.Head.Seq {

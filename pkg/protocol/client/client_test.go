@@ -143,6 +143,18 @@ func TestHelloParamsAndRegistration(t *testing.T) {
 	if st := r.c.Status(); st.Epoch != ep.ID || st.Head != lc.Seq || !st.Registered {
 		t.Fatalf("status %+v", st)
 	}
+	// One process presents one instance on every reconnect; another process presents its own.
+	if first.Instance == nil || first.Instance.IsZero() || second.Instance == nil || *second.Instance != *first.Instance {
+		t.Fatalf("instances across a reconnect: %v, %v", first.Instance, second.Instance)
+	}
+	r.cancel()
+	_ = r.wait(t)
+	startClient(t, w, cp, nil)
+	eventually(t, "hello of a new process", func() bool { h, _, _, _ := cp.snapshot(); return len(h) == 3 })
+	hellos, _, _, _ = cp.snapshot()
+	if third := hellos[2]; third.Instance == nil || *third.Instance == *first.Instance {
+		t.Fatalf("a new client reused instance %v", third.Instance)
+	}
 }
 
 func TestReplayOrderAnchorFirst(t *testing.T) {

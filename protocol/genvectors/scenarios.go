@@ -595,9 +595,10 @@ type ownIncarnation struct {
 }
 
 type ownActive struct {
-	SessionID   string `json:"session_id"`
-	WriterID    string `json:"writer_id"`
-	Incarnation uint64 `json:"incarnation"`
+	SessionID   string  `json:"session_id"`
+	WriterID    string  `json:"writer_id"`
+	Incarnation uint64  `json:"incarnation"`
+	Instance    *string `json:"instance"`
 }
 
 type ownState struct {
@@ -626,6 +627,7 @@ type ownHello struct {
 	EpochOpen     *ownEpochOpen `json:"epoch_open"`
 	LastCommitted *ownPoint     `json:"last_committed"`
 	MachineID     string        `json:"machine_id"`
+	Instance      *string       `json:"instance"`
 }
 
 type ownExpect struct {
@@ -687,6 +689,9 @@ func toOwnership(s ownState) *p.OwnershipState {
 	}
 	if s.Active != nil {
 		st.Active = &p.ActiveSession{SessionID: s.Active.SessionID, Writer: must(p.ParseID(s.Active.WriterID)), Incarnation: s.Active.Incarnation}
+		if s.Active.Instance != nil {
+			st.Active.Instance = must(p.ParseID(*s.Active.Instance))
+		}
 	}
 	return st
 }
@@ -703,6 +708,10 @@ func toHello(h ownHello) *p.HelloParams {
 	}
 	if h.LastCommitted != nil {
 		out.LastCommitted = &p.ChainPoint{Seq: h.LastCommitted.Seq, ChainHash: must(p.ParseHash(h.LastCommitted.ChainHash))}
+	}
+	if h.Instance != nil {
+		id := must(p.ParseID(*h.Instance))
+		out.Instance = &id
 	}
 	return out
 }
@@ -747,6 +756,16 @@ func ownershipVectors() ownFile {
 	active := func(w string, inc uint64) *ownActive {
 		return &ownActive{SessionID: "s-1", WriterID: w, Incarnation: inc}
 	}
+	n1, n2 := p.ID{0x4e, 0x31}.String(), p.ID{0x4e, 0x32}.String()
+	activeIn := func(w string, inc uint64, n *string) *ownActive {
+		a := active(w, inc)
+		a.Instance = n
+		return a
+	}
+	withInstance := func(h ownHello, n string) ownHello {
+		h.Instance = &n
+		return h
+	}
 	type c struct {
 		name string
 		cred bool
@@ -769,6 +788,11 @@ func ownershipVectors() ownFile {
 		{"stale incarnation", true, k8s(), hello(w1, 4, e1)},
 		{"stale incarnation precedes duplicate session", true, mod(k8s(), func(s *ownState) { s.Active = active(w1, 4) }), hello(w1, 4, e1)},
 		{"duplicate session with same writer and incarnation", true, mod(k8s(), func(s *ownState) { s.Active = active(w1, 5) }), hello(w1, 5, e1)},
+		{"reconnect of the same process supersedes its stale session", true, mod(k8s(), func(s *ownState) { s.Active = activeIn(w1, 5, &n1) }), withInstance(withLC(hello(w1, 5, e1), 10, h10), n1)},
+		{"same writer and incarnation from another instance", true, mod(k8s(), func(s *ownState) { s.Active = activeIn(w1, 5, &n1) }), withInstance(hello(w1, 5, e1), n2)},
+		{"same writer and incarnation without an instance", true, mod(k8s(), func(s *ownState) { s.Active = activeIn(w1, 5, &n1) }), hello(w1, 5, e1)},
+		{"instance against a session that presented none", true, mod(k8s(), func(s *ownState) { s.Active = active(w1, 5) }), withInstance(hello(w1, 5, e1), n1)},
+		{"stale incarnation precedes a matching instance", true, mod(k8s(), func(s *ownState) { s.Active = activeIn(w1, 4, &n1) }), withInstance(hello(w1, 4, e1), n1)},
 		{"divergent chain hash at last committed", true, k8s(), withLC(hello(w1, 6, e1), 10, other)},
 		{"last committed above committed head", true, k8s(), withLC(hello(w1, 6, e1), 11, h10)},
 		{"last committed at an unknown sequence", true, k8s(), withLC(hello(w1, 6, e1), 7, h10)},
