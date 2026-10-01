@@ -1,4 +1,4 @@
-// Command exitmesh-agent runs the ExitMesh agent in the node, coordinator, or host role and provides its administration subcommands (docs/cli.md).
+// Command exitmesh-agent runs the ExitMesh Telemetry Agent in the node, coordinator, or host role and provides its administration subcommands (docs/cli.md).
 package main
 
 import (

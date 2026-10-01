@@ -41,7 +41,7 @@ const (
 
 var (
 	// ErrNoRoots means the agent has no trust root and verifies nothing.
-	ErrNoRoots = errors.New("bundle: no trust roots configured: set trust.roots or trust.rootsFile to the root key set of your ExitMesh deployment (shown on its onboarding page next to the enrollment token), so no key manifest or bundle can be trusted until then")
+	ErrNoRoots = errors.New("bundle: no trust roots configured: set trust.roots or trust.rootsFile to the public half of your ExitMesh workspace agent trust root (shown on the connector page next to the enrollment token), so no key manifest or bundle can be trusted until then")
 	// ErrUntrusted wraps every signature and key manifest failure.
 	ErrUntrusted = errors.New("bundle: untrusted")
 )

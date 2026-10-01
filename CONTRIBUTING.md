@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for helping improve the ExitMesh agent. This project is licensed under the Apache License 2.0 and accepts contributions under the same license.
+Thank you for helping improve the ExitMesh Telemetry Agent. This project is licensed under the Apache License 2.0 and accepts contributions under the same license.
 
 Read `AGENTS.md` before changing code: it states the repository layout and the rules every change must follow (Go only, `CGO_ENABLED=0`, permissive dependencies only, no stubs, redaction before every sink, and the agent's read-only, outbound-only boundary).
 

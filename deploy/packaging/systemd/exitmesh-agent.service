@@ -1,5 +1,5 @@
 [Unit]
-Description=ExitMesh agent (host mode)
+Description=ExitMesh Telemetry Agent (host mode)
 Documentation=https://github.com/cloud-exit/exitmesh-agent/blob/main/docs/install-host.md
 Wants=network-online.target
 After=network-online.target

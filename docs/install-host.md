@@ -49,7 +49,7 @@ tar -xzf exitmesh-agent_<version>_linux_amd64.tar.gz && sudo ./install.sh
 
 The tarball installs the binary to `/usr/local/bin` (override with `PREFIX=`), the unit to `/etc/systemd/system`, and the sysusers entry to `/etc/sysusers.d`.
 
-Then configure and start:
+Then configure and start. The endpoint, enrollment token, and trust root come from the ExitMesh connector page; the trust root is the public half of your workspace's agent trust root, which a workspace administrator generates once in ExitMesh under Settings > General > Encryption > Agent trust root (agent connections cannot be created before it exists):
 
 ```sh
 sudo sed -i 's#^endpoint: ""#endpoint: "https://<endpoint from the connector page>"#' /etc/exitmesh/agent.yaml

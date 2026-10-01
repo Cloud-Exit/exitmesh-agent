@@ -112,7 +112,7 @@ Coordinator spool on the PVC (hosts use `host.spoolReserve`).
 
 ## trust
 
-The rule bundle trust root of your ExitMesh deployment (each self-hosted deployment has its own; the connector page shows it). Required.
+The rule bundle trust root of your ExitMesh workspace: the public half of the agent trust root a workspace administrator generates in ExitMesh under Settings > General > Encryption > Agent trust root, whose private key stays in the ExitMesh Vault. The connector page shows it next to the enrollment token. Required.
 
 |Key|Default|Meaning|
 |---|---|---|

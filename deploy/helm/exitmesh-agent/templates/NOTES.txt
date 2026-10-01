@@ -1,4 +1,4 @@
-ExitMesh agent {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is installed.
+ExitMesh Telemetry Agent {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}) is installed.
 
 Workloads
   Node agents:  DaemonSet {{ include "exitmesh.nodeName" . }} in namespace {{ .Values.namespaces.node }} (Pod Security: privileged, required for hostPath volumes)

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Removes the ExitMesh host agent installed by install.sh; --purge also deletes /var/lib/exitmesh after taking its lock.
+# Removes the ExitMesh Telemetry Agent installed by install.sh; --purge also deletes /var/lib/exitmesh after taking its lock.
 set -eu
 
 PREFIX=${PREFIX:-/usr/local}

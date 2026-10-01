@@ -4,7 +4,7 @@ Read this before changing code.
 
 ## What this repository is
 
-The open source ExitMesh agent: a Go codebase producing one binary, `exitmesh-agent`, with roles `node` (Kubernetes DaemonSet), `coordinator` (Kubernetes StatefulSet), and `host` (Linux systemd service). The only interface to the ExitMesh control plane is the History Protocol (`protocol/SPEC.md`), the rule bundle format (`docs/bundle-format.md`), and the tunnel binding. Nothing in this repository may reference proprietary backend code, repositories, or internal URLs.
+The open source ExitMesh Telemetry Agent: a Go codebase producing one binary, `exitmesh-agent`, with roles `node` (Kubernetes DaemonSet), `coordinator` (Kubernetes StatefulSet), and `host` (Linux systemd service). The only interface to the ExitMesh control plane is the History Protocol (`protocol/SPEC.md`), the rule bundle format (`docs/bundle-format.md`), and the tunnel binding. Nothing in this repository may reference proprietary backend code, repositories, or internal URLs.
 
 ## Layout
 

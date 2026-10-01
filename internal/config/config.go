@@ -186,8 +186,7 @@ type AirGap struct {
 	ExportDir string `yaml:"exportDir"`
 }
 
-// Trust is the rule bundle trust root of the ExitMesh deployment (PRD R2a). Each self-hosted
-// deployment has its own root key set, shown on its onboarding page next to the enrollment token.
+// Trust is the public half of the ExitMesh workspace's agent trust root (PRD R2a), shown on the connector page.
 type Trust struct {
 	// Roots are "<id>:<base64 ed25519 public key>" entries.
 	Roots     []string `yaml:"roots"`
@@ -363,7 +362,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, "coordinator.serviceURL is required for the node role")
 	}
 	if len(c.Trust.Roots) == 0 && c.Trust.RootsFile == "" {
-		errs = append(errs, "trust.roots or trust.rootsFile is required: the root public keys of your ExitMesh deployment")
+		errs = append(errs, "trust.roots or trust.rootsFile is required: the public half of your ExitMesh workspace agent trust root, shown on the connector page")
 	}
 	if c.Trust.Threshold < 0 || (len(c.Trust.Roots) > 0 && c.Trust.RootsFile == "" && c.Trust.Threshold > len(c.Trust.Roots)) {
 		errs = append(errs, "trust.threshold exceeds the number of roots")

@@ -59,7 +59,7 @@ nfpms:
     vendor: Cloud Exit B.V.
     maintainer: Cloud Exit B.V. <contact@cloud-exit.com>
     homepage: https://github.com/cloud-exit/exitmesh-agent
-    description: ExitMesh host agent, read-only host state, metrics, and logs collection with outbound-only delivery.
+    description: ExitMesh Telemetry Agent for Linux hosts, read-only host state, metrics, and logs collection with outbound-only delivery.
     license: Apache-2.0
     section: admin
     priority: optional
@@ -142,7 +142,7 @@ release:
     name: exitmesh-agent
   # Package repositories (apt, yum) are published from these deb and rpm files and signed with the repository key, never with a bundle signing key.
   header: |
-    ## ExitMesh agent {{ .Tag }}
+    ## ExitMesh Telemetry Agent {{ .Tag }}
 
     |Contract|Version|
     |---|---|

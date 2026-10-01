@@ -249,14 +249,14 @@ It is delivered wrapped, with the exact signed bytes carried in base64 so no re-
 
 Verification rules:
 
-- Root keys belong to the ExitMesh deployment, not to agent releases: every self-hosted deployment has its own root key set. Agents are configured with it (`trust.roots` as `<id>:<base64 ed25519 public key>` entries and optional `trust.threshold`, or `trust.rootsFile` pointing at a roots document with `keys` (`id`, `public_key`) and an optional `threshold`, the number of distinct root signatures required, default 1). The deployment's onboarding page shows the values next to the enrollment token. An agent without roots verifies nothing and fails closed with an error naming the setting.
+- Root keys belong to the ExitMesh workspace, not to agent releases: each workspace has its own agent trust root, generated in ExitMesh under Settings > General > Encryption > Agent trust root, whose private key stays in the ExitMesh Vault. Agents are configured with its public half (`trust.roots` as `<id>:<base64 ed25519 public key>` entries and optional `trust.threshold`, or `trust.rootsFile` pointing at a roots document with `keys` (`id`, `public_key`) and an optional `threshold`, the number of distinct root signatures required, default 1). The connector page shows the value next to the enrollment token; agent connections cannot be created until the workspace has a trust root. An agent without roots verifies nothing and fails closed with an error naming the setting.
 - The trusted root set is the configured roots plus every adopted successor root whose `not_before` has passed.
 - A manifest is accepted when at least `threshold` distinct trusted roots signed it. Signatures by unknown keys are ignored.
 - The agent persists the highest verified `sequence` and its digest. A manifest with a lower sequence is rejected. A manifest with an equal sequence is accepted only if it is byte-identical to the verified one. This holds for manifests received over the tunnel and out of band alike.
 - Successor roots in an accepted manifest are adopted and persisted. They sign later manifests once their `not_before` has passed, so roots rotate without an agent upgrade. A successor root that reuses a trusted root id with a different key rejects the manifest.
 - A bundle signature is accepted only when its key is listed in the latest verified manifest, the current time is within `[not_before, not_after)`, and the key is not revoked (`revoked_at` absent or in the future).
-- Root key compromise requires the deployment operator to replace `trust.roots` on its agents (see SECURITY.md).
-- Delivery carries the latest manifest and, in `key_manifest_chain`, earlier manifests in ascending sequence, so an agent that only knows an older root (for example one installed from old onboarding values) follows every rotation. Air-gap delivery places the chain in a `keymanifests/` subdirectory.
+- Root key compromise requires replacing `trust.roots` on the workspace's agents (see SECURITY.md).
+- Delivery carries the latest manifest and, in `key_manifest_chain`, earlier manifests in ascending sequence, so an agent that only knows an older root (for example one installed from older connector page values) follows every rotation. Air-gap delivery places the chain in a `keymanifests/` subdirectory.
 
 Rotation and revocation:
 
@@ -299,4 +299,4 @@ exitmesh-bundle verify   -dir DIR [-roots roots.json | -root-pub root.pub] [-at 
 exitmesh-bundle inspect  -bundle bundle.tar.gz
 ```
 
-`inspect` prints the manifest, every rule with its class, target, scope, minimum engine, source, and verdict for this agent. `verify` requires `-roots` or `-root-pub` with the deployment's root keys. Private key files contain the raw key in base64 and must be kept offline.
+`inspect` prints the manifest, every rule with its class, target, scope, minimum engine, source, and verdict for this agent. `verify` requires `-roots` or `-root-pub` with the trust root's public key. Private key files contain the raw key in base64 and must be kept offline. In ExitMesh the agent trust root is generated per workspace and its private key never leaves the Vault; `keygen`, `roots`, and `manifest` are for signing bundles outside ExitMesh, for example in development against `exitmesh-refcp`.

@@ -68,7 +68,7 @@ gpg --batch --export "$key" >"$repo/exitmesh-archive-keyring.gpg"
 if [ -n "$url" ]; then
 	cat >"$repo/exitmesh-agent.repo" <<REPO
 [exitmesh-agent]
-name=ExitMesh agent
+name=ExitMesh Telemetry Agent
 baseurl=$url/rpm/\$basearch
 enabled=1
 gpgcheck=1

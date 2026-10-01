@@ -58,7 +58,7 @@ docker pull ghcr.io/cloud-exit/exitmesh-agent:X.Y.Z
 
 |Setting|Why|
 |---|---|
-|Secret `PACKAGE_SIGNING_KEY`|ASCII-armored GPG private key that signs deb and rpm packages and the repository metadata. Separate from rule bundle signing keys, which belong to each ExitMesh deployment. Without it, packages are unsigned and the repository is not published (the run warns).|
+|Secret `PACKAGE_SIGNING_KEY`|ASCII-armored GPG private key that signs deb and rpm packages and the repository metadata. Separate from rule bundle signing keys, which belong to each ExitMesh workspace. Without it, packages are unsigned and the repository is not published (the run warns).|
 |Secret `PACKAGE_SIGNING_PASSPHRASE`|Passphrase of that key, if it has one.|
 |GitHub Pages|Serve from the `gh-pages` branch, root folder. The first release creates the branch.|
 |Branch protection on `main`, tag rules|Allow `github-actions[bot]` to push the bump commit to `main` and to create and delete `v*` tags (bypass list), or the version or publish job fails at the push.|

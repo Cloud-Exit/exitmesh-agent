@@ -164,7 +164,7 @@ HTTPS on the coordinator ClusterIP Service, port 8443, TLS from the chart, beare
 |`GET /v1/node/tasks`|Long-poll for investigation and aggregation tasks.|
 |`POST /v1/node/tasks/{id}`|Task result.|
 
-Task kinds: `promql_query`, `logql_query`, `log_read`, `evidence_read`. Bundle payloads forward the control plane's key manifest chain unchanged so node agents verify bundles against the deployment's trust roots themselves.
+Task kinds: `promql_query`, `logql_query`, `log_read`, `evidence_read`. Bundle payloads forward the control plane's key manifest chain unchanged so node agents verify bundles against the workspace's trust roots themselves.
 
 Every submission for a node other than the token's authenticated node is rejected and audited.
 
@@ -233,7 +233,7 @@ Air-gap profile: the coordinator (or host) appends records as usual; delivery go
 
 ## Trust roots
 
-Rule bundle trust roots belong to the ExitMesh deployment (every self-hosted deployment has its own) and are configured per agent in `trust.roots` or `trust.rootsFile`; nothing is pinned into releases. `bundle.LoadRoots` builds the root set and `bundle.NewVerifier` persists the verified key manifest sequence and adopted successor roots in `kv`. Every role verifies bundles itself: the coordinator and host on fetch, node agents on distribution.
+Rule bundle trust roots belong to the ExitMesh workspace: each workspace has one agent trust root, generated in ExitMesh (Settings > General > Encryption > Agent trust root) with its private key held in the ExitMesh Vault. Agents receive only its public half, configured per agent in `trust.roots` or `trust.rootsFile`; nothing is pinned into releases. `bundle.LoadRoots` builds the root set and `bundle.NewVerifier` persists the verified key manifest sequence and adopted successor roots in `kv`. Every role verifies bundles itself: the coordinator and host on fetch, node agents on distribution.
 
 ## Telemetry absence
 

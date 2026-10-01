@@ -1,6 +1,6 @@
-# exitmesh-agent
+# ExitMesh Telemetry Agent
 
-The open source ExitMesh agent. One Go binary, `exitmesh-agent`, runs in three roles:
+The open source ExitMesh Telemetry Agent. One Go binary, `exitmesh-agent`, runs in three roles:
 
 - **node** (Kubernetes DaemonSet): scrapes the local kubelet and annotated pods, tails pod logs, evaluates PromQL and LogQL rules locally against bounded windows, and queues findings and per-resource metric facts for the coordinator.
 - **coordinator** (Kubernetes StatefulSet, one replica): keeps a compact, normalized model of cluster state, records every meaningful change as a restorable delta, builds the change graph, evaluates state rules, and holds the single outbound connection to ExitMesh.
@@ -22,7 +22,7 @@ ExitMesh keeps no archive of raw logs, raw metrics, or manifests, and historical
 
 ## Quickstart: Kubernetes
 
-Copy the endpoint, enrollment token, and trust roots (the root public keys of your ExitMesh deployment, which sign its rule bundles) from the ExitMesh connector page, then:
+Your ExitMesh workspace needs an agent trust root first: a workspace administrator generates it once in ExitMesh under Settings > General > Encryption > Agent trust root (Generate trust root). Its private key stays in the ExitMesh Vault, and agent connections cannot be created until it exists. Then copy the endpoint, enrollment token, and trust root (the public half of that key, which signs the workspace's rule bundles) from the ExitMesh connector page:
 
 ```sh
 helm install exitmesh-agent oci://ghcr.io/cloud-exit/charts/exitmesh-agent \

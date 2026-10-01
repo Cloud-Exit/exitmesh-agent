@@ -10,7 +10,7 @@ create_user() {
 	if command -v systemd-sysusers >/dev/null 2>&1; then
 		systemd-sysusers /usr/lib/sysusers.d/exitmesh-agent.conf
 	else
-		useradd --system --user-group --home-dir "$STATE" --no-create-home --shell /usr/sbin/nologin --comment "ExitMesh agent" exitmesh
+		useradd --system --user-group --home-dir "$STATE" --no-create-home --shell /usr/sbin/nologin --comment "ExitMesh Telemetry Agent" exitmesh
 	fi
 }
 

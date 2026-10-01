@@ -1,6 +1,6 @@
 {{- $v := .Values -}}
 {{- if not $v.trust.roots -}}
-{{- fail "trust.roots is required: set it to the root public keys of your ExitMesh deployment, shown on the connector page next to the enrollment token" -}}
+{{- fail "trust.roots is required: set it to the public half of your ExitMesh workspace agent trust root, shown on the connector page next to the enrollment token (a workspace administrator generates it under Settings > General > Encryption > Agent trust root)" -}}
 {{- end -}}
 {{- $nodeNs := $v.namespaces.node -}}
 {{- $coordNs := $v.namespaces.coordinator -}}

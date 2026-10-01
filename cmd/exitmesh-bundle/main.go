@@ -331,7 +331,7 @@ func verify(args []string, out io.Writer) error {
 	src := fs.String("bundle", "", "bundle.tar.gz")
 	sigPath := fs.String("sig", "", "bundle signature")
 	manPath := fs.String("manifest", "", "signed key manifest")
-	rootsPath := fs.String("roots", "", "roots.json of the ExitMesh deployment")
+	rootsPath := fs.String("roots", "", "roots.json with the trust root to verify against")
 	var pubs multi
 	fs.Var(&pubs, "root-pub", "root public key file instead of -roots (repeatable)")
 	at := fs.String("at", "", "verification time (RFC 3339, default now)")

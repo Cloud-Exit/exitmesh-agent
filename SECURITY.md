@@ -1,6 +1,6 @@
 # Security policy
 
-The ExitMesh agent runs with read access to Kubernetes clusters and Linux hosts. We treat every report that could weaken its read-only, outbound-only boundary as a priority.
+The ExitMesh Telemetry Agent runs with read access to Kubernetes clusters and Linux hosts. We treat every report that could weaken its read-only, outbound-only boundary as a priority.
 
 ## Supported versions
 
@@ -27,12 +27,12 @@ Examples of issues we want to hear about: any path by which the agent writes to 
 
 ## Rule bundle signing keys and root key compromise
 
-Rule bundles are signed with rotating signing keys published in a key manifest that is itself signed by the root key set of the ExitMesh deployment. ExitMesh is self-hostable, so every deployment has its own root key set; it is configured on each agent (`trust.roots`) from the deployment's onboarding page, never built into agent releases. Signing-key compromise is handled without touching agents: the deployment publishes a key manifest with a higher sequence number that revokes the key, and agents reject bundles signed by it from then on, over the tunnel and out of band alike.
+Rule bundles are signed with rotating signing keys published in a key manifest that is itself signed by the agent trust root of the ExitMesh workspace. Every workspace has its own trust root, generated in ExitMesh under Settings > General > Encryption > Agent trust root; its private key stays in the ExitMesh Vault and agents receive only the public half, configured on each agent (`trust.roots`) from the connector page and never built into agent releases. Signing-key compromise is handled without touching agents: the deployment publishes a key manifest with a higher sequence number that revokes the key, and agents reject bundles signed by it from then on, over the tunnel and out of band alike.
 
-Compromise of a root key cannot be repaired by a manifest, because the compromised root could sign a manifest of its own. If a deployment's root key is compromised, its operator:
+Compromise of a root key cannot be repaired by a manifest, because the compromised root could sign a manifest of its own. If a workspace's trust root is compromised, a workspace administrator:
 
-1. generates a new root key set on the deployment and re-signs current bundles and key manifests under it;
-2. replaces `trust.roots` on every agent of the deployment with the new root set (Helm upgrade, GitOps change, or configuration management for hosts) and clears the persisted trust state with the new configuration, so agents reject anything signed only by the compromised root;
+1. replaces the workspace's agent trust root in ExitMesh, so current bundles and key manifests are signed under the new root;
+2. replaces `trust.roots` on every agent of the workspace with the new public key (Helm upgrade, GitOps change, or configuration management for hosts) and clears the persisted trust state with the new configuration, so agents reject anything signed only by the compromised root;
 3. reviews findings delivered since the suspected compromise.
 
 A vulnerability in the agent's verification code itself is handled as an agent security release under this policy.

@@ -1,4 +1,4 @@
-# ExitMesh agent chart values. Every key is described in docs/configuration.md.
+# ExitMesh Telemetry Agent chart values. Every key is described in docs/configuration.md.
 
 nameOverride: ""
 fullnameOverride: ""
@@ -8,8 +8,8 @@ endpoint: ""
 # Optional PEM CA bundle for the endpoint, for TLS-intercepting egress proxies.
 endpointCA: ""
 
-# Root public keys of your ExitMesh deployment that sign rule bundle key manifests, shown on the
-# connector page next to the enrollment token ("<id>:<base64 ed25519 public key>"). Required.
+# Public half of your ExitMesh workspace's agent trust root (Settings > General > Encryption in ExitMesh),
+# shown on the connector page next to the enrollment token ("<id>:<base64 ed25519 public key>"). Required.
 trust:
   roots: []
   # Number of distinct root signatures a key manifest needs (default 1).

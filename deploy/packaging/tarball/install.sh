@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs or upgrades the ExitMesh host agent from an extracted release tarball.
+# Installs or upgrades the ExitMesh Telemetry Agent (host mode) from an extracted release tarball.
 set -eu
 
 PREFIX=${PREFIX:-/usr/local}
@@ -33,7 +33,7 @@ if ! getent passwd exitmesh >/dev/null; then
 	if command -v systemd-sysusers >/dev/null 2>&1; then
 		systemd-sysusers /etc/sysusers.d/exitmesh-agent.conf
 	else
-		useradd --system --user-group --home-dir "$STATE" --no-create-home --shell /usr/sbin/nologin --comment "ExitMesh agent" exitmesh
+		useradd --system --user-group --home-dir "$STATE" --no-create-home --shell /usr/sbin/nologin --comment "ExitMesh Telemetry Agent" exitmesh
 	fi
 fi
 install -d -m 0700 -o exitmesh -g exitmesh "$STATE"

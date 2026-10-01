@@ -4,7 +4,7 @@ The chart `oci://ghcr.io/cloud-exit/charts/exitmesh-agent` installs a DaemonSet 
 
 ## Before you start
 
-- The endpoint, enrollment token, and trust roots come from the ExitMesh connector page. The token is stored in a Secret in the coordinator namespace and read only by the coordinator. The trust roots are the root public keys of your ExitMesh deployment (each self-hosted deployment has its own); agents verify every rule bundle and key manifest against them and refuse to start without them.
+- The endpoint, enrollment token, and trust root come from the ExitMesh connector page. The token is stored in a Secret in the coordinator namespace and read only by the coordinator. The trust root is the public half of your workspace's agent trust root, which a workspace administrator generates once in ExitMesh under Settings > General > Encryption > Agent trust root; its private key stays in the ExitMesh Vault, and agent connections cannot be created until it exists. Agents verify every rule bundle and key manifest against it and refuse to start without it.
 - The installing identity needs rights to create the two namespaces (unless they are pre-created), ClusterRoles and ClusterRoleBindings (or Roles and RoleBindings for the namespace profile), and the workloads. The agent identities never hold any of these rights.
 - The coordinator needs a PersistentVolume from the default or a selected StorageClass. `ReadWriteOncePod` is used by default; set `coordinator.persistence.accessMode=ReadWriteOnce` if your CSI driver does not support it (the spool file lock then prevents two writers on one node). `ReadWriteMany` is refused at render time.
 
