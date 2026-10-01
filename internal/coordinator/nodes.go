@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -161,10 +164,10 @@ func (r *registry) touch(node string, fn func(n *NodeStatus)) {
 		n = &NodeStatus{Name: node, FirstSeen: now, PartVersions: map[string]string{}}
 		r.nodes[node] = n
 	}
-	n.LastSeen = now
 	if fn != nil {
 		fn(n)
 	}
+	n.LastSeen = now
 }
 
 func (r *registry) list() []NodeStatus {
@@ -199,9 +202,15 @@ func (r *registry) prune(exists func(string) bool) {
 
 type nodeBackend struct{ c *Coordinator }
 
-func (b nodeBackend) Register(_ context.Context, node string, req nodeapi.RegisterRequest) (nodeapi.RegisterResponse, error) {
+func (b nodeBackend) Register(ctx context.Context, node string, req nodeapi.RegisterRequest) (nodeapi.RegisterResponse, error) {
 	c := b.c
+	level := slog.LevelDebug
 	c.nodes.touch(node, func(n *NodeStatus) {
+		if n.AgentVersion != req.AgentVersion || n.BundleVersion != req.BundleVersion || n.Warming != req.Warming ||
+			!slices.Equal(n.Capabilities, req.Capabilities) || !maps.Equal(n.Coverage, req.Coverage) || !sameProcess(n.Process, req.Process) ||
+			c.now().Sub(n.LastSeen) > c.nodes.timeout {
+			level = slog.LevelInfo
+		}
 		n.AgentVersion, n.BundleVersion, n.Warming, n.Queue = req.AgentVersion, req.BundleVersion, req.Warming, req.QueueUsage
 		n.Capabilities = append([]string(nil), req.Capabilities...)
 		n.Coverage = map[string]string{}
@@ -214,8 +223,16 @@ func (b nodeBackend) Register(_ context.Context, node string, req nodeapi.Regist
 			n.Process = &nodeapi.Process{UID: p.UID, GID: p.GID, Capabilities: append([]string{}, p.Capabilities...)}
 		}
 	})
-	c.log.Info("node agent registered", "node", node, "version", req.AgentVersion, "bundle", req.BundleVersion, "warming", req.Warming)
+	// Nodes re-register as a heartbeat; only a new, returning, or changed node is worth an info line.
+	c.log.Log(ctx, level, "node agent registered", "node", node, "version", req.AgentVersion, "bundle", req.BundleVersion, "warming", req.Warming)
 	return nodeapi.RegisterResponse{TargetBundle: c.bundles.version()}, nil
+}
+
+func sameProcess(a, b *nodeapi.Process) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.UID == b.UID && a.GID == b.GID && slices.Equal(a.Capabilities, b.Capabilities)
 }
 
 // cursorKey names the idempotency cursor of one node queue; agents that predate queue identities share one per node.

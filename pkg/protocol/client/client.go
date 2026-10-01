@@ -317,6 +317,7 @@ func (c *Client) connect(ctx context.Context) (bool, error) {
 		}
 		return true, err
 	}
+	c.log.Info("history session established", "session", res.SessionID, "decision", res.Decision, "epoch", res.Epoch, "head", res.Head.Seq)
 	return true, s.stream()
 }
 

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -120,7 +122,8 @@ func TestDefaultJitterIsBounded(t *testing.T) {
 func TestHelloParamsAndRegistration(t *testing.T) {
 	w := newWriter(t, "m-42")
 	cp := newFakeCP()
-	r := startClient(t, w, cp, nil)
+	logs := &syncLog{}
+	r := startClient(t, w, cp, func(o *client.Options) { o.Logger = slog.New(slog.NewTextHandler(logs, nil)) })
 	eventually(t, "drain", func() bool { return isDrained(w) })
 	ep, _ := w.Store.Epoch()
 	if !ep.Registered {
@@ -143,6 +146,8 @@ func TestHelloParamsAndRegistration(t *testing.T) {
 	if st := r.c.Status(); st.Epoch != ep.ID || st.Head != lc.Seq || !st.Registered {
 		t.Fatalf("status %+v", st)
 	}
+	// Each established session is visible at info, so a recovered connection is not silent.
+	eventually(t, "reconnect logged", func() bool { return strings.Count(logs.String(), "history session established") == 2 })
 	// One process presents one instance on every reconnect; another process presents its own.
 	if first.Instance == nil || first.Instance.IsZero() || second.Instance == nil || *second.Instance != *first.Instance {
 		t.Fatalf("instances across a reconnect: %v, %v", first.Instance, second.Instance)
@@ -636,4 +641,21 @@ func TestToolResultShapes(t *testing.T) {
 	if !r.IsError || r.Content[0].Text != "scope denied" {
 		t.Fatalf("error result %+v", r)
 	}
+}
+
+type syncLog struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *syncLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *syncLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }

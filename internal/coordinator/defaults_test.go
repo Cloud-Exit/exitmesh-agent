@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/bundle"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/engine"
@@ -81,6 +84,40 @@ func TestNodeProcessIdentityInHealth(t *testing.T) {
 	}
 }
 
+// Periodic re-registration is a heartbeat: only a new, changed, or returning node is logged at info.
+func TestNodeRegistrationLoggedOnChange(t *testing.T) {
+	e := newEnv(t)
+	logs := &syncBuffer{}
+	e.logger = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	r := e.start(e.config())
+	e.committed(r)
+	n1 := e.nodeClient(t, r, "node-1", "node-1")
+	req := nodeapi.RegisterRequest{Node: "node-1", AgentVersion: "0.7.0", Warming: true, Coverage: map[string]string{"logs": "covered"},
+		Process: &nodeapi.Process{UID: 65532, GID: 65532, Capabilities: []string{"CAP_DAC_READ_SEARCH"}}}
+	step := func(what string, want int) {
+		t.Helper()
+		if _, err := n1.Register(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+		if n := strings.Count(logs.String(), "node agent registered"); n != want {
+			t.Fatalf("%s: %d registration lines, want %d:\n%s", what, n, want, logs.String())
+		}
+	}
+	step("first registration", 1)
+	step("heartbeat", 1)
+	step("heartbeat", 1)
+	req.Warming = false
+	step("warming finished", 2)
+	step("heartbeat", 2)
+	req.Coverage = map[string]string{"logs": "degraded"}
+	step("coverage changed", 3)
+	req.Process = &nodeapi.Process{UID: 0, GID: 0, Capabilities: []string{"CAP_DAC_READ_SEARCH"}}
+	step("root fallback", 4)
+	step("heartbeat", 4)
+	e.clock.Advance(2 * time.Second)
+	step("returning after the node timeout", 5)
+}
+
 // syncBuffer is a log sink safe for concurrent writers.
 type syncBuffer struct {
 	mu sync.Mutex
@@ -125,6 +162,7 @@ func TestBundleFetchFailuresBackOffAndLogOnce(t *testing.T) {
 	if r.c.eng.BundleVersion() != "" {
 		t.Fatalf("a bundle became active without one being published")
 	}
+	eventually(t, "empty answer reported", func() bool { return strings.Contains(logs.String(), "no rule bundle is published") })
 	settled := e.cp.BundleFetches()
 	time.Sleep(400 * time.Millisecond)
 	if n := e.cp.BundleFetches() - settled; n != 0 {
@@ -135,4 +173,22 @@ func TestBundleFetchFailuresBackOffAndLogOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, "published bundle active", func() bool { return r.c.eng.BundleVersion() == "2026.09.1" })
+	if n := strings.Count(logs.String(), "no rule bundle is published"); n != 1 {
+		t.Fatalf("the empty answer was logged %d times, want once:\n%s", n, logs.String())
+	}
+}
+
+func TestRESTConfigRaisesClientRateLimit(t *testing.T) {
+	rc := &rest.Config{Host: "https://10.0.0.1"}
+	restConfig(rc)
+	kc, err := kubernetes.NewForConfig(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q := kc.CoreV1().RESTClient().GetRateLimiter().QPS(); q != 25 {
+		t.Fatalf("client QPS = %v, want 25", q)
+	}
+	if rc.Burst != 50 || rc.UserAgent != "exitmesh-agent/"+Version {
+		t.Fatalf("burst %d, user agent %q", rc.Burst, rc.UserAgent)
+	}
 }

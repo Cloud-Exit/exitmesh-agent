@@ -20,7 +20,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("coordinator: in-cluster config: %w", err)
 	}
-	rc.UserAgent = "exitmesh-agent/" + Version
+	restConfig(rc)
 	dyn, err := dynamic.NewForConfig(rc)
 	if err != nil {
 		return fmt.Errorf("coordinator: dynamic client: %w", err)
@@ -46,4 +46,10 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return err
 	}
 	return c.Run(ctx)
+}
+
+// restConfig raises client-go's default 5 QPS, which throttles the startup list of every watched kind for seconds.
+func restConfig(rc *rest.Config) {
+	rc.UserAgent = "exitmesh-agent/" + Version
+	rc.QPS, rc.Burst = 25, 50
 }

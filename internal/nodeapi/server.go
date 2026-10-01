@@ -27,6 +27,9 @@ const AuditImpersonation = "impersonation"
 // ErrUnknownTask is returned by Backend.TaskResult for a task not assigned to the node.
 var ErrUnknownTask = errors.New("nodeapi: unknown task")
 
+// ErrUnavailable marks a transient backend condition; the node is told to retry without an error being logged.
+var ErrUnavailable = errors.New("coordinator unavailable")
+
 // AuditEvent records a security-relevant rejection.
 type AuditEvent struct {
 	Kind              string
@@ -184,6 +187,10 @@ func (s *server) backendError(w http.ResponseWriter, r *http.Request, err error)
 	case errors.Is(err, ErrUnknownTask):
 		http.Error(w, "unknown task", http.StatusNotFound)
 	case r.Context().Err() != nil:
+	case errors.Is(err, ErrUnavailable):
+		s.o.Logger.Debug("node api backend unavailable", "path", r.URL.Path, "error", err.Error())
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 	default:
 		s.o.Logger.Error("node api backend failed", "path", r.URL.Path, "error", err.Error())
 		http.Error(w, "coordinator unavailable", http.StatusServiceUnavailable)

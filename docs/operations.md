@@ -66,7 +66,13 @@ When ExitMesh is unreachable, evaluation continues with the last valid rules, ev
 
 If the tunnel is cut without a clean close (a proxy or control plane restart, logged as `history session` warnings ending in `502`), ExitMesh can still hold the old session for up to the 60 second keepalive. Each agent process presents a random instance ID on every hello, so a reconnect of the same process replaces that stale session instead of being refused. A control plane that does not yet implement instances answers `identity_conflict` until the stale session expires; the agent keeps spooling and retries with backoff, and delivery resumes on its own within about a minute. An `identity_conflict` that persists means two writers really share one identity, for example a copied `/var/lib/exitmesh` (see [install-host.md](install-host.md)) or a restored coordinator PVC snapshot running next to the original.
 
-Until a rule bundle is published for the target type, the coordinator logs `bundle fetch failed` once, retries with backoff up to one minute, and logs `bundle fetch recovered` when the control plane answers again. A control plane that answers "nothing published" with an empty version (SPEC 9.4) is not a failure: the coordinator waits for the `bundle.available` notification.
+Until a rule bundle is published for the target type, the coordinator logs `bundle fetch failed` once, retries with backoff up to one minute, and logs `bundle fetch recovered` when the control plane answers again. A control plane that answers "nothing published" with an empty version (SPEC 9.4) is not a failure: the coordinator logs `no rule bundle is published for this target yet` once and waits for the `bundle.available` notification.
+
+Each successful connection logs `history session established` with the session ID, decision, epoch, and committed head, so a recovered tunnel is visible next to the warnings of the failed attempts.
+
+## Log lines at steady state
+
+Node agents re-register every 30 seconds as a heartbeat. The coordinator logs `node agent registered` at info only when a node first appears, returns after the node timeout, or changes version, bundle, warming state, coverage, capabilities, or process identity; the heartbeats are logged at debug. Records a node submits while a restarted coordinator is still synchronizing cluster state are answered with HTTP 503 and `Retry-After: 1`, logged at debug, and retried by the node from its queue. Kubernetes client library messages (for example client-side throttling) are emitted through the agent's own structured, redacted log handler with `component: client-go`; the coordinator allows 25 API requests per second with a burst of 50.
 
 ## Convergence
 

@@ -46,6 +46,8 @@ type bundleState struct {
 	fetch    bool
 	wake     chan struct{}
 	airgapFP [32]byte
+	// noneLogged is touched only by bundleLoop.
+	noneLogged bool
 }
 
 func newBundleState(s *bundle.Store, v *bundle.Verifier, dist kv.Store, pol bundle.Policy, vals bundle.Validators) *bundleState {
@@ -212,7 +214,14 @@ func (c *Coordinator) fetchBundle(ctx context.Context) error {
 		c.setErr("bundle", err)
 		return err
 	}
-	if res == nil || res.Version == "" || res.Version == b.version() {
+	if res == nil || res.Version == "" {
+		if b.version() == "" && !b.noneLogged {
+			c.log.Info("no rule bundle is published for this target yet; waiting for one")
+			b.noneLogged = true
+		}
+		return nil
+	}
+	if res.Version == b.version() {
 		return nil
 	}
 	a, err := b.store.ActivateFetch(*res, b.vals, b.pol)

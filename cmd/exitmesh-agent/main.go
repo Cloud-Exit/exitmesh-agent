@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 
+	"k8s.io/klog/v2"
+
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/privdrop"
 	"github.com/cloud-exit/exitmesh-agent/internal/redact"
@@ -152,6 +154,11 @@ func newLogger(cfg *config.Config, w io.Writer) (*slog.Logger, error) {
 	return slog.New(redact.NewHandler(h, red)).With("role", cfg.Role, "version", version), nil
 }
 
+// routeKlog sends client-go's klog output through log so it is structured and redacted like every other line.
+func routeKlog(log *slog.Logger) {
+	klog.SetSlogLogger(log.With("component", "client-go"))
+}
+
 func loadConfig(fs *flag.FlagSet, args []string) (*config.Config, error) {
 	path := fs.String("config", "", "agent configuration file")
 	if err := parse(fs, args, "config"); err != nil {
@@ -180,6 +187,7 @@ func runCmd(ctx context.Context, args []string, _, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	routeKlog(log)
 	if id, err := privdrop.Current(); err == nil {
 		log.Info("process identity", "uid", id.UID, "gid", id.GID, "capabilities", id.Capabilities)
 	}

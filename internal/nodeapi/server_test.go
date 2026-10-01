@@ -584,6 +584,20 @@ func TestBackendErrors(t *testing.T) {
 	if !strings.Contains(e.logs.String(), "spool fsync failed") {
 		t.Fatalf("backend failure not logged:\n%s", e.logs)
 	}
+	e.backend.locked(func() { e.backend.submitErr = fmt.Errorf("%w: state not synchronized yet", ErrUnavailable) })
+	before := e.logs.String()
+	_, err = c.Submit(ctx, "q1", testItems(t, "node-1"))
+	wantStatus(t, err, http.StatusServiceUnavailable, true)
+	if !strings.Contains(err.Error(), "state not synchronized yet") {
+		t.Fatalf("error text = %q", err)
+	}
+	if e.logs.String() != before {
+		t.Fatalf("transient unavailability logged above debug:\n%s", e.logs)
+	}
+	resp := e.raw(t, http.MethodPost, "/v1/node/records", ContentType, bytes.NewReader(mustRaw(t, SubmitRequest{Node: "node-1", Queue: "q1", Items: testItems(t, "node-1")})), e.token(t))
+	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Retry-After") != "1" {
+		t.Fatalf("status = %d, Retry-After = %q", resp.StatusCode, resp.Header.Get("Retry-After"))
+	}
 	e.backend.locked(func() { e.backend.submitErr = fmt.Errorf("%w: sequence regression", ErrInvalid) })
 	_, err = c.Submit(ctx, "q1", testItems(t, "node-1"))
 	wantStatus(t, err, http.StatusBadRequest, false)

@@ -13,19 +13,19 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
-
 	"sync"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
+	"k8s.io/klog/v2"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/admin"
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/host"
 	"github.com/cloud-exit/exitmesh-agent/internal/node"
 	"github.com/cloud-exit/exitmesh-agent/internal/spool"
+	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
 
 func runArgs(t *testing.T, ctx context.Context, args ...string) (int, string, string) {
@@ -132,6 +132,48 @@ func TestLoggerRedactsAndHonorsFormat(t *testing.T) {
 		}
 	}
 	_ = slog.LevelInfo
+}
+
+func TestKlogRoutedThroughRedactingLogger(t *testing.T) {
+	var buf syncWriter
+	cfg := &config.Config{Role: "coordinator", Logging: config.Logging{Level: "info", Format: "json"}}
+	log, err := newLogger(cfg, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeKlog(log)
+	t.Cleanup(klog.ClearLogger)
+	klog.InfoS("Waited before sending request", "reason", "client-side throttling", "URL", "https://10.0.0.1/api?token=abcdef1234567890")
+	klog.V(3).InfoS("verbose detail")
+	klog.Flush()
+	out := buf.String()
+	if strings.Contains(out, "abcdef1234567890") || strings.Contains(out, "verbose detail") {
+		t.Fatalf("klog output %s", out)
+	}
+	var line map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &line); err != nil {
+		t.Fatalf("klog line is not one JSON record: %v\n%s", err, out)
+	}
+	if line["msg"] != "Waited before sending request" || line["level"] != "INFO" || line["role"] != "coordinator" || line["component"] != "client-go" {
+		t.Fatalf("klog record %v", line)
+	}
+}
+
+type syncWriter struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.Write(p)
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.String()
 }
 
 type recordingOps struct{ calls []string }

@@ -217,7 +217,7 @@ type placementReport struct {
 	Error string `json:"error,omitempty"`
 }
 
-var errNotReady = errors.New("coordinator: state not synchronized yet")
+var errNotReady = fmt.Errorf("%w: state not synchronized yet", nodeapi.ErrUnavailable)
 
 // New validates the configuration and prepares a coordinator; Run opens the spool and starts it.
 func New(cfg *config.Config, d Deps) (*Coordinator, error) {
