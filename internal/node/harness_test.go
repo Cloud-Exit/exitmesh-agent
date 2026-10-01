@@ -737,6 +737,14 @@ func (h *harness) writeLog(ns, podName, uid, container string, lines ...string) 
 	}
 }
 
+// preopenStreams writes a backlog line to each test stream so tests can wait for open files before writing their own lines.
+func (h *harness) preopenStreams() {
+	h.t.Helper()
+	h.writeLog("prod", "web-1", "uid-web-1", "app", "starting")
+	h.writeLog("prod", "web-1", "uid-web-1", "sidecar", "starting")
+	h.writeLog("other", "chatty-1", "uid-chatty-1", "main", "starting")
+}
+
 // scanState reports every file under the state directory containing needle.
 func scanState(t *testing.T, dir string, needle string) []string {
 	t.Helper()

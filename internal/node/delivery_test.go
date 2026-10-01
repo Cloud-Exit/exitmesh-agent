@@ -110,9 +110,11 @@ func TestRegistrationReportsRuleStates(t *testing.T) {
 	rule := ruleSpec{id: "any-line", class: "logql", scope: "node", file: "loki/app.yaml", group: "app", alert: "AnyLine", caps: "logs",
 		extra: "    budget:\n      max_series: 2\n    evidence:\n      max_samples: 3\n"}
 	h.coord.setBundle(h.trust.payload(t, logBundle("m1", []ruleSpec{rule, oomRule}, "      - alert: AnyLine\n        expr: count_over_time({namespace=~\".+\"}[1m]) > 0\n", oomGroup)))
+	h.preopenStreams()
 	a := h.start()
 	h.waitBundle("m1")
 	h.step(time.Minute)
+	h.waitFor("streams opened", func() bool { return a.tailer.Stats().Files >= 3 })
 	for i := range 20 {
 		line := fmt.Sprintf("line %02d %s", i, strings.Repeat("y", 100))
 		h.writeLog("prod", "web-1", "uid-web-1", "app", line)

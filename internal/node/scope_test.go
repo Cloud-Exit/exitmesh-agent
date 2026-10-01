@@ -32,7 +32,10 @@ var anyOOMRule = ruleSpec{id: "any-oom", class: "logql", scope: "node", file: "l
 func checkLogScope(t *testing.T, h *harness) {
 	t.Helper()
 	h.coord.setBundle(h.trust.payload(t, logBundle("s1", []ruleSpec{anyOOMRule}, anyOOMGroup)))
+	// Lines present at a fresh start are backlog and skipped, so write the lines under test only once the stream is open.
+	h.writeLog("prod", "web-1", "uid-web-1", "app", "starting")
 	a := h.startLogs("s1")
+	h.waitFor("in-scope stream opened", func() bool { return a.tailer.Stats().Files >= 1 })
 	h.writeLog("other", "chatty-1", "uid-chatty-1", "main", "OutOfMemory in an excluded namespace", "hello from other")
 	h.writeLog("prod", "web-1", "uid-web-1", "app", "OutOfMemory in prod", "hello from prod")
 	h.waitFor("in-scope stream tailed", func() bool { return a.tailer.Stats().Lines >= 2 })
@@ -93,8 +96,9 @@ func checkLogScope(t *testing.T, h *harness) {
 			}
 		}
 	}
+	// Three in-scope lines are on disk; the two out-of-scope ones would make it five.
 	count := run("q-count", nodeapi.TaskLogQLQuery, `sum(count_over_time({namespace=~".+"}[1h]))`)
-	if len(count.Data.Series) != 1 || len(count.Data.Series[0].Points) == 0 || count.Data.Series[0].Points[0].V != 2 {
+	if len(count.Data.Series) != 1 || len(count.Data.Series[0].Points) == 0 || count.Data.Series[0].Points[0].V != 3 {
 		t.Fatalf("aggregate over every namespace counted out-of-scope lines: %+v", count.Data)
 	}
 	ev := run("q-evidence", nodeapi.TaskEvidence, "any-oom")

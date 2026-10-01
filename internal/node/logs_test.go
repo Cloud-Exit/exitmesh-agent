@@ -119,7 +119,9 @@ func TestLogQLRuleRedactedEvidenceAndNoUnmatchedRetention(t *testing.T) {
 func TestEvidenceOverflowMarksEvidenceLimitedAndKeepsFiring(t *testing.T) {
 	h := newHarness(t, options{caps: "logs", ring: "2Ki"})
 	h.coord.setBundle(h.trust.payload(t, logBundle("l1", []ruleSpec{oomRule}, oomGroup)))
+	h.writeLog("prod", "web-1", "uid-web-1", "app", "starting")
 	a := h.startLogs("l1")
+	h.waitFor("stream opened", func() bool { return a.tailer.Stats().Files >= 1 })
 	var lines []string
 	for i := range 60 {
 		lines = append(lines, fmt.Sprintf("OutOfMemory worker %02d %s", i, strings.Repeat("x", 80)))
@@ -159,9 +161,12 @@ func TestMatchAllRuleRespectsBudgets(t *testing.T) {
 	rule := ruleSpec{id: "any-line", class: "logql", scope: "node", file: "loki/app.yaml", group: "app", alert: "AnyLine", caps: "logs",
 		extra: "    budget:\n      max_series: 2\n    evidence:\n      max_samples: 3\n"}
 	h.coord.setBundle(h.trust.payload(t, logBundle("m1", []ruleSpec{rule}, "      - alert: AnyLine\n        expr: count_over_time({namespace=~\".+\"}[1m]) > 0\n")))
+	h.preopenStreams()
+	h.writeLog(testNS, selfPod, "self-uid", "agent", "self starting")
 	a := h.start()
 	h.waitBundle("m1")
 	h.step(time.Minute)
+	h.waitFor("streams opened", func() bool { return a.tailer.Stats().Files >= 3 })
 	for i := range 20 {
 		line := fmt.Sprintf("line %02d %s", i, strings.Repeat("y", 100))
 		h.writeLog("prod", "web-1", "uid-web-1", "app", line)
@@ -286,7 +291,9 @@ func TestBundleSwitchAndLastKnownGood(t *testing.T) {
 	h := newHarness(t, options{caps: "logs"})
 	sidecarRule := ruleSpec{id: "oom-sidecar", class: "logql", scope: "node", file: "loki/app.yaml", group: "app", alert: "SidecarOOM", caps: "logs", extra: "    budget:\n      max_series: 100\n"}
 	h.coord.setBundle(h.trust.payload(t, logBundle("l1", []ruleSpec{oomRule}, oomGroup)))
+	h.writeLog("prod", "web-1", "uid-web-1", "app", "starting")
 	a := h.startLogs("l1")
+	h.waitFor("stream opened", func() bool { return a.tailer.Stats().Files >= 1 })
 	h.writeLog("prod", "web-1", "uid-web-1", "app", "OutOfMemory one")
 	h.waitFor("line read", func() bool { return a.tailer.Stats().Lines >= 1 })
 	h.step(10 * time.Second)
