@@ -49,7 +49,8 @@ type NodeStatus struct {
 	// Process is the node agent's user and effective capabilities; UID 0 means the root fallback is in use.
 	Process *nodeapi.Process `json:"process,omitempty"`
 
-	rules []nodeapi.RuleStatus
+	rules      []nodeapi.RuleStatus
+	registered bool
 }
 
 // NodeRule is one node-local rule state as the node agent last registered it.
@@ -205,12 +206,18 @@ type nodeBackend struct{ c *Coordinator }
 func (b nodeBackend) Register(ctx context.Context, node string, req nodeapi.RegisterRequest) (nodeapi.RegisterResponse, error) {
 	c := b.c
 	level := slog.LevelDebug
+	message := "node agent heartbeat"
 	c.nodes.touch(node, func(n *NodeStatus) {
-		if n.AgentVersion != req.AgentVersion || n.BundleVersion != req.BundleVersion || n.Warming != req.Warming ||
-			!slices.Equal(n.Capabilities, req.Capabilities) || !maps.Equal(n.Coverage, req.Coverage) || !sameProcess(n.Process, req.Process) ||
-			c.now().Sub(n.LastSeen) > c.nodes.timeout {
-			level = slog.LevelInfo
+		switch {
+		case !n.registered:
+			level, message = slog.LevelInfo, "node agent registered"
+		case c.now().Sub(n.LastSeen) > c.nodes.timeout:
+			level, message = slog.LevelInfo, "node agent reconnected"
+		case n.AgentVersion != req.AgentVersion || n.BundleVersion != req.BundleVersion || n.Warming != req.Warming ||
+			!slices.Equal(n.Capabilities, req.Capabilities) || !maps.Equal(n.Coverage, req.Coverage) || !sameProcess(n.Process, req.Process):
+			level, message = slog.LevelInfo, "node agent status changed"
 		}
+		n.registered = true
 		n.AgentVersion, n.BundleVersion, n.Warming, n.Queue = req.AgentVersion, req.BundleVersion, req.Warming, req.QueueUsage
 		n.Capabilities = append([]string(nil), req.Capabilities...)
 		n.Coverage = map[string]string{}
@@ -223,8 +230,7 @@ func (b nodeBackend) Register(ctx context.Context, node string, req nodeapi.Regi
 			n.Process = &nodeapi.Process{UID: p.UID, GID: p.GID, Capabilities: append([]string{}, p.Capabilities...)}
 		}
 	})
-	// Nodes re-register as a heartbeat; only a new, returning, or changed node is worth an info line.
-	c.log.Log(ctx, level, "node agent registered", "node", node, "version", req.AgentVersion, "bundle", req.BundleVersion, "warming", req.Warming)
+	c.log.Log(ctx, level, message, "node", node, "version", req.AgentVersion, "bundle", req.BundleVersion, "warming", req.Warming)
 	return nodeapi.RegisterResponse{TargetBundle: c.bundles.version()}, nil
 }
 

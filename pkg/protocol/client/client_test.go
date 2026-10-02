@@ -119,6 +119,81 @@ func TestDefaultJitterIsBounded(t *testing.T) {
 	}
 }
 
+func TestRetriesLogEveryAttemptAndNeverExceedFiveMinutes(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		base, max time.Duration
+	}{
+		{"defaults", 0, 0},
+		{"oversized base and maximum", time.Hour, 2 * time.Hour},
+		{"base above maximum", time.Hour, time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWriter(t, "m")
+			cp := newFakeCP()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			const retries = 100
+			cp.dialErr = func(n int) error {
+				if n > retries {
+					cancel()
+				}
+				return errors.New("connection refused")
+			}
+			clk := &fakeClock{now: testTime}
+			logs := &syncLog{}
+			c, err := client.New(client.Options{
+				Store: w.Store, Transport: cp, Hooks: w, Clock: clk, HealthInterval: -1,
+				BackoffBase: tc.base, BackoffMax: tc.max, Jitter: func(d time.Duration) time.Duration { return d },
+				Logger: slog.New(slog.NewJSONHandler(logs, nil)),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Run(ctx); !errors.Is(err, context.Canceled) {
+				t.Fatalf("run: %v", err)
+			}
+			sleeps := clk.slept()
+			if len(sleeps) != retries {
+				t.Fatalf("stopped after %d retries", len(sleeps))
+			}
+			ceiling := client.MaxBackoff
+			if tc.max > 0 {
+				ceiling = min(ceiling, tc.max)
+			}
+			for _, d := range sleeps {
+				if d <= 0 || d > ceiling {
+					t.Fatalf("retry delay %v exceeds %v", d, ceiling)
+				}
+			}
+			if sleeps[len(sleeps)-1] != ceiling {
+				t.Fatalf("backoff did not reach %v", ceiling)
+			}
+			var retriesLogged int
+			for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+				var entry struct {
+					Message string        `json:"msg"`
+					Attempt int           `json:"attempt"`
+					RetryIn time.Duration `json:"retry_in"`
+				}
+				if err := json.Unmarshal([]byte(line), &entry); err != nil {
+					t.Fatal(err)
+				}
+				if entry.Message != "history session retry scheduled" {
+					continue
+				}
+				if retriesLogged >= len(sleeps) || entry.Attempt != retriesLogged+1 || entry.RetryIn != sleeps[retriesLogged] {
+					t.Fatalf("incorrect retry log: %+v", entry)
+				}
+				retriesLogged++
+			}
+			if retriesLogged != retries {
+				t.Fatalf("logged %d retries, want %d", retriesLogged, retries)
+			}
+		})
+	}
+}
+
 func TestHelloParamsAndRegistration(t *testing.T) {
 	w := newWriter(t, "m-42")
 	cp := newFakeCP()

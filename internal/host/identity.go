@@ -183,10 +183,13 @@ func (h *Host) enroll(ctx context.Context) error {
 	return h.setEnrolled(h.machine.Current)
 }
 
-// enrollLoop exchanges the enrollment token, retrying with backoff; a rejected token stops it.
+// enrollLoop rereads the enrollment token on every attempt until success or shutdown.
 func (h *Host) enrollLoop(ctx context.Context) error {
 	wait := time.Second
-	for {
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		err := h.enroll(ctx)
 		if err == nil {
 			h.setErr(&h.st.enrollError, nil)
@@ -196,18 +199,13 @@ func (h *Host) enrollLoop(ctx context.Context) error {
 			return ctx.Err()
 		}
 		h.setErr(&h.st.enrollError, err)
-		if client.RPCErrorCode(err) == protocol.CodeUnauthorized {
-			return fmt.Errorf("host: enrollment rejected: %w", err)
-		}
-		h.log.Warn("enrollment failed; retrying", "err", err, "in", wait)
+		h.log.Warn("enrollment failed; retrying", "err", err, "attempt", attempt, "retry_in", wait)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-h.clk.After(wait):
 		}
-		if wait *= 2; wait > 5*time.Minute {
-			wait = 5 * time.Minute
-		}
+		wait = min(2*wait, client.MaxBackoff)
 	}
 }
 

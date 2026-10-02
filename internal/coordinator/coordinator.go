@@ -66,7 +66,7 @@ type Tuning struct {
 	BundleEvery    time.Duration // bundle fetch retry and air-gap directory poll, default 1m
 	RetryBase      time.Duration // enrollment retry base, default 2s
 	BackoffBase    time.Duration // session reconnect backoff base, default 1s
-	BackoffMax     time.Duration // default 5m
+	BackoffMax     time.Duration // default and maximum 5m
 	HealthInterval time.Duration // agent.health cadence, default 60s
 	LongPollMax    time.Duration // node API long-poll bound, default nodeapi.DefaultLongPollMax
 	FlushInterval  time.Duration // collector event flush, default 30s
@@ -95,6 +95,9 @@ func (t *Tuning) defaults() {
 	d(&t.RetryBase, 2*time.Second)
 	d(&t.BackoffBase, time.Second)
 	d(&t.BackoffMax, 5*time.Minute)
+	t.BackoffMax = min(t.BackoffMax, client.MaxBackoff)
+	t.RetryBase = min(t.RetryBase, t.BackoffMax)
+	t.BackoffBase = min(t.BackoffBase, t.BackoffMax)
 	d(&t.HealthInterval, time.Minute)
 	d(&t.LongPollMax, nodeapi.DefaultLongPollMax)
 	d(&t.FlushInterval, 30*time.Second)

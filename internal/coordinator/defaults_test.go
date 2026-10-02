@@ -84,8 +84,7 @@ func TestNodeProcessIdentityInHealth(t *testing.T) {
 	}
 }
 
-// Periodic re-registration is a heartbeat: only a new, changed, or returning node is logged at info.
-func TestNodeRegistrationLoggedOnChange(t *testing.T) {
+func TestNodeRegistrationLogsDistinguishHeartbeatsAndStatus(t *testing.T) {
 	e := newEnv(t)
 	logs := &syncBuffer{}
 	e.logger = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -94,28 +93,35 @@ func TestNodeRegistrationLoggedOnChange(t *testing.T) {
 	n1 := e.nodeClient(t, r, "node-1", "node-1")
 	req := nodeapi.RegisterRequest{Node: "node-1", AgentVersion: "0.7.0", Warming: true, Coverage: map[string]string{"logs": "covered"},
 		Process: &nodeapi.Process{UID: 65532, GID: 65532, Capabilities: []string{"CAP_DAC_READ_SEARCH"}}}
-	step := func(what string, want int) {
+	r.c.nodes.touch("node-1", nil)
+	step := func(what string, registered, changed, reconnected int) {
 		t.Helper()
 		if _, err := n1.Register(context.Background(), req); err != nil {
 			t.Fatal(err)
 		}
-		if n := strings.Count(logs.String(), "node agent registered"); n != want {
-			t.Fatalf("%s: %d registration lines, want %d:\n%s", what, n, want, logs.String())
+		for msg, want := range map[string]int{"node agent registered": registered, "node agent status changed": changed, "node agent reconnected": reconnected, "node agent heartbeat": 0} {
+			if n := strings.Count(logs.String(), msg); n != want {
+				t.Fatalf("%s: %d %q lines, want %d", what, n, msg, want)
+			}
 		}
 	}
-	step("first registration", 1)
-	step("heartbeat", 1)
-	step("heartbeat", 1)
+	step("first registration", 1, 0, 0)
+	step("heartbeat", 1, 0, 0)
+	req.QueueUsage.Items = 10
+	step("queue changed", 1, 0, 0)
+	req.BundleVersion = "2026.09.1"
+	step("bundle activated", 1, 1, 0)
 	req.Warming = false
-	step("warming finished", 2)
-	step("heartbeat", 2)
+	step("warming finished", 1, 2, 0)
+	step("heartbeat", 1, 2, 0)
 	req.Coverage = map[string]string{"logs": "degraded"}
-	step("coverage changed", 3)
+	step("coverage changed", 1, 3, 0)
 	req.Process = &nodeapi.Process{UID: 0, GID: 0, Capabilities: []string{"CAP_DAC_READ_SEARCH"}}
-	step("root fallback", 4)
-	step("heartbeat", 4)
+	step("root fallback", 1, 4, 0)
+	step("heartbeat", 1, 4, 0)
 	e.clock.Advance(2 * time.Second)
-	step("returning after the node timeout", 5)
+	step("returning after the node timeout", 1, 4, 1)
+	step("heartbeat after reconnect", 1, 4, 1)
 }
 
 // syncBuffer is a log sink safe for concurrent writers.

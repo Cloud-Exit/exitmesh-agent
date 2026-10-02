@@ -167,6 +167,8 @@ func (t *Transport) Dial(ctx context.Context) (client.Conn, error) {
 
 // Enroll exchanges an enrollment token for a credential (SPEC 9.2).
 func (t *Transport) Enroll(ctx context.Context, req protocol.EnrollRequest) (*protocol.EnrollResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -197,7 +199,8 @@ func (t *Transport) Enroll(ctx context.Context, req protocol.EnrollRequest) (*pr
 	}
 	var out protocol.EnrollResponse
 	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("tunnel: enroll response: %w", err)
+		return nil, fmt.Errorf("tunnel: enroll response from %s (HTTP %s, Content-Type %q): expected JSON; check endpoint and ingress routing: %w",
+			hr.URL.Redacted(), resp.Status, resp.Header.Get("Content-Type"), err)
 	}
 	if out.TargetID == "" || out.Credential == "" {
 		return nil, errors.New("tunnel: enroll response missing target_id or credential")

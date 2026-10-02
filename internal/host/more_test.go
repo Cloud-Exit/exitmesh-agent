@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -450,19 +451,64 @@ func TestGroupTokenEnrollmentAndHealthReports(t *testing.T) {
 	}
 }
 
-func TestEnrollmentRejectedStopsTheAgent(t *testing.T) {
+type enrollmentClock struct {
+	Clock
+	waits  []time.Duration
+	onWait func()
+}
+
+func (c *enrollmentClock) After(d time.Duration) <-chan time.Time {
+	c.waits = append(c.waits, d)
+	c.onWait()
+	ch := make(chan time.Time, 1)
+	ch <- c.Now()
+	return ch
+}
+
+func TestEnrollmentRejectedKeepsRetryingAndReloadsToken(t *testing.T) {
 	f := enrolledFixture(t, fixtureOpts{caps: []string{config.CapInventory}})
-	f.writeToken("emx1_h_unknown-host_0123456789abcdefghij")
-	h, err := New(f.cfg, f.deps())
+	valid, err := readToken(f.cfg.EnrollmentTokenFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.cycles = make(chan time.Time, 1024)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	f.writeToken(valid + "invalid")
+	clk := &enrollmentClock{Clock: f.clk}
+	clk.onWait = func() {
+		if len(clk.waits) == 12 {
+			f.writeToken(valid)
+		}
+	}
+	var logs strings.Builder
+	d := f.deps()
+	d.Clock, d.Logger = clk, slog.New(slog.NewJSONHandler(&logs, nil))
+	h, err := New(f.cfg, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.open(); err != nil {
+		t.Fatal(err)
+	}
+	defer h.close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err = h.Run(ctx)
-	if err == nil || !strings.Contains(err.Error(), "enrollment rejected") {
-		t.Fatalf("want enrollment rejection, got %v", err)
+	if err := h.ensureIdentity(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.enrollLoop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(clk.waits) != 12 || strings.Count(logs.String(), "enrollment failed; retrying") != 12 {
+		t.Fatal("not every rejected enrollment was retried and logged")
+	}
+	delay := time.Second
+	for _, got := range clk.waits {
+		if got != delay {
+			t.Fatalf("enrollment delay %s, want %s", got, delay)
+		}
+		delay = min(2*delay, client.MaxBackoff)
+	}
+	if h.sp.Identity().Credential == "" || h.st.enrollError != "" {
+		t.Fatal("enrollment did not recover after replacing the token")
 	}
 }
 

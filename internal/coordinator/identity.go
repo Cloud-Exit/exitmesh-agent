@@ -36,12 +36,12 @@ func (c *Coordinator) ensureIdentity(ctx context.Context) error {
 		c.targetID = id.TargetID
 		return nil
 	}
-	raw, tok, err := c.readToken()
-	if err != nil {
-		return err
-	}
-	tid, _ := tok.TargetID()
 	if c.airgap {
+		_, tok, err := c.readToken()
+		if err != nil {
+			return err
+		}
+		tid, _ := tok.TargetID()
 		if !protocol.ValidTargetID(tid) {
 			return fmt.Errorf("coordinator: enrollment token carries no valid target id")
 		}
@@ -53,31 +53,37 @@ func (c *Coordinator) ensureIdentity(ctx context.Context) error {
 	}
 	opts := c.tunnelOptions()
 	opts.Credential = nil
-	req := protocol.EnrollRequest{Token: raw, WriterID: c.sp.WriterID(), TargetType: protocol.TargetKubernetes, Agent: c.agentInfo()}
+	req := protocol.EnrollRequest{WriterID: c.sp.WriterID(), TargetType: protocol.TargetKubernetes, Agent: c.agentInfo()}
 	delay := c.t.RetryBase
-	var last string
-	for {
-		res, err := tunnel.Enroll(ctx, opts, req)
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		raw, _, err := c.readToken()
+		var res *protocol.EnrollResponse
+		if err == nil {
+			req.Token = raw
+			res, err = tunnel.Enroll(ctx, opts, req)
+		}
 		if err == nil {
 			if err := c.sp.SetIdentity(spool.Identity{TargetID: res.TargetID, TargetType: protocol.TargetKubernetes, Credential: res.Credential, CredentialID: res.CredentialID}); err != nil {
 				return fmt.Errorf("coordinator: store credential: %w", err)
 			}
 			c.targetID = res.TargetID
+			c.setErr("enrollment", nil)
 			c.log.Info("enrolled", "target", res.TargetID, "credential_id", res.CredentialID)
 			return nil
 		}
-		if msg := err.Error(); msg != last {
-			c.log.Warn("enrollment failed; retrying with backoff", "err", err)
-			last = msg
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 		c.setErr("enrollment", err)
+		c.log.Warn("enrollment failed; retrying", "err", err, "attempt", attempt, "retry_in", delay)
 		select {
 		case <-ctx.Done():
 			return errors.Join(ctx.Err(), fmt.Errorf("coordinator: enrollment: %w", err))
 		case <-time.After(delay):
 		}
-		if delay *= 2; delay > c.t.BackoffMax {
-			delay = c.t.BackoffMax
-		}
+		delay = min(2*delay, c.t.BackoffMax)
 	}
 }

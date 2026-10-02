@@ -29,6 +29,9 @@ const (
 	HaltDeenrolled = "deenrolled"
 )
 
+// MaxBackoff caps the delay between connection attempts.
+const MaxBackoff = 5 * time.Minute
+
 // Options configures a Client.
 type Options struct {
 	Store     Store
@@ -40,7 +43,7 @@ type Options struct {
 	// Jitter returns a random duration in [0, ceiling]; the default is uniform (full jitter).
 	Jitter               func(ceiling time.Duration) time.Duration
 	BackoffBase          time.Duration // default 1s
-	BackoffMax           time.Duration // default 5m
+	BackoffMax           time.Duration // default and maximum 5m
 	ReplayBytesPerSecond int64         // backlog replay rate limit; 0 is unlimited
 	HealthInterval       time.Duration // default 60s; negative disables health reports
 	CallTimeout          time.Duration // default 30s
@@ -128,12 +131,10 @@ func New(opts Options) (*Client, error) {
 	if opts.BackoffBase <= 0 {
 		opts.BackoffBase = time.Second
 	}
-	if opts.BackoffMax <= 0 {
-		opts.BackoffMax = 5 * time.Minute
+	if opts.BackoffMax <= 0 || opts.BackoffMax > MaxBackoff {
+		opts.BackoffMax = MaxBackoff
 	}
-	if opts.BackoffMax < opts.BackoffBase {
-		opts.BackoffMax = opts.BackoffBase
-	}
+	opts.BackoffBase = min(opts.BackoffBase, opts.BackoffMax)
 	if opts.HealthInterval == 0 {
 		opts.HealthInterval = time.Minute
 	}
@@ -212,6 +213,7 @@ func (c *Client) Run(ctx context.Context) error {
 		}
 		d := c.backoff(attempt)
 		attempt++
+		c.log.Warn("history session retry scheduled", "attempt", attempt, "retry_in", d)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -228,7 +230,7 @@ func (c *Client) backoff(attempt int) time.Duration {
 	if ceil > c.opts.BackoffMax {
 		ceil = c.opts.BackoffMax
 	}
-	return c.opts.Jitter(ceil)
+	return min(max(c.opts.Jitter(ceil), 0), ceil)
 }
 
 func reasonFor(open string) protocol.CheckpointReason {

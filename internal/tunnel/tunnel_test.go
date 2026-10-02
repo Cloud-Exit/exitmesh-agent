@@ -551,6 +551,56 @@ func TestEnroll(t *testing.T) {
 	}
 }
 
+func TestEnrollHTMLReportsRouteWithoutResponseBody(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<html>private upstream response</html>")
+	}))
+	defer srv.Close()
+	tr, err := New(Options{Endpoint: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.client = srv.Client()
+	_, err = tr.Enroll(context.Background(), protocol.EnrollRequest{})
+	if err == nil {
+		t.Fatal("HTML response accepted")
+	}
+	for _, want := range []string{protocol.EnrollPath, "200 OK", "text/html", "expected JSON", "ingress routing"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("enrollment error lacks %q", want)
+		}
+	}
+	if strings.Contains(err.Error(), "private upstream response") {
+		t.Fatal("enrollment error includes the response body")
+	}
+}
+
+type enrollmentRoundTrip func(*http.Request) (*http.Response, error)
+
+func (f enrollmentRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestEnrollHasDeadlineAndHonorsCancellation(t *testing.T) {
+	tr, err := New(Options{Endpoint: "https://example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tr.client.Transport = enrollmentRoundTrip(func(r *http.Request) (*http.Response, error) {
+		deadline, ok := r.Context().Deadline()
+		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 30*time.Second {
+			t.Fatal("enrollment request has no bounded deadline")
+		}
+		cancel()
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})
+	if _, err := tr.Enroll(ctx, protocol.EnrollRequest{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("enroll: %v", err)
+	}
+}
+
 func TestWritesAfterCloseAndInvalidJSON(t *testing.T) {
 	s := newServer(t, ConnOptions{}, func(c *Conn) { c.Handle(echo) })
 	c, _ := s.dial(t, nil)
