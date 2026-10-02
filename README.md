@@ -1,4 +1,5 @@
 # ExitMesh Telemetry Agent
+<img width="1434" height="626" alt="image" src="https://github.com/user-attachments/assets/a710a297-d67f-42a5-bbd6-3dfedaead542" />
 
 The open source ExitMesh Telemetry Agent. One Go binary, `exitmesh-agent`, runs in three roles:
 
