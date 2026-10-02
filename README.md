@@ -1,13 +1,24 @@
 # ExitMesh Telemetry Agent
-<img width="1434" height="626" alt="image" src="https://github.com/user-attachments/assets/a710a297-d67f-42a5-bbd6-3dfedaead542" />
+<img width="1434" height="626" alt="ExitMesh Telemetry Agent architecture: node agents and the coordinator in a Kubernetes cluster, a host agent on a Linux host, both dialing out to the ExitMesh control plane" src="https://github.com/user-attachments/assets/a710a297-d67f-42a5-bbd6-3dfedaead542" />
 
-The open source ExitMesh Telemetry Agent. One Go binary, `exitmesh-agent`, runs in three roles:
+The open source ExitMesh Telemetry Agent. One Go binary, `exitmesh-agent`, runs in the three roles shown above.
 
-- **node** (Kubernetes DaemonSet): scrapes the local kubelet and annotated pods, tails pod logs, evaluates PromQL and LogQL rules locally against bounded windows, and queues findings and per-resource metric facts for the coordinator.
-- **coordinator** (Kubernetes StatefulSet, one replica): keeps a compact, normalized model of cluster state, records every meaningful change as a restorable delta, builds the change graph, evaluates state rules, and holds the single outbound connection to ExitMesh.
-- **host** (Linux systemd service): both roles in one process for a Linux host without Kubernetes, collecting host state, `node_*` metrics, the journal, and log files.
+**In a Kubernetes cluster**
 
-The agent speaks the open [History Protocol](protocol/SPEC.md) and evaluates signed rule bundles. It is licensed under the [Apache License 2.0](LICENSE).
+- **Node agent** (DaemonSet, one per node): scrapes the kubelet and cAdvisor into a local TSDB, tails pod logs, evaluates PromQL and LogQL rules against bounded local windows, and tracks findings. Findings and per-resource metric facts wait in a durable local queue until the coordinator acknowledges them.
+- **Node agent to coordinator**: node agents submit over HTTPS on the coordinator ClusterIP Service (port 8443), authenticated with their projected ServiceAccount token, and long-poll the coordinator for the current rule bundle and investigation tasks. Nothing outside the cluster network is involved.
+- **Coordinator** (StatefulSet, one replica): watches cluster state through informers, keeps a compact normalized model of it, records every meaningful change as a restorable delta, evaluates CEL state rules and cluster PromQL rules, and merges node records into one hash-chained spool on its volume.
+
+**On a Linux host**
+
+- **Host agent** (systemd service, single process): runs the node and coordinator roles together, with no Kubernetes components and no node API hop. It collects host state, `node_*` metrics, the journal, and log files.
+
+**To ExitMesh**
+
+- **Coordinator or host agent to ExitMesh**: the only connection that leaves your network is an outbound WebSocket tunnel to your ExitMesh endpoint. Checkpoint, delta, range, and finding records flow out over the open [History Protocol](protocol/SPEC.md) (EMHP v1).
+- **ExitMesh back to the agent**: over that same tunnel, ExitMesh commits records by sequence and chain hash (the spool keeps everything until then), delivers signed rule bundles, and calls investigation tools. ExitMesh owns the rule bundle trust roots; the agent only verifies bundles against the public half.
+
+The agent is licensed under the [Apache License 2.0](LICENSE).
 
 ## Read-only and outbound-only
 
@@ -16,10 +27,6 @@ The agent speaks the open [History Protocol](protocol/SPEC.md) and evaluates sig
 - **Outbound-only.** The coordinator (or host agent) dials out to your ExitMesh endpoint over a WebSocket tunnel. Nothing listens outside the cluster network; node agents reach the coordinator over a ClusterIP Service. Shipped NetworkPolicies make default-deny namespaces work unchanged.
 - **Durable store and forward.** Every checkpoint, delta, metric fact, and finding is spooled before it counts as emitted and is resent byte-identical until committed, so outages leave no gaps.
 - **Inspectable rules.** Rule bundles are signed for integrity, not secrecy. Every rule that runs on your infrastructure can be read on the coordinator volume or under `/var/lib/exitmesh`.
-
-## Historical search is not an ExitMesh feature
-
-ExitMesh keeps no archive of raw logs, raw metrics, or manifests, and historical telemetry search is not an ExitMesh feature and will not become one. To search past logs or metrics beyond what is currently available in the cluster, run your own monitoring stack (for example Grafana with Loki and Mimir, or VictoriaMetrics and VictoriaLogs) fed by your own shipper (for example Alloy, vmagent, or an OpenTelemetry Collector), and connect it to the agent as a read-only **lookback source**. Investigations then query it through the agent, scope-injected at the query AST. Prometheus, Mimir, VictoriaMetrics, Loki, and VictoriaLogs adapters ship in the agent; see [docs/configuration.md](docs/configuration.md#lookback-sources).
 
 ## Quickstart: Kubernetes
 

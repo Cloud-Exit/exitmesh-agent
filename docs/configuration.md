@@ -85,7 +85,7 @@ Coordinator spool on the PVC (hosts use `host.spoolReserve`).
 
 ## Lookback sources
 
-`lookback` is a list of optional, read-only external stores used only by investigations. The agent never writes to them and never stores their results. Historical search itself is not an ExitMesh feature; lookback lets investigations reach the monitoring stack you already run.
+`lookback` is a list of optional, read-only external stores used only by investigations. The agent never writes to them and never stores their results. Lookback lets investigations reach the monitoring stack you already run.
 
 |Key|Default|Meaning|
 |---|---|---|
