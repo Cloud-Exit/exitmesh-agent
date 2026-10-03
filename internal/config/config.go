@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -106,14 +107,26 @@ type Config struct {
 
 // Kubernetes configures collection scope (PRD A3, 7.2).
 type Kubernetes struct {
-	Scope               string   `yaml:"scope"`
-	Namespaces          []string `yaml:"namespaces"`
-	ExcludeNamespaces   []string `yaml:"excludeNamespaces"`
-	LabelAllowlist      []string `yaml:"labelAllowlist"`
-	AnnotationAllowlist []string `yaml:"annotationAllowlist"`
-	Resources           []string `yaml:"resources"`
-	ClusterName         string   `yaml:"clusterName"`
+	Scope               string          `yaml:"scope"`
+	Namespaces          []string        `yaml:"namespaces"`
+	ExcludeNamespaces   []string        `yaml:"excludeNamespaces"`
+	LabelAllowlist      []string        `yaml:"labelAllowlist"`
+	AnnotationAllowlist []string        `yaml:"annotationAllowlist"`
+	Resources           []string        `yaml:"resources"`
+	CustomResources     CustomResources `yaml:"customResources"`
+	ClusterName         string          `yaml:"clusterName"`
 }
+
+// CustomResources controls bounded background collection independently of built-in resources.
+type CustomResources struct {
+	Enabled   *bool    `yaml:"enabled"`
+	MaxKinds  int      `yaml:"maxKinds"`
+	MaxScopes int      `yaml:"maxScopes"`
+	Include   []string `yaml:"include"`
+	Exclude   []string `yaml:"exclude"`
+}
+
+func (c CustomResources) Active() bool { return c.Enabled == nil || *c.Enabled }
 
 // Coordinator configures the coordinator listener and the node side of the node API.
 type Coordinator struct {
@@ -279,6 +292,12 @@ func (c *Config) ApplyDefaults() {
 		setS(&c.StateDir, "/var/lib/exitmesh")
 	}
 	setS(&c.Kubernetes.Scope, "cluster")
+	if c.Kubernetes.CustomResources.MaxKinds == 0 {
+		c.Kubernetes.CustomResources.MaxKinds = 100
+	}
+	if c.Kubernetes.CustomResources.MaxScopes == 0 {
+		c.Kubernetes.CustomResources.MaxScopes = 256
+	}
 	setS(&c.Coordinator.Listen, ":8443")
 	setS(&c.Coordinator.Audience, "exitmesh-coordinator")
 	setS(&c.Coordinator.TokenFile, "/var/run/secrets/exitmesh/token")
@@ -366,6 +385,16 @@ func (c *Config) Validate() error {
 	}
 	if c.Trust.Threshold < 0 || (len(c.Trust.Roots) > 0 && c.Trust.RootsFile == "" && c.Trust.Threshold > len(c.Trust.Roots)) {
 		errs = append(errs, "trust.threshold exceeds the number of roots")
+	}
+	if c.Kubernetes.CustomResources.MaxKinds < 1 || c.Kubernetes.CustomResources.MaxScopes < 1 {
+		errs = append(errs, "kubernetes.customResources limits must be positive")
+	}
+	for _, patterns := range [][]string{c.Kubernetes.CustomResources.Include, c.Kubernetes.CustomResources.Exclude} {
+		for _, pattern := range patterns {
+			if _, err := path.Match(pattern, ""); err != nil {
+				errs = append(errs, "invalid kubernetes.customResources pattern")
+			}
+		}
 	}
 	if c.Kubernetes.Scope != "cluster" && c.Kubernetes.Scope != "namespaces" {
 		errs = append(errs, "kubernetes.scope must be cluster or namespaces")

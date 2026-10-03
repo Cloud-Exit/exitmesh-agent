@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,10 +20,12 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 
+	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
 
@@ -29,7 +33,7 @@ func extensionObject(kind, name, uid string) *unstructured.Unstructured {
 	group, k, ok := strings.Cut(kind, "/")
 	version := "v1"
 	if !ok {
-		k, group = group, ""
+		k = group
 	} else {
 		version = group + "/v1"
 	}
@@ -51,7 +55,10 @@ func TestSecretValuesNeverEnterStateAndHelmMetadataSurvives(t *testing.T) {
 	if r.Fields["helm.name"] != "demo" || r.Fields["helm.status"] != "failed" {
 		t.Fatalf("missing release metadata: %v", r.Fields)
 	}
-	b, _ := json.Marshal(tr.Snapshot())
+	b, err := json.Marshal(tr.Snapshot().Resources)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(string(b), "sentinel") || strings.Contains(string(b), "annotations.copied") {
 		t.Fatal("Secret payload entered state")
 	}
@@ -61,7 +68,10 @@ func TestSecretValuesNeverEnterStateAndHelmMetadataSurvives(t *testing.T) {
 		t.Fatal("Secret annotations survived metadata transform")
 	}
 	Transform(n, KindSecret)(u)
-	b, _ = json.Marshal(u)
+	b, err = json.Marshal(u)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(string(b), "sentinel") || u.Object["data"] != nil || u.Object["stringData"] != nil {
 		t.Fatal("Secret payload survived cache transform")
 	}
@@ -96,7 +106,10 @@ func TestExternalSecretConditionsAndDependencyEdges(t *testing.T) {
 				t.Fatalf("missing edge %v", edge)
 			}
 		}
-		b, _ := json.Marshal(st)
+		b, err := json.Marshal(st.Resources)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if strings.Contains(string(b), "sentinel") {
 			t.Fatal("custom payload leaked")
 		}
@@ -116,7 +129,10 @@ func TestExternalSecretConditionsAndDependencyEdges(t *testing.T) {
 		}
 	}
 	Transform(n, KindOf(u))(u)
-	b, _ := json.Marshal(u)
+	b, err := json.Marshal(u)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(string(b), "sentinel") {
 		t.Fatal("custom payload survived cache transform")
 	}
@@ -148,77 +164,139 @@ func TestSecretCollectionUsesOnlyMetadata(t *testing.T) {
 	}
 }
 
-func TestCustomDiscoveryAddsAndRemovesScopes(t *testing.T) {
+func customFixture() (*unstructured.Unstructured, *unstructured.Unstructured, schema.GroupVersionResource) {
 	gvr := schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
 	crd := extensionObject(KindCRD, "widgets.example.com", "crd")
 	crd.SetNamespace("")
 	crd.Object["spec"] = map[string]any{"group": "example.com", "scope": "Namespaced", "names": map[string]any{"kind": "Widget", "plural": "widgets"}, "versions": []any{map[string]any{"name": "v1", "served": true, "storage": true}}}
-	widget := extensionObject("example.com/Widget", "one", "widget")
-	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{catalogByKind[KindCRD].GVR: "CustomResourceDefinitionList", gvr: "WidgetList"}, crd, widget)
-	var forbidden atomic.Bool
-	dyn.PrependReactor("list", "customresourcedefinitions", func(clienttesting.Action) (bool, runtime.Object, error) {
-		if forbidden.Load() {
-			return true, nil, apierrors.NewForbidden(catalogByKind[KindCRD].GVR.GroupResource(), "", errors.New("denied"))
-		}
-		return false, nil, nil
-	})
-	ticks := make(chan struct{}, 4)
+	return crd, extensionObject("example.com/Widget", "one", "widget"), gvr
+}
+
+func customClient(crd, widget *unstructured.Unstructured, gvr schema.GroupVersionResource) *dynamicfake.FakeDynamicClient {
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{catalogByKind[KindCRD].GVR: "CustomResourceDefinitionList", gvr: "WidgetList", catalogByKind[KindPod].GVR: "PodList"}, crd, widget)
+}
+
+func TestCustomDiscoveryAddsAndRemovesScopes(t *testing.T) {
+	crd, widget, gvr := customFixture()
+	dyn := customClient(crd, widget, gvr)
 	tr := NewTracker(TrackerOptions{})
-	c := &Collector{o: CollectorOptions{Dynamic: dyn, Tracker: tr, Clock: time.Now, RetryBase: time.Millisecond, RetryMax: time.Second, Wait: func(ctx context.Context, _ time.Duration) bool {
-		select {
-		case <-ctx.Done():
-			return false
-		case <-ticks:
-			return true
-		}
-	}}, log: slog.New(&logRecorder{}), exclude: map[string]bool{}, pending: 1, syncedCh: make(chan struct{}), disc: map[string]discEntry{}}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan struct{})
-	go func() { c.discoverCustom(ctx); close(done) }()
+	c, cancel, done := startCollector(t, CollectorOptions{Dynamic: dyn, Tracker: tr, Resources: []string{"pods"}, Logger: slog.New(&logRecorder{})})
 	defer func() { cancel(); <-done }()
+	eventually(t, "custom resource with explicit built-in resources", func() bool { return tr.Snapshot().Resources["widget"] != nil })
+	listCount := func() int {
+		n := 0
+		for _, a := range dyn.Actions() {
+			if a.GetVerb() == "list" && a.GetResource().Resource == "customresourcedefinitions" {
+				n++
+			}
+		}
+		return n
+	}
+	before := listCount()
+	c.fail(c.crdScope, apierrors.NewForbidden(catalogByKind[KindCRD].GVR.GroupResource(), "", errors.New("denied")))
+	eventually(t, "discovery unavailable", func() bool {
+		return tr.Snapshot().Scopes["inventory.exitmesh.io/CustomResourceDiscovery|"].State == protocol.ScopeUnavailable
+	})
+	if tr.Snapshot().Resources["widget"] == nil {
+		t.Fatal("discovery failure deleted resources")
+	}
+	c.replace(c.crdScope, []any{crd.DeepCopy()})
+	eventually(t, "discovery restored", func() bool {
+		return tr.Snapshot().Scopes["inventory.exitmesh.io/CustomResourceDiscovery|"].State == protocol.ScopeComplete
+	})
+	if err := dyn.Resource(catalogByKind[KindCRD].GVR).Delete(context.Background(), crd.GetName(), metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "CRD deletion", func() bool { return tr.Snapshot().Resources["widget"] == nil })
+	if _, err := dyn.Resource(catalogByKind[KindCRD].GVR).Create(context.Background(), crd, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "CRD reinstallation", func() bool { return tr.Snapshot().Resources["widget"] != nil })
+	if listCount() != before {
+		t.Fatal("discovery performed additional CRD lists")
+	}
+}
+
+func TestCustomDiscoveryDisabledIndependently(t *testing.T) {
+	crd, widget, gvr := customFixture()
+	dyn := customClient(crd, widget, gvr)
+	disabled := false
+	c, cancel, done := startCollector(t, CollectorOptions{Dynamic: dyn, Tracker: NewTracker(TrackerOptions{}), Resources: []string{"pods", KindCRD}, CustomResources: config.CustomResources{Enabled: &disabled}, Logger: slog.New(&logRecorder{})})
+	cancel()
+	<-done
+	if c.discoveryWake != nil || c.discoveryStatus != nil {
+		t.Fatal("disabled discovery started")
+	}
+	for _, a := range dyn.Actions() {
+		if a.GetResource() == gvr {
+			t.Fatal("disabled discovery read custom instances")
+		}
+	}
+}
+
+func TestCustomDiscoveryDoesNotGateInitialSync(t *testing.T) {
+	crd, widget, gvr := customFixture()
+	dyn := customClient(crd, widget, gvr)
+	blocked := make(chan struct{})
+	started := make(chan struct{})
+	var once sync.Once
+	env := newTestEnv(t, nil)
+	env.disc.Resources = append(env.disc.Resources, &metav1.APIResourceList{GroupVersion: gvr.GroupVersion().String(), APIResources: []metav1.APIResource{{Name: gvr.Resource, Kind: "Widget", Namespaced: true}}})
+	slow := delayedDiscovery{DiscoveryInterface: env.disc, gv: gvr.GroupVersion().String(), started: started, blocked: blocked, once: &once}
+	c, err := NewCollector(CollectorOptions{Dynamic: dyn, Discovery: slow, Tracker: NewTracker(TrackerOptions{}), Resources: []string{"pods"}, Logger: slog.New(&logRecorder{})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = c.Run(ctx); close(done) }()
+	defer func() { close(blocked); cancel(); <-done }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("custom list never started")
+	}
 	select {
 	case <-c.Synced():
-	case <-time.After(5 * time.Second):
-		t.Fatal("custom discovery did not synchronize")
+	case <-time.After(time.Second):
+		t.Fatal("custom list delayed built-in synchronization")
 	}
-	if tr.Snapshot().Resources["widget"] == nil {
-		t.Fatal("default custom resource missing")
-	}
-	forbidden.Store(true)
-	ticks <- struct{}{}
-	deadline := time.Now().Add(5 * time.Second)
-	for tr.Snapshot().Scopes["inventory.exitmesh.io/CustomResourceDiscovery|"].State != protocol.ScopeUnavailable {
-		if time.Now().After(deadline) {
-			t.Fatal("discovery permission failure not reported")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if tr.Snapshot().Resources["widget"] == nil {
-		t.Fatal("discovery failure deleted custom resources")
-	}
-	forbidden.Store(false)
-	if err := dyn.Resource(catalogByKind[KindCRD].GVR).Delete(ctx, crd.GetName(), metav1.DeleteOptions{}); err != nil {
+}
+
+func TestCustomDiscoveryFiltersAndBudgets(t *testing.T) {
+	crd, _, _ := customFixture()
+	c, err := NewCollector(CollectorOptions{Dynamic: customClient(crd, extensionObject("example.com/Widget", "one", "widget"), schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}), Tracker: NewTracker(TrackerOptions{}), Resources: []string{"pods"}, Namespaces: []string{"a", "b", "excluded"}, ExcludeNamespaces: []string{"excluded"}, CustomResources: config.CustomResources{MaxKinds: 2, MaxScopes: 2, Include: []string{"example.com/*"}, Exclude: []string{"example.com/Skip"}}, Logger: slog.New(&logRecorder{})})
+	if err != nil {
 		t.Fatal(err)
 	}
-	ticks <- struct{}{}
-	deadline = time.Now().Add(5 * time.Second)
-	for tr.Snapshot().Resources["widget"] != nil {
-		if time.Now().After(deadline) {
-			t.Fatal("removed CRD left resource behind")
-		}
-		time.Sleep(time.Millisecond)
+	c.crdScope.state = protocol.ScopeComplete
+	for _, kind := range []string{"Alpha", "Beta", "Skip"} {
+		u := crd.DeepCopy()
+		_ = unstructured.SetNestedField(u.Object, kind, "spec", "names", "kind")
+		c.crds[kind] = customSpec(u)
 	}
-	if _, err := dyn.Resource(catalogByKind[KindCRD].GVR).Create(ctx, crd, metav1.CreateOptions{}); err != nil {
-		t.Fatal(err)
+	specs, ready := c.desiredCustom()
+	if !ready || len(specs) != 1 || specs["example.com/Alpha"] == nil {
+		t.Fatal("scope cap or deterministic selection failed")
 	}
-	ticks <- struct{}{}
-	deadline = time.Now().Add(5 * time.Second)
-	for tr.Snapshot().Resources["widget"] == nil {
-		if time.Now().After(deadline) {
-			t.Fatal("newly installed CRD was not discovered")
-		}
-		time.Sleep(time.Millisecond)
+	if c.discoveryStatus.state != protocol.ScopePartial {
+		t.Fatal("limit not reported as partial coverage")
+	}
+	c.o.CustomResources.MaxScopes = 10
+	c.o.CustomResources.MaxKinds = 1
+	specs, _ = c.desiredCustom()
+	if len(specs) != 1 {
+		t.Fatal("kind cap not enforced")
+	}
+	c.o.CustomResources.MaxKinds = 10
+	specs, _ = c.desiredCustom()
+	if len(specs) != 2 || specs["example.com/Skip"] != nil {
+		t.Fatal("exclude filter not honored")
+	}
+	c.o.CustomResources.Include = []string{"alphas.other.io"}
+	specs, _ = c.desiredCustom()
+	if len(specs) != 0 {
+		t.Fatal("include filter not honored")
 	}
 }
 
@@ -240,54 +318,91 @@ func extensionFixtures(t testing.TB) []*unstructured.Unstructured {
 }
 
 func TestSecretHTTPNegotiationIsMetadataOnly(t *testing.T) {
-	for _, denied := range []bool{false, true} {
-		t.Run(strconv.FormatBool(denied), func(t *testing.T) {
-			calls := 0
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
-				if r.URL.Path != "/api/v1/secrets" || !strings.Contains(r.Header.Get("Accept"), "as=PartialObjectMetadata") {
-					t.Error("Secret request did not demand metadata")
+	for _, watching := range []bool{false, true} {
+		for _, denied := range []bool{false, true} {
+			t.Run("watch="+strconv.FormatBool(watching)+"/denied="+strconv.FormatBool(denied), func(t *testing.T) {
+				var calls atomic.Int32
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					want := "PartialObjectMetadataList"
+					if watching {
+						want = "PartialObjectMetadata"
+					}
+					if (r.URL.Query().Get("watch") == "true") != watching {
+						t.Error("wrong request verb")
+					}
+					for _, part := range strings.Split(r.Header.Get("Accept"), ",") {
+						_, params, err := mime.ParseMediaType(strings.TrimSpace(part))
+						if err != nil || params["as"] != want || params["g"] != "meta.k8s.io" {
+							t.Errorf("invalid metadata negotiation: %s", part)
+							w.WriteHeader(http.StatusNotAcceptable)
+							return
+						}
+					}
+					if denied {
+						w.WriteHeader(http.StatusNotAcceptable)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					obj := `{"apiVersion":"meta.k8s.io/v1","kind":"PartialObjectMetadata","metadata":{"name":"demo","namespace":"shop","uid":"secret-1","labels":{"owner":"helm","name":"demo","version":"2","status":"failed"}}}`
+					if watching {
+						_, _ = w.Write([]byte(`{"type":"ADDED","object":` + obj + "}\n"))
+					} else {
+						_, _ = w.Write([]byte(`{"apiVersion":"meta.k8s.io/v1","kind":"PartialObjectMetadataList","metadata":{"resourceVersion":"1"},"items":[` + obj + `]}`))
+					}
+				}))
+				defer srv.Close()
+				mc, err := NewMetadataClient(&rest.Config{Host: srv.URL})
+				if err != nil {
+					t.Fatal(err)
 				}
-				for _, part := range strings.Split(r.Header.Get("Accept"), ",") {
-					if !strings.Contains(part, "as=PartialObjectMetadata") {
-						t.Error("Secret request permits a full-object fallback")
+				n, _ := NewNormalizer(Options{})
+				c := &Collector{o: CollectorOptions{Metadata: mc}, exclude: map[string]bool{}}
+				sc := &scope{kind: KindSecret, spec: catalogByKind[KindSecret], metaOnly: true, tf: Transform(n, KindSecret)}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				var obj any
+				if watching {
+					stream, e := c.watch(ctx, sc, metav1.ListOptions{})
+					err = e
+					if err == nil {
+						defer stream.Stop()
+						select {
+						case event := <-stream.ResultChan():
+							obj = event.Object
+						case <-ctx.Done():
+							t.Fatal("no metadata watch event")
+						}
+					}
+				} else {
+					list, e := c.list(ctx, sc, metav1.ListOptions{})
+					err = e
+					if err == nil {
+						obj = &list.(*metav1.PartialObjectMetadataList).Items[0]
 					}
 				}
 				if denied {
-					w.WriteHeader(http.StatusNotAcceptable)
+					if err == nil || calls.Load() != 1 {
+						t.Fatal("metadata failure did not fail closed")
+					}
 					return
 				}
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"apiVersion":"meta.k8s.io/v1","kind":"PartialObjectMetadataList","metadata":{"resourceVersion":"1"},"items":[{"apiVersion":"meta.k8s.io/v1","kind":"PartialObjectMetadata","metadata":{"name":"demo","namespace":"shop","uid":"secret-1","labels":{"owner":"helm","name":"demo","version":"2","status":"failed"}}}]}`))
-			}))
-			defer srv.Close()
-			mc, err := NewMetadataClient(&rest.Config{Host: srv.URL})
-			if err != nil {
-				t.Fatal(err)
-			}
-			n, _ := NewNormalizer(Options{})
-			c := &Collector{o: CollectorOptions{Metadata: mc}, exclude: map[string]bool{}}
-			sc := &scope{kind: KindSecret, spec: catalogByKind[KindSecret], metaOnly: true, tf: Transform(n, KindSecret)}
-			obj, err := c.list(context.Background(), sc, metav1.ListOptions{})
-			if denied {
-				if err == nil || calls != 1 {
-					t.Fatal("metadata negotiation failure did not fail closed")
+				if err != nil {
+					t.Fatal(err)
 				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			list := obj.(*metav1.PartialObjectMetadataList)
-			u := c.prepare(sc, &list.Items[0], true)
-			r, _, err := n.Normalize(u)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if r.Fields["helm.status"] != "failed" {
-				t.Fatal("release status lost in metadata collection")
-			}
-		})
+				u := c.prepare(sc, obj, true)
+				if u == nil {
+					t.Fatal("metadata response not decoded")
+				}
+				r, _, err := n.Normalize(u)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if r.Fields["helm.status"] != "failed" {
+					t.Fatal("release metadata lost")
+				}
+			})
+		}
 	}
 }
 
@@ -312,4 +427,20 @@ func TestHelmRevisionLifecycle(t *testing.T) {
 			t.Fatal("removed Helm revision still present")
 		}
 	}
+}
+
+type delayedDiscovery struct {
+	discovery.DiscoveryInterface
+	gv      string
+	started chan struct{}
+	blocked chan struct{}
+	once    *sync.Once
+}
+
+func (d delayedDiscovery) ServerResourcesForGroupVersion(gv string) (*metav1.APIResourceList, error) {
+	if gv == d.gv {
+		d.once.Do(func() { close(d.started) })
+		<-d.blocked
+	}
+	return d.DiscoveryInterface.ServerResourcesForGroupVersion(gv)
 }

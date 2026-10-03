@@ -24,7 +24,10 @@ On Kubernetes the chart renders this file into ConfigMaps (`exitmesh-agent-coord
 |`kubernetes.excludeNamespaces`|empty|Namespaces to skip in either profile: not collected, and node agents never watch their pods, tail or read their logs on demand, or keep evidence from them.|
 |`kubernetes.labelAllowlist`|empty|Label keys recorded in state facts. Labels are never recorded without an allowlist.|
 |`kubernetes.annotationAllowlist`|empty|Annotation keys recorded in state facts.|
-|`kubernetes.resources`|empty (agent default set)|Resource kinds the coordinator collects; must be covered by `rbac.inventory`.|
+|`kubernetes.resources`|empty (agent default set)|Built-in resource kinds to collect; does not disable custom-resource discovery.|
+|`kubernetes.customResources.enabled`|`true`|Discover custom kinds from the CRD informer and collect instances after initial built-in sync.|
+|`kubernetes.customResources.maxKinds`, `maxScopes`|`100`, `256`|Maximum custom kinds and kind/namespace collection scopes; exceeding either reports partial discovery coverage.|
+|`kubernetes.customResources.include`, `exclude`|empty|Glob lists matching `group/Kind` or `plural.group`; exclusions win. These filters do not narrow RBAC.|
 |`kubernetes.clusterName`|empty|Display name reported to ExitMesh.|
 
 ## coordinator

@@ -91,7 +91,7 @@
 {{- range $rule := $rules -}}
 {{- range $res := $rule.resources -}}
 {{- if or (has $res $forbidden) (contains "/" $res) -}}
-{{- fail (printf "rbac.inventory.%s must not grant %q: explicit get rules must not add Secret payload access, review APIs, or subresources" $scope $res) -}}
+{{- fail (printf "rbac.inventory.%s must not grant %q: these extra get/list/watch rules must not add get access to Secrets, review APIs, or subresources; automatic inventory separately grants list/watch" $scope $res) -}}
 {{- end -}}
 {{- end -}}
 {{- range $g := $rule.apiGroups -}}

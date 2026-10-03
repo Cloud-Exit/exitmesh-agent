@@ -1,7 +1,10 @@
 package state
 
 import (
+	"errors"
+	"mime"
 	"net/http"
+	"strings"
 
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
@@ -18,6 +21,16 @@ type metadataTransport struct{ next http.RoundTripper }
 
 func (t metadataTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
-	r.Header.Set("Accept", "application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1")
+	var accept []string
+	for _, part := range strings.Split(r.Header.Get("Accept"), ",") {
+		_, params, err := mime.ParseMediaType(strings.TrimSpace(part))
+		if err == nil && params["g"] == "meta.k8s.io" && (params["as"] == "PartialObjectMetadata" || params["as"] == "PartialObjectMetadataList") {
+			accept = append(accept, strings.TrimSpace(part))
+		}
+	}
+	if len(accept) == 0 {
+		return nil, errors.New("state: metadata request has no metadata-only Accept variant")
+	}
+	r.Header.Set("Accept", strings.Join(accept, ","))
 	return t.next.RoundTrip(r)
 }

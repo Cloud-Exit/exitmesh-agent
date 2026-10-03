@@ -60,3 +60,28 @@ func TestValidate(t *testing.T) {
 		t.Fatalf("airgap without endpoint: %v", err)
 	}
 }
+
+func TestCustomDiscoveryConfig(t *testing.T) {
+	base := "role: coordinator\nairgap:\n  enabled: true\n" + trust
+	for _, enabled := range []string{"true", "false"} {
+		c, err := Parse([]byte(base + "kubernetes:\n  resources: [pods]\n  customResources:\n    enabled: " + enabled + "\n    maxKinds: 7\n    maxScopes: 12\n    include: ['example.com/*']\n    exclude: ['example.com/Skip']\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Kubernetes.CustomResources.Active() != (enabled == "true") || c.Kubernetes.CustomResources.MaxKinds != 7 || c.Kubernetes.CustomResources.MaxScopes != 12 {
+			t.Fatal("independent discovery settings not preserved")
+		}
+	}
+	c, err := Parse([]byte(base + "kubernetes:\n  resources: [pods]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Kubernetes.CustomResources.Active() || c.Kubernetes.CustomResources.MaxKinds != 100 || c.Kubernetes.CustomResources.MaxScopes != 256 {
+		t.Fatal("default discovery unexpectedly changed")
+	}
+	for _, setting := range []string{"maxKinds: -1", "maxScopes: -1", "include: ['[']", "exclude: ['[']"} {
+		if _, err := Parse([]byte(base + "kubernetes:\n  customResources:\n    " + setting + "\n")); err == nil {
+			t.Fatalf("invalid setting accepted: %s", setting)
+		}
+	}
+}

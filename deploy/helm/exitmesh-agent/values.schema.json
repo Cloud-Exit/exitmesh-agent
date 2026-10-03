@@ -172,6 +172,35 @@
         "clusterDomain": {
           "type": "string",
           "minLength": 1
+        },
+        "customResources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "maxKinds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxScopes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "include": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "additionalProperties": false

@@ -125,6 +125,8 @@ imagePullSecrets:
 {{- define "exitmesh.config.kubernetes" -}}
 kubernetes:
   scope: {{ .Values.kubernetes.scope }}
+  customResources:
+    {{- toYaml .Values.kubernetes.customResources | nindent 4 }}
   {{- with .Values.kubernetes.namespaces }}
   namespaces: {{ toJson . }}
   {{- end }}

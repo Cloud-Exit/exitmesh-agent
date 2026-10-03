@@ -49,7 +49,10 @@ func TestConcurrentWriterSessionAndRelief(t *testing.T) {
 			if finished {
 				break
 			}
-			<-w.s.Notify()
+			select {
+			case <-w.s.Notify():
+			case <-done:
+			}
 			continue
 		}
 		seqs := make([]uint64, len(es))

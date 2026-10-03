@@ -30,7 +30,7 @@ if [ -n "${IMAGE_REF:-}" ]; then
 	image=(--set image.repository="$repo" --set image.tag=kind --set image.pullPolicy=Never)
 	echo "testing $repo@$digest"
 else
-	KO_DOCKER_REPO=ko.local ko build --base-import-paths --tags ci --platform "linux/$(go env GOARCH)" ./cmd/exitmesh-agent
+	VERSION=${VERSION:-dev} KO_DOCKER_REPO=ko.local ko build --base-import-paths --tags ci --platform "linux/$(go env GOARCH)" ./cmd/exitmesh-agent
 	kind load docker-image ko.local/exitmesh-agent:ci --name "$cluster"
 	image=(--set image.repository=ko.local/exitmesh-agent --set image.tag=ci --set image.pullPolicy=Never)
 fi

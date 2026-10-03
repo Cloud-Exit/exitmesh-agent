@@ -823,3 +823,17 @@ func TestCoordinatorEgressAllowsEndpointPort(t *testing.T) {
 		t.Fatalf("coordinator egress ports %v must include the endpoint port 9443 and the default 443", ports)
 	}
 }
+
+func TestCustomResourceDiscoveryValues(t *testing.T) {
+	coord, _ := agentConfigs(t, render(t, baseArgs...))
+	if !coord.Kubernetes.CustomResources.Active() || coord.Kubernetes.CustomResources.MaxKinds != 100 || coord.Kubernetes.CustomResources.MaxScopes != 256 {
+		t.Fatal("discovery defaults missing from chart config")
+	}
+	args := append([]string{"--set", "kubernetes.resources={pods}", "--set", "kubernetes.customResources.enabled=false", "--set", "kubernetes.customResources.maxKinds=5", "--set", "kubernetes.customResources.maxScopes=9", "--set", "kubernetes.customResources.include={example.com/Widget}", "--set", "kubernetes.customResources.exclude={example.com/Skip}"}, baseArgs...)
+	coord, _ = agentConfigs(t, render(t, args...))
+	cfg := coord.Kubernetes.CustomResources
+	if cfg.Active() || cfg.MaxKinds != 5 || cfg.MaxScopes != 9 || !reflect.DeepEqual(cfg.Include, []string{"example.com/Widget"}) || !reflect.DeepEqual(cfg.Exclude, []string{"example.com/Skip"}) {
+		t.Fatal("custom discovery settings not rendered")
+	}
+	renderFails(t, "maxKinds", append([]string{"--set", "kubernetes.customResources.maxKinds=0"}, baseArgs...)...)
+}

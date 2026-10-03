@@ -502,7 +502,7 @@ func (c *Coordinator) setup(ctx context.Context) error {
 	co := state.CollectorOptions{
 		Dynamic: c.d.Dynamic, Metadata: c.d.Metadata, Discovery: c.d.Discovery, Tracker: c.tracker,
 		Sink: c.sink, OnSynced: c.onSynced, ExcludeNamespaces: c.cfg.Kubernetes.ExcludeNamespaces,
-		Resources: c.cfg.Kubernetes.Resources, Logger: c.log, Clock: c.now, FlushInterval: c.t.FlushInterval,
+		Resources: c.cfg.Kubernetes.Resources, CustomResources: c.cfg.Kubernetes.CustomResources, Logger: c.log, Clock: c.now, FlushInterval: c.t.FlushInterval,
 		ReflectorBackoff: c.t.ReflectorBackoff, RetryBase: c.t.CollectorRetry, RetryMax: c.t.CollectorRetry,
 	}
 	if c.cfg.Kubernetes.Scope == "namespaces" {
