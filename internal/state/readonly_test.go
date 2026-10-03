@@ -17,7 +17,7 @@ var writeVerbs = map[string]bool{
 }
 
 var forbiddenResources = map[string]bool{
-	"secrets": true, "selfsubjectaccessreviews": true, "subjectaccessreviews": true, "selfsubjectrulesreviews": true,
+	"selfsubjectaccessreviews": true, "subjectaccessreviews": true, "selfsubjectrulesreviews": true,
 	"tokenreviews": true, "localsubjectaccessreviews": true, "exec": true, "attach": true, "portforward": true, "proxy": true,
 }
 

@@ -81,17 +81,20 @@ const (
 	KindHPA         = "autoscaling/HorizontalPodAutoscaler"
 	KindPDB         = "policy/PodDisruptionBudget"
 	KindEvent       = "Event"
+	KindSecret      = "Secret"
+	KindCRD         = "apiextensions.k8s.io/CustomResourceDefinition"
 )
 
 // DefaultLabelAllowlist is used when no label allowlist is configured.
 var DefaultLabelAllowlist = []string{
 	"app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/component",
+	"app.kubernetes.io/managed-by", "helm.sh/chart",
 	"app.kubernetes.io/part-of", "app.kubernetes.io/version", "app", "k8s-app",
 	"topology.kubernetes.io/zone", "topology.kubernetes.io/region", "node-role.kubernetes.io/*",
 }
 
-// DefaultAnnotationAllowlist is used when no annotation allowlist is configured: no annotations.
-var DefaultAnnotationAllowlist = []string{}
+// DefaultAnnotationAllowlist is used when no annotation allowlist is configured: Helm ownership references only.
+var DefaultAnnotationAllowlist = []string{"meta.helm.sh/release-name", "meta.helm.sh/release-namespace"}
 
 var (
 	podConditionTypes    = []string{"PodScheduled", "PodReadyToStartContainers", "Initialized", "ContainersReady", "Ready", "DisruptionTarget"}
@@ -183,6 +186,8 @@ func buildCatalog() []*KindSpec {
 	}
 	tmpl := "spec.template.spec"
 	specs := []*KindSpec{
+		{Kind: KindSecret, GVR: core("secrets"), APIKind: "Secret", Namespaced: true, MetadataOnly: true, Fields: helmFields()},
+		{Kind: KindCRD, GVR: gvr("apiextensions.k8s.io", "v1", "customresourcedefinitions"), APIKind: "CustomResourceDefinition", Fields: crdFields()},
 		{Kind: KindNamespace, GVR: core("namespaces"), APIKind: "Namespace", Fields: []Field{
 			f("phase", "status.phase", TypeString, RedactStructural, true),
 		}},
@@ -360,6 +365,18 @@ func buildCatalog() []*KindSpec {
 	for _, s := range specs {
 		if !s.Aggregated {
 			s.Fields = append(commonFields(), s.Fields...)
+			if s.Kind == KindSecret {
+				var fields []Field
+				for _, fd := range s.Fields {
+					if fd.Path != "annotations.<key>" {
+						fields = append(fields, fd)
+					}
+				}
+				s.Fields = fields
+			}
+			if s.Kind == KindConfigMap {
+				s.Fields = append(s.Fields, helmFields()...)
+			}
 		}
 		s.byPath = map[string]*Field{}
 		for i := range s.Fields {
@@ -495,7 +512,8 @@ func RenderFieldCatalog() string {
 	for _, l := range DefaultLabelAllowlist {
 		fmt.Fprintf(&b, "- `%s`\n", l)
 	}
-	b.WriteString("\nAnnotations (`kubernetes.annotationAllowlist`): none by default.\n\n")
+	b.WriteString("\nAnnotations (`kubernetes.annotationAllowlist`): Helm release name and namespace by default; Secret annotations are always omitted.\n\n")
+	b.WriteString("Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references. Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret values and Helm release payloads are never read.\n\n")
 	b.WriteString("## Scopes\n\nScope keys are `<kind>|<namespace>`, with an empty namespace for cluster-wide collection. Permission loss and collection failure set the scope unavailable; they never delete resources. Scope removal deletes with reason scope removed.\n\n")
 	b.WriteString("## Edges\n\n|Type|From|To|Attributes|\n|---|---|---|---|\n")
 	for _, e := range edgeDocs {

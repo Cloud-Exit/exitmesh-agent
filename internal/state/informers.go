@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path"
 	"sort"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/tools/cache"
 
+	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/redact"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
@@ -50,9 +52,10 @@ type CollectorOptions struct {
 	Namespaces        []string
 	ExcludeNamespaces []string
 	// Resources lists configured resource names; empty selects every catalog kind.
-	Resources []string
-	Logger    *slog.Logger
-	Clock     func() time.Time
+	Resources       []string
+	CustomResources config.CustomResources
+	Logger          *slog.Logger
+	Clock           func() time.Time
 	// RetryBase and RetryMax bound the exponential backoff after access failures, default 30s and 30m.
 	RetryBase, RetryMax time.Duration
 	// FlushInterval is the event count flush period, default 30s.
@@ -90,6 +93,8 @@ type scope struct {
 	attempts    int
 	backoff     time.Duration
 	firstDone   bool
+	retired     bool
+	background  bool
 	listedOnce  bool
 	listing     bool
 	lastHealthy time.Time
@@ -104,17 +109,21 @@ type discEntry struct {
 
 // Collector runs read-only list and watch loops for every permitted scope and feeds the Tracker.
 type Collector struct {
-	o           CollectorOptions
-	log         *slog.Logger
-	mu          sync.Mutex
-	scopes      []*scope
-	exclude     map[string]bool
-	unsupported []string
-	synced      bool
-	syncedCh    chan struct{}
-	pending     int
-	discMu      sync.Mutex
-	disc        map[string]discEntry
+	o               CollectorOptions
+	log             *slog.Logger
+	mu              sync.Mutex
+	scopes          []*scope
+	exclude         map[string]bool
+	unsupported     []string
+	synced          bool
+	syncedCh        chan struct{}
+	pending         int
+	discMu          sync.Mutex
+	disc            map[string]discEntry
+	discoveryStatus *scope
+	discoveryWake   chan struct{}
+	crds            map[string]*KindSpec
+	crdScope        *scope
 }
 
 // NewCollector validates o and prepares the scopes.
@@ -154,24 +163,59 @@ func NewCollector(o CollectorOptions) (*Collector, error) {
 	if len(o.Namespaces) > 0 && len(namespaces) == 0 {
 		return nil, errors.New("state: every configured namespace is excluded")
 	}
+	if o.CustomResources.MaxKinds == 0 {
+		o.CustomResources.MaxKinds = 100
+	}
+	if o.CustomResources.MaxScopes == 0 {
+		o.CustomResources.MaxScopes = 256
+	}
+	if o.CustomResources.MaxKinds < 1 || o.CustomResources.MaxScopes < 1 {
+		return nil, errors.New("state: custom-resource limits must be positive")
+	}
+	for _, patterns := range [][]string{o.CustomResources.Include, o.CustomResources.Exclude} {
+		for _, p := range patterns {
+			if _, err := path.Match(p, ""); err != nil {
+				return nil, errors.New("state: invalid custom-resource pattern")
+			}
+		}
+	}
+	c.o = o
 	kinds, unsupported := ResolveKinds(o.Resources)
+	if o.CustomResources.Active() {
+		if !contains(kinds, KindCRD) {
+			kinds = append(kinds, KindCRD)
+		}
+		c.discoveryWake = make(chan struct{}, 1)
+		c.crds = map[string]*KindSpec{}
+		c.discoveryStatus = &scope{kind: "inventory.exitmesh.io/CustomResourceDiscovery", state: protocol.ScopePartial, reason: "waiting for CRD inventory"}
+		c.o.Tracker.ScopePartial(c.discoveryStatus.kind, "", c.discoveryStatus.reason)
+	}
 	c.unsupported = unsupported
 	norm := o.Tracker.Normalizer()
 	for _, kind := range kinds {
 		spec := catalogByKind[kind]
-		metaOnly := spec.MetadataOnly && !norm.Selected(kind, "keys")
+		metaOnly := spec.MetadataOnly && (kind == KindSecret || !norm.Selected(kind, "keys"))
 		if metaOnly && o.Metadata == nil {
-			return nil, errors.New("state: collecting ConfigMaps requires a metadata client")
+			return nil, errors.New("state: collecting metadata requires a metadata client")
 		}
 		nss := []string{""}
 		if spec.Namespaced && len(namespaces) > 0 {
 			nss = namespaces
 		}
 		for _, ns := range nss {
-			c.scopes = append(c.scopes, &scope{kind: kind, ns: ns, spec: spec, metaOnly: metaOnly, tf: Transform(norm, kind)})
+			sc := &scope{kind: kind, ns: ns, spec: spec, metaOnly: metaOnly, tf: Transform(norm, kind)}
+			if kind == KindCRD && o.CustomResources.Active() {
+				sc.background = true
+				sc.state = protocol.ScopePartial
+				sc.reason = "initial collection"
+				c.crdScope = sc
+			} else {
+				c.pending++
+			}
+			c.scopes = append(c.scopes, sc)
 		}
 	}
-	c.pending = len(c.scopes)
+
 	return c, nil
 }
 
@@ -191,8 +235,17 @@ func (c *Collector) Synced() <-chan struct{} { return c.syncedCh }
 
 // Coverage reports the status of every scope.
 func (c *Collector) Coverage() Coverage {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	out := Coverage{Unsupported: append([]string(nil), c.unsupported...)}
-	for _, sc := range c.scopes {
+	scopes := c.scopes
+	if c.discoveryStatus != nil {
+		scopes = append(append([]*scope(nil), scopes...), c.discoveryStatus)
+	}
+	for _, sc := range scopes {
+		if sc.retired {
+			continue
+		}
 		sc.mu.Lock()
 		out.Scopes = append(out.Scopes, ScopeReport{Key: ScopeKey(sc.kind, sc.ns), Kind: sc.kind, Namespace: sc.ns,
 			State: sc.state, Reason: sc.reason, Attempts: sc.attempts})
@@ -213,7 +266,12 @@ func (c *Collector) Run(ctx context.Context) error {
 	}
 	c.mu.Unlock()
 	var wg sync.WaitGroup
-	for _, sc := range c.scopes {
+	initial := append([]*scope(nil), c.scopes...)
+	if c.o.CustomResources.Active() {
+		wg.Add(1)
+		go func() { defer wg.Done(); c.discoverCustom(ctx) }()
+	}
+	for _, sc := range initial {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -456,6 +514,7 @@ func (c *Collector) fail(sc *scope, err error) {
 
 // report logs a scope status transition once; repeated failures with the same reason stay silent.
 func (c *Collector) report(sc *scope, st protocol.ScopeState, reason string, err error) {
+	defer c.wakeDiscovery(sc)
 	sc.mu.Lock()
 	changed := sc.state != st || sc.reason != reason
 	sc.state, sc.reason = st, reason
@@ -476,7 +535,7 @@ func (c *Collector) firstAttemptLocked(sc *scope) {
 	first := !sc.firstDone
 	sc.firstDone = true
 	sc.mu.Unlock()
-	if first {
+	if first && !sc.background {
 		c.pending--
 		if c.pending == 0 && !c.synced {
 			c.markSyncedLocked()
@@ -549,6 +608,9 @@ func (c *Collector) observe(sc *scope, obj any, deleted bool) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if sc.retired {
+		return
+	}
 	var ops []protocol.Op
 	var err error
 	if deleted {
@@ -559,6 +621,14 @@ func (c *Collector) observe(sc *scope, obj any, deleted bool) {
 	if err != nil {
 		c.log.Debug("state: observation skipped", "scope", ScopeKey(sc.kind, sc.ns), "error", err)
 		return
+	}
+	if sc == c.crdScope {
+		if deleted {
+			delete(c.crds, u.GetName())
+		} else {
+			c.crds[u.GetName()] = customSpec(u)
+		}
+		c.wakeDiscovery(sc)
 	}
 	c.emit(ops, false, nil)
 }
@@ -573,10 +643,19 @@ func (c *Collector) replace(sc *scope, list []any) {
 	now := c.o.Clock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if sc.retired {
+		return
+	}
 	sc.mu.Lock()
 	relist, start := sc.listedOnce, sc.lastHealthy
 	sc.listedOnce, sc.listing, sc.lastHealthy, sc.backoff = true, false, now, 0
 	sc.mu.Unlock()
+	if sc == c.crdScope {
+		c.crds = map[string]*KindSpec{}
+		for _, u := range objs {
+			c.crds[u.GetName()] = customSpec(u)
+		}
+	}
 	ops, _, err := c.o.Tracker.Reconcile(sc.kind, sc.ns, objs)
 	if err != nil {
 		c.log.Debug("state: relist skipped objects", "scope", ScopeKey(sc.kind, sc.ns), "error", err)
@@ -664,6 +743,16 @@ func Transform(n *Normalizer, kind string) cache.TransformFunc {
 		case *unstructured.Unstructured:
 			n.strip(kind, o)
 		case *metav1.PartialObjectMetadata:
+			if kind == KindSecret {
+				o.Annotations = nil
+				labels := map[string]string{}
+				for k, v := range o.Labels {
+					if n.labelAllowed(k) || contains([]string{"owner", "name", "version", "status"}, k) {
+						labels[k] = n.red.KeyValue(k, v)
+					}
+				}
+				o.Labels = labels
+			}
 			o.ManagedFields = nil
 			o.Annotations = n.keptAnnotations(kind, o.Annotations)
 		}
@@ -711,6 +800,10 @@ func eachMap(list []any, fn func(map[string]any)) {
 }
 
 func (n *Normalizer) strip(kind string, u *unstructured.Unstructured) {
+	if kind == KindSecret || kind == KindCRD || catalogByKind[kind] == nil {
+		n.stripExtension(kind, u)
+		return
+	}
 	o := u.Object
 	unstructured.RemoveNestedField(o, "metadata", "managedFields")
 	if ann := u.GetAnnotations(); len(ann) > 0 {

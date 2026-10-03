@@ -30,7 +30,7 @@ if [ -n "${IMAGE_REF:-}" ]; then
 	image=(--set image.repository="$repo" --set image.tag=kind --set image.pullPolicy=Never)
 	echo "testing $repo@$digest"
 else
-	KO_DOCKER_REPO=ko.local ko build --base-import-paths --tags ci --platform "linux/$(go env GOARCH)" ./cmd/exitmesh-agent
+	VERSION=${VERSION:-dev} KO_DOCKER_REPO=ko.local ko build --base-import-paths --tags ci --platform "linux/$(go env GOARCH)" ./cmd/exitmesh-agent
 	kind load docker-image ko.local/exitmesh-agent:ci --name "$cluster"
 	image=(--set image.repository=ko.local/exitmesh-agent --set image.tag=ci --set image.pullPolicy=Never)
 fi
@@ -115,6 +115,17 @@ done
 [ -n "$ok" ] || fail "node agent coverage or identity: $(status | jq -c '.targets[0].last_health.nodes[] | {name, coverage, process}' || true)"
 forbidden=$(status | jq -c '[.targets[0].last_health.coverage[] | select(.reason == "forbidden") | .key]')
 [ "$forbidden" = "[]" ] || fail "the coordinator lacks RBAC for $forbidden"
+
+echo "== metadata and custom discovery coverage"
+ok=
+for _ in $(seq 1 40); do
+	if st=$(status) && jq -e -f .github/scripts/required-inventory-coverage.jq >/dev/null <<<"$st"; then
+		ok=1
+		break
+	fi
+	sleep 3
+done
+[ -n "$ok" ] || fail "required inventory scopes did not become complete: $(status | jq -c '.targets[0].last_health.coverage' || true)"
 
 echo "== RBAC is read-only"
 coordsa=system:serviceaccount:$coordns:$release-coordinator

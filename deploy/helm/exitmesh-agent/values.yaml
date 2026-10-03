@@ -57,6 +57,14 @@ kubernetes:
   annotationAllowlist: []
   # Resource kinds the coordinator collects. Empty means the agent default set.
   resources: []
+  # Independent background CRD discovery, even with an explicit resources list.
+  customResources:
+    enabled: true
+    maxKinds: 100
+    maxScopes: 256
+    # Glob patterns matching group/Kind or plural.group; exclusions take precedence.
+    include: []
+    exclude: []
   clusterName: ""
   clusterDomain: cluster.local
 
@@ -67,7 +75,7 @@ rbac:
   # Grant get on the service account issuer discovery URLs to the coordinator, for clusters that removed the default system:service-account-issuer-discovery binding.
   issuerDiscovery: false
   inventory:
-    # Namespaced resources for list and watch. ConfigMaps are watched metadata-only by the agent; RBAC cannot express metadata-only access, so remove configmaps to deny it entirely.
+    # Additional built-in get/list/watch rules; automatic inventory separately grants wildcard list/watch. Secret and default ConfigMap collection use metadata-only requests.
     namespaced:
       - apiGroups: [""]
         resources: [pods, services, persistentvolumeclaims, configmaps, events, serviceaccounts, replicationcontrollers, resourcequotas, limitranges]

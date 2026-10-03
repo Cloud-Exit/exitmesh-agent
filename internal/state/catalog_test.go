@@ -68,7 +68,7 @@ func TestCatalogWellFormed(t *testing.T) {
 			}
 		}
 	}
-	if len(kinds) != 19 || CatalogSchema != 1 {
+	if len(kinds) != 21 || CatalogSchema != 1 {
 		t.Fatalf("catalog has %d kinds", len(kinds))
 	}
 	if spec, ok := LookupKind(KindConfigMap); !ok || !spec.MetadataOnly || len(spec.Fields) == 0 {

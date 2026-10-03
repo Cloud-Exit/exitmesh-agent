@@ -42,7 +42,7 @@ func mustNormalize(t testing.TB, n *Normalizer, u *unstructured.Unstructured) pr
 
 func TestNormalizeEveryKindExcludesSensitiveAndChurn(t *testing.T) {
 	seen := map[string]bool{}
-	for _, u := range fixtureObjects(t) {
+	for _, u := range append(fixtureObjects(t), extensionFixtures(t)...) {
 		r := mustNormalize(t, defaultNormalizer, u)
 		seen[r.Kind] = true
 		spec := catalogByKind[r.Kind]
@@ -198,7 +198,7 @@ func TestCatalogFieldsAllProducedWhenSelected(t *testing.T) {
 	n := allFieldsNormalizer(t)
 	n.annotations = []string{"example.com/*"}
 	emitted := map[string][]string{}
-	for _, u := range fixtureObjects(t) {
+	for _, u := range append(fixtureObjects(t), extensionFixtures(t)...) {
 		if len(u.GetOwnerReferences()) == 0 {
 			u.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: "v1", Kind: "Owner", Name: "o", UID: "o-1"}})
 		}

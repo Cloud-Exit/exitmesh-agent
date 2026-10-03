@@ -8,10 +8,10 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
+	"github.com/cloud-exit/exitmesh-agent/internal/state"
 )
 
 // Run builds the in-cluster dependencies and runs the coordinator until ctx ends.
@@ -25,7 +25,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("coordinator: dynamic client: %w", err)
 	}
-	meta, err := metadata.NewForConfig(rc)
+	meta, err := state.NewMetadataClient(rc)
 	if err != nil {
 		return fmt.Errorf("coordinator: metadata client: %w", err)
 	}

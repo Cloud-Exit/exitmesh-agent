@@ -25,6 +25,7 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 
+	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
 
@@ -186,13 +187,18 @@ func hasOp(ops []protocol.Op, want string) bool { return slices.Contains(opKinds
 
 func assertReadOnly(t *testing.T, e *testEnv) {
 	t.Helper()
+	for _, a := range e.dyn.Actions() {
+		if a.GetResource().Resource == "secrets" {
+			t.Fatal("Secret payload API used")
+		}
+	}
 	for _, a := range e.actions() {
 		switch a.GetVerb() {
 		case "get", "list", "watch":
 		default:
 			t.Fatalf("write verb %s on %s", a.GetVerb(), a.GetResource())
 		}
-		if r := a.GetResource().Resource; r == "secrets" || strings.Contains(r, "accessreview") || strings.Contains(r, "tokenreview") {
+		if r := a.GetResource().Resource; strings.Contains(r, "accessreview") || strings.Contains(r, "tokenreview") {
 			t.Fatalf("forbidden resource %s", r)
 		}
 	}
@@ -241,11 +247,14 @@ func TestCollectorSyncsAndFollowsChanges(t *testing.T) {
 		}
 	}
 	for _, s := range catalog {
+		if s.Kind == KindCRD {
+			continue
+		}
 		if st, ok := base.Scopes[ScopeKey(s.Kind, "")]; !ok || st.State != protocol.ScopeComplete {
 			t.Fatalf("scope %s = %+v", s.Kind, st)
 		}
 	}
-	if len(base.Scopes) != len(catalog) {
+	if len(base.Scopes) < len(catalog) || len(base.Scopes) > len(catalog)+1 {
 		t.Fatalf("scopes %v", base.Scopes)
 	}
 	cm := base.Resources["cm-1"]
@@ -317,7 +326,7 @@ func TestCollectorSyncsAndFollowsChanges(t *testing.T) {
 	}
 	metaVerbs := map[string]bool{}
 	for _, a := range env.meta.Actions() {
-		if a.GetResource().Resource != "configmaps" {
+		if a.GetResource().Resource != "configmaps" && a.GetResource().Resource != "secrets" {
 			t.Fatalf("metadata client used for %s", a.GetResource())
 		}
 		metaVerbs[a.GetVerb()] = true
@@ -482,7 +491,7 @@ func runFailingScope(t *testing.T, env *testEnv, resources []string, n int) (*Co
 	var c *Collector
 	var err error
 	c, err = NewCollector(CollectorOptions{Dynamic: env.dyn, Discovery: env.disc, Tracker: NewTracker(TrackerOptions{}),
-		Resources: resources, Sink: rec.sink, OnSynced: rec.synced,
+		Resources: resources, CustomResources: config.CustomResources{Enabled: ptr(false)}, Sink: rec.sink, OnSynced: rec.synced,
 		Logger: slog.New(logs), RetryBase: time.Second, RetryMax: 4 * time.Second, FlushInterval: time.Hour, ReflectorBackoff: fastRef,
 		Wait: func(ctx context.Context, d time.Duration) bool {
 			if d == time.Hour {
@@ -597,7 +606,7 @@ func TestCollectorNamespaceProfileAndExcludes(t *testing.T) {
 	})
 	rec := &recorder{}
 	_, cancel, done := startCollector(t, CollectorOptions{Dynamic: env.dyn, Discovery: env.disc, Tracker: NewTracker(TrackerOptions{}),
-		Namespaces: []string{"shop", "other"}, ExcludeNamespaces: []string{"other"}, Resources: []string{"pods", "nodes"},
+		CustomResources: config.CustomResources{Enabled: ptr(false)}, Namespaces: []string{"shop", "other"}, ExcludeNamespaces: []string{"other"}, Resources: []string{"pods", "nodes"},
 		Sink: rec.sink, OnSynced: rec.synced, Logger: slog.New(&logRecorder{}), ReflectorBackoff: fastRef, FlushInterval: time.Hour})
 	cancel()
 	<-done

@@ -123,13 +123,14 @@ func TestRBACIsReadOnly(t *testing.T) {
 						t.Errorf("%s: %s grants verb %q", vs.name, name, verb)
 					}
 				}
+				broadInventory := strings.HasSuffix(name, "-inventory") && reflect.DeepEqual(r.APIGroups, []string{"*"}) && reflect.DeepEqual(r.Resources, []string{"*"}) && reflect.DeepEqual(r.Verbs, []string{"list", "watch"})
 				for _, g := range r.APIGroups {
-					if g == "*" {
+					if g == "*" && !broadInventory {
 						t.Errorf("%s: %s uses a wildcard apiGroup", vs.name, name)
 					}
 				}
 				for _, res := range r.Resources {
-					if slices.Contains(forbiddenResources, res) {
+					if slices.Contains(forbiddenResources, res) && !broadInventory {
 						t.Errorf("%s: %s grants forbidden resource %q", vs.name, name, res)
 					}
 					if strings.Contains(res, "/") && res != "nodes/metrics" {
@@ -170,7 +171,7 @@ func TestRBACPerCapability(t *testing.T) {
 		}
 	}
 	for _, k := range state.Catalog() {
-		if !granted[k.GVR.Group+"/"+k.GVR.Resource] {
+		if !granted[k.GVR.Group+"/"+k.GVR.Resource] && !granted["*/*"] {
 			t.Errorf("the coordinator collects %s by default but the inventory ClusterRole does not grant list and watch on %s", k.Kind, k.GVR.GroupResource())
 		}
 	}
@@ -226,6 +227,12 @@ func TestNamespaceScopedProfileRendersRoles(t *testing.T) {
 		}
 	}
 	for name, rs := range nsRules {
+		if name == "ClusterRole//"+coordName+"-discovery" {
+			if len(rs) != 1 || !reflect.DeepEqual(rs[0].Resources, []string{"customresourcedefinitions"}) || !reflect.DeepEqual(rs[0].Verbs, []string{"list", "watch"}) {
+				t.Fatal("invalid CRD discovery permission")
+			}
+			continue
+		}
 		if !strings.HasPrefix(name, "ClusterRole/") {
 			continue
 		}
@@ -241,7 +248,7 @@ func TestNamespaceScopedProfileRendersRoles(t *testing.T) {
 		}
 	}
 	m = render(t, append([]string{"--set", "kubernetes.scope=namespaces", "--set", "kubernetes.namespaces={team-a}", "--set", "rbac.clusterReads=false"}, baseArgs...)...)
-	if n := len(m.all("ClusterRole")) + len(m.all("ClusterRoleBinding")); n != 0 {
+	if n := len(m.all("ClusterRole")) + len(m.all("ClusterRoleBinding")); n != 2 {
 		t.Fatalf("namespace profile without cluster reads rendered %d cluster-scoped RBAC objects", n)
 	}
 	renderFails(t, "requires kubernetes.namespaces", append([]string{"--set", "kubernetes.scope=namespaces"}, baseArgs...)...)
@@ -815,4 +822,18 @@ func TestCoordinatorEgressAllowsEndpointPort(t *testing.T) {
 	if !ports[9443] || !ports[443] {
 		t.Fatalf("coordinator egress ports %v must include the endpoint port 9443 and the default 443", ports)
 	}
+}
+
+func TestCustomResourceDiscoveryValues(t *testing.T) {
+	coord, _ := agentConfigs(t, render(t, baseArgs...))
+	if !coord.Kubernetes.CustomResources.Active() || coord.Kubernetes.CustomResources.MaxKinds != 100 || coord.Kubernetes.CustomResources.MaxScopes != 256 {
+		t.Fatal("discovery defaults missing from chart config")
+	}
+	args := append([]string{"--set", "kubernetes.resources={pods}", "--set", "kubernetes.customResources.enabled=false", "--set", "kubernetes.customResources.maxKinds=5", "--set", "kubernetes.customResources.maxScopes=9", "--set", "kubernetes.customResources.include={example.com/Widget}", "--set", "kubernetes.customResources.exclude={example.com/Skip}"}, baseArgs...)
+	coord, _ = agentConfigs(t, render(t, args...))
+	cfg := coord.Kubernetes.CustomResources
+	if cfg.Active() || cfg.MaxKinds != 5 || cfg.MaxScopes != 9 || !reflect.DeepEqual(cfg.Include, []string{"example.com/Widget"}) || !reflect.DeepEqual(cfg.Exclude, []string{"example.com/Skip"}) {
+		t.Fatal("custom discovery settings not rendered")
+	}
+	renderFails(t, "maxKinds", append([]string{"--set", "kubernetes.customResources.maxKinds=0"}, baseArgs...)...)
 }

@@ -24,7 +24,10 @@ On Kubernetes the chart renders this file into ConfigMaps (`exitmesh-agent-coord
 |`kubernetes.excludeNamespaces`|empty|Namespaces to skip in either profile: not collected, and node agents never watch their pods, tail or read their logs on demand, or keep evidence from them.|
 |`kubernetes.labelAllowlist`|empty|Label keys recorded in state facts. Labels are never recorded without an allowlist.|
 |`kubernetes.annotationAllowlist`|empty|Annotation keys recorded in state facts.|
-|`kubernetes.resources`|empty (agent default set)|Resource kinds the coordinator collects; must be covered by `rbac.inventory`.|
+|`kubernetes.resources`|empty (agent default set)|Built-in resource kinds to collect; does not disable custom-resource discovery.|
+|`kubernetes.customResources.enabled`|`true`|Discover custom kinds from the CRD informer and collect instances after initial built-in sync.|
+|`kubernetes.customResources.maxKinds`, `maxScopes`|`100`, `256`|Maximum custom kinds and kind/namespace collection scopes; exceeding either reports partial discovery coverage.|
+|`kubernetes.customResources.include`, `exclude`|empty|Glob lists matching `group/Kind` or `plural.group`; exclusions win. These filters do not narrow RBAC.|
 |`kubernetes.clusterName`|empty|Display name reported to ExitMesh.|
 
 ## coordinator
@@ -180,7 +183,7 @@ Local administrator upper bounds; rules cannot exceed them.
 |`rbac.create`|`true`|Render RBAC.|
 |`rbac.clusterReads`|`true`|Cluster-scoped gets (`nodes`, `persistentvolumes`, `nodes/metrics`).|
 |`rbac.issuerDiscovery`|`false`|Grant the coordinator `get` on the issuer discovery URLs.|
-|`rbac.inventory.namespaced`, `rbac.inventory.cluster`|workload, network, storage, policy resources|Inventory resource lists (`get`, `list`, `watch`). Secrets, subresources, and wildcards are refused.|
+|`rbac.inventory.namespaced`, `rbac.inventory.cluster`|workload, network, storage, policy resources|Additional built-in inventory rules (`get`, `list`, `watch`); Secrets, subresources, and wildcards are refused in these get-capable lists. The chart separately grants wildcard `list`, `watch` for automatic custom-resource and Secret metadata inventory.|
 |`tls.mode`|`generate`|`generate`, `certManager`, or `existingSecret` for the node API certificate.|
 |`tls.caBundle`|empty|CA for node agents; required unless `generate`.|
 |`tls.existingSecret`|empty|`kubernetes.io/tls` Secret in the coordinator namespace.|
