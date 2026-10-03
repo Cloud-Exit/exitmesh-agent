@@ -275,7 +275,7 @@ func TestCustomDiscoveryFiltersAndBudgets(t *testing.T) {
 		_ = unstructured.SetNestedField(u.Object, kind, "spec", "names", "kind")
 		c.crds[kind] = customSpec(u)
 	}
-	specs, ready := c.desiredCustom()
+	specs, ready := c.desiredCustom(nil)
 	if !ready || len(specs) != 1 || specs["example.com/Alpha"] == nil {
 		t.Fatal("scope cap or deterministic selection failed")
 	}
@@ -284,19 +284,72 @@ func TestCustomDiscoveryFiltersAndBudgets(t *testing.T) {
 	}
 	c.o.CustomResources.MaxScopes = 10
 	c.o.CustomResources.MaxKinds = 1
-	specs, _ = c.desiredCustom()
+	specs, _ = c.desiredCustom(nil)
 	if len(specs) != 1 {
 		t.Fatal("kind cap not enforced")
 	}
 	c.o.CustomResources.MaxKinds = 10
-	specs, _ = c.desiredCustom()
+	specs, _ = c.desiredCustom(nil)
 	if len(specs) != 2 || specs["example.com/Skip"] != nil {
 		t.Fatal("exclude filter not honored")
 	}
 	c.o.CustomResources.Include = []string{"alphas.other.io"}
-	specs, _ = c.desiredCustom()
+	specs, _ = c.desiredCustom(nil)
 	if len(specs) != 0 {
 		t.Fatal("include filter not honored")
+	}
+}
+
+func TestCustomDiscoveryPreservesRunningKindsAtCapacity(t *testing.T) {
+	for _, limits := range []struct {
+		name          string
+		kinds, scopes int
+	}{{"kinds", 1, 10}, {"scopes", 10, 2}} {
+		t.Run(limits.name, func(t *testing.T) {
+			crd, obj, gvr := customFixture()
+			c, err := NewCollector(CollectorOptions{Dynamic: customClient(crd, obj, gvr), Tracker: NewTracker(TrackerOptions{}), Resources: []string{"pods"}, Namespaces: []string{"a", "b"}, CustomResources: config.CustomResources{MaxKinds: limits.kinds, MaxScopes: limits.scopes}, Logger: slog.New(&logRecorder{})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.crdScope.state = protocol.ScopeComplete
+			beta := customSpec(crd)
+			beta.Kind = "example.com/Beta"
+			c.crds["beta"] = beta
+			selected, _ := c.desiredCustom(nil)
+			if selected[beta.Kind] == nil {
+				t.Fatal("initial kind not selected")
+			}
+			workers := map[string]*customWorker{beta.Kind: {version: beta.GVR}}
+			alpha := *beta
+			alpha.Kind = "example.com/Alpha"
+			c.crds["alpha"] = &alpha
+			for range 3 {
+				selected, _ = c.desiredCustom(workers)
+				if len(selected) != 1 || selected[beta.Kind] == nil {
+					t.Fatal("new kind displaced running inventory")
+				}
+				if c.discoveryStatus.state != protocol.ScopePartial {
+					t.Fatal("omitted kind not reported")
+				}
+			}
+			delete(c.crds, "alpha")
+			selected, _ = c.desiredCustom(workers)
+			if selected[beta.Kind] == nil || c.discoveryStatus.state != protocol.ScopeComplete {
+				t.Fatal("removing waiting kind disrupted coverage")
+			}
+			c.crds["alpha"] = &alpha
+			delete(c.crds, "beta")
+			selected, _ = c.desiredCustom(workers)
+			if len(selected) != 1 || selected[alpha.Kind] == nil {
+				t.Fatal("vacated slot not filled")
+			}
+			c.crds["beta"] = beta
+			c.o.CustomResources.Exclude = []string{beta.Kind}
+			selected, _ = c.desiredCustom(workers)
+			if len(selected) != 1 || selected[alpha.Kind] == nil {
+				t.Fatal("running kind bypassed exclusion")
+			}
+		})
 	}
 }
 

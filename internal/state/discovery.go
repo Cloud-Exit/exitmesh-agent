@@ -53,7 +53,7 @@ func (c *Collector) customNamespaces(s *KindSpec) []string {
 }
 
 // desiredCustom uses only the stripped CRD informer inventory; failures preserve existing workers.
-func (c *Collector) desiredCustom() (map[string]*KindSpec, bool) {
+func (c *Collector) desiredCustom(workers map[string]*customWorker) (map[string]*KindSpec, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.crdScope.mu.Lock()
@@ -82,7 +82,13 @@ func (c *Collector) desiredCustom() (map[string]*KindSpec, bool) {
 	for kind := range specs {
 		kinds = append(kinds, kind)
 	}
-	sort.Strings(kinds)
+	sort.Slice(kinds, func(i, j int) bool {
+		iRunning, jRunning := workers[kinds[i]] != nil, workers[kinds[j]] != nil
+		if iRunning != jRunning {
+			return iRunning
+		}
+		return kinds[i] < kinds[j]
+	})
 	selected := map[string]*KindSpec{}
 	scopes := 0
 	limited := false
@@ -128,7 +134,7 @@ func (c *Collector) discoverCustom(ctx context.Context) {
 			return
 		case <-c.discoveryWake:
 		}
-		specs, ready := c.desiredCustom()
+		specs, ready := c.desiredCustom(workers)
 		if !ready {
 			continue
 		}
