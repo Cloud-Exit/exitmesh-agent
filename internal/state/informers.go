@@ -90,6 +90,7 @@ type scope struct {
 	attempts    int
 	backoff     time.Duration
 	firstDone   bool
+	retired     bool
 	listedOnce  bool
 	listing     bool
 	lastHealthy time.Time
@@ -104,17 +105,18 @@ type discEntry struct {
 
 // Collector runs read-only list and watch loops for every permitted scope and feeds the Tracker.
 type Collector struct {
-	o           CollectorOptions
-	log         *slog.Logger
-	mu          sync.Mutex
-	scopes      []*scope
-	exclude     map[string]bool
-	unsupported []string
-	synced      bool
-	syncedCh    chan struct{}
-	pending     int
-	discMu      sync.Mutex
-	disc        map[string]discEntry
+	o               CollectorOptions
+	log             *slog.Logger
+	mu              sync.Mutex
+	scopes          []*scope
+	exclude         map[string]bool
+	unsupported     []string
+	synced          bool
+	syncedCh        chan struct{}
+	pending         int
+	discMu          sync.Mutex
+	disc            map[string]discEntry
+	discoveryStatus *scope
 }
 
 // NewCollector validates o and prepares the scopes.
@@ -159,9 +161,9 @@ func NewCollector(o CollectorOptions) (*Collector, error) {
 	norm := o.Tracker.Normalizer()
 	for _, kind := range kinds {
 		spec := catalogByKind[kind]
-		metaOnly := spec.MetadataOnly && !norm.Selected(kind, "keys")
+		metaOnly := spec.MetadataOnly && (kind == KindSecret || !norm.Selected(kind, "keys"))
 		if metaOnly && o.Metadata == nil {
-			return nil, errors.New("state: collecting ConfigMaps requires a metadata client")
+			return nil, errors.New("state: collecting metadata requires a metadata client")
 		}
 		nss := []string{""}
 		if spec.Namespaced && len(namespaces) > 0 {
@@ -172,6 +174,9 @@ func NewCollector(o CollectorOptions) (*Collector, error) {
 		}
 	}
 	c.pending = len(c.scopes)
+	if len(o.Resources) == 0 {
+		c.pending++
+	}
 	return c, nil
 }
 
@@ -191,8 +196,17 @@ func (c *Collector) Synced() <-chan struct{} { return c.syncedCh }
 
 // Coverage reports the status of every scope.
 func (c *Collector) Coverage() Coverage {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	out := Coverage{Unsupported: append([]string(nil), c.unsupported...)}
-	for _, sc := range c.scopes {
+	scopes := c.scopes
+	if c.discoveryStatus != nil {
+		scopes = append(append([]*scope(nil), scopes...), c.discoveryStatus)
+	}
+	for _, sc := range scopes {
+		if sc.retired {
+			continue
+		}
 		sc.mu.Lock()
 		out.Scopes = append(out.Scopes, ScopeReport{Key: ScopeKey(sc.kind, sc.ns), Kind: sc.kind, Namespace: sc.ns,
 			State: sc.state, Reason: sc.reason, Attempts: sc.attempts})
@@ -213,7 +227,12 @@ func (c *Collector) Run(ctx context.Context) error {
 	}
 	c.mu.Unlock()
 	var wg sync.WaitGroup
-	for _, sc := range c.scopes {
+	initial := append([]*scope(nil), c.scopes...)
+	if len(c.o.Resources) == 0 {
+		wg.Add(1)
+		go func() { defer wg.Done(); c.discoverCustom(ctx) }()
+	}
+	for _, sc := range initial {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -549,6 +568,9 @@ func (c *Collector) observe(sc *scope, obj any, deleted bool) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if sc.retired {
+		return
+	}
 	var ops []protocol.Op
 	var err error
 	if deleted {
@@ -573,6 +595,9 @@ func (c *Collector) replace(sc *scope, list []any) {
 	now := c.o.Clock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if sc.retired {
+		return
+	}
 	sc.mu.Lock()
 	relist, start := sc.listedOnce, sc.lastHealthy
 	sc.listedOnce, sc.listing, sc.lastHealthy, sc.backoff = true, false, now, 0
@@ -664,6 +689,16 @@ func Transform(n *Normalizer, kind string) cache.TransformFunc {
 		case *unstructured.Unstructured:
 			n.strip(kind, o)
 		case *metav1.PartialObjectMetadata:
+			if kind == KindSecret {
+				o.Annotations = nil
+				labels := map[string]string{}
+				for k, v := range o.Labels {
+					if n.labelAllowed(k) || contains([]string{"owner", "name", "version", "status"}, k) {
+						labels[k] = n.red.KeyValue(k, v)
+					}
+				}
+				o.Labels = labels
+			}
 			o.ManagedFields = nil
 			o.Annotations = n.keptAnnotations(kind, o.Annotations)
 		}
@@ -711,6 +746,10 @@ func eachMap(list []any, fn func(map[string]any)) {
 }
 
 func (n *Normalizer) strip(kind string, u *unstructured.Unstructured) {
+	if kind == KindSecret || kind == KindCRD || catalogByKind[kind] == nil {
+		n.stripExtension(kind, u)
+		return
+	}
 	o := u.Object
 	unstructured.RemoveNestedField(o, "metadata", "managedFields")
 	if ann := u.GetAnnotations(); len(ann) > 0 {

@@ -4,7 +4,7 @@ The agent is built to be installed by teams that do not want to trust it with mo
 
 ## Boundary
 
-- The agent never writes to the Kubernetes API, never executes commands, never reads Secrets, and never self-updates.
+- The agent never writes to the Kubernetes API, never executes commands, reads only Secret metadata, never Secret values, and never self-updates.
 - It opens no inbound listener beyond the node-to-coordinator ClusterIP Service (port 8443). All traffic to ExitMesh is outbound over one WebSocket tunnel from the coordinator (or the host agent).
 - It writes only under `/var/lib/exitmesh` on nodes and hosts, and on the coordinator PVC mounted at `/data`.
 - A tunnel session confers no write authority over history: writer ownership is validated against the committed chain by ExitMesh on every session.
@@ -17,7 +17,7 @@ Capabilities are separate and independently removable; removing one removes its 
 
 |Capability|Identity|Rules|
 |---|---|---|
-|inventory|coordinator|`get`, `list`, `watch` on the configured resource list (`rbac.inventory`). The chart refuses to render `secrets`, any subresource, wildcards, or review APIs in that list.|
+|inventory|coordinator|`list`, `watch` across API groups and resources for default Helm, Secret metadata, and custom-resource coverage, plus `get` on the configured built-in resource list. Wildcard permissions can read full objects; Secret collection strictly uses the metadata-only API without a full-object fallback.|
 |metrics|node agents|`get` on `nodes/metrics`, for the local kubelet `/metrics` and `/metrics/cadvisor` only.|
 |logs|node agents|No RBAC; read-only hostPath `/var/log/pods`.|
 |always|node agents|`list`, `watch` on pods (cluster-wide in the cluster profile; the agent filters by `spec.nodeName`).|

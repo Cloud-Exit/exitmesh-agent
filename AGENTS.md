@@ -39,6 +39,6 @@ The open source ExitMesh Telemetry Agent: a Go codebase producing one binary, `e
 - Comments: at most one short line, only for a non-obvious why. No narrative blocks, no requirement-ID tags in code. Rationale belongs in `docs/`.
 - Never use em dashes or en dashes anywhere (code, comments, docs, commit messages). Use commas, colons, parentheses, or separate sentences.
 - Redaction precedes every sink: evidence rings, spools, transmission, logs. Use `internal/redact`; log through `redact.NewHandler`.
-- The agent never writes to Kubernetes, never executes commands, never reads Secrets, never opens inbound listeners beyond the node-to-coordinator Service, and writes only under `/var/lib/exitmesh` (or the coordinator PVC).
+- The agent never writes to Kubernetes, never executes commands, collects Secret metadata only (never Secret data or stringData), never opens inbound listeners beyond the node-to-coordinator Service, and writes only under `/var/lib/exitmesh` (or the coordinator PVC).
 - New modules need review: pure Go, licensed Apache 2.0, MIT, BSD, or ISC; anything else (including MPL-2.0 transitive dependencies) is listed and approved explicitly.
 - Verify with `go build ./... && go vet ./... && go test ./...` (race detector for concurrency-heavy packages). `golangci-lint` may not run in every sandbox; CI runs it.

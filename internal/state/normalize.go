@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -50,6 +51,8 @@ func OptionsFromConfig(k config.Kubernetes, r *redact.Redactor) Options {
 
 // Normalizer turns Kubernetes objects into normalized resources using the field catalog.
 type Normalizer struct {
+	customMu    sync.RWMutex
+	custom      map[string]*KindSpec
 	labels      []string
 	annotations []string
 	selected    map[string]bool
@@ -70,7 +73,7 @@ func NewNormalizer(o Options) (*Normalizer, error) {
 	}
 	for _, sel := range o.Fields {
 		kind, path, ok := strings.Cut(sel, ":")
-		spec := catalogByKind[kind]
+		spec := n.kindSpec(kind)
 		if !ok || spec == nil || spec.byPath[path] == nil {
 			return nil, fmt.Errorf("state: unknown catalog field %q", sel)
 		}
@@ -88,7 +91,7 @@ func Normalize(obj *unstructured.Unstructured) (protocol.Resource, []protocol.Ed
 
 // Selected reports whether a catalog field is exported: default-on or deliberately selected.
 func (n *Normalizer) Selected(kind, path string) bool {
-	spec := catalogByKind[kind]
+	spec := n.kindSpec(kind)
 	if spec == nil {
 		return false
 	}
@@ -196,9 +199,13 @@ func (em *emitter) putPtr32(path string, p *int32) {
 
 func (n *Normalizer) normalize(obj *unstructured.Unstructured) (*entry, error) {
 	kind := KindOf(obj)
-	spec := catalogByKind[kind]
+	spec := n.kindSpec(kind)
 	if spec == nil {
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedKind, kind)
+	}
+	if kind == KindSecret || kind == KindCRD || catalogByKind[kind] == nil {
+		obj = obj.DeepCopy()
+		n.stripExtension(kind, obj)
 	}
 	if spec.Aggregated {
 		return nil, fmt.Errorf("%w: %s", ErrAggregatedKind, kind)
@@ -245,12 +252,17 @@ func (n *Normalizer) normalize(obj *unstructured.Unstructured) (*entry, error) {
 		err = n.pv(em, obj)
 	case KindStorageCls:
 		err = n.storageClass(em, obj)
+	case KindSecret:
+		n.helm(em, obj)
 	case KindConfigMap:
 		err = n.configMap(em, obj)
+		n.helm(em, obj)
 	case KindHPA:
 		err = n.hpa(em, obj, e)
 	case KindPDB:
 		err = n.pdb(em, obj, e)
+	default:
+		n.extension(em, obj)
 	}
 	if err == nil {
 		err = em.err

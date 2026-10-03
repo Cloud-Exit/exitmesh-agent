@@ -67,7 +67,7 @@ rbac:
   # Grant get on the service account issuer discovery URLs to the coordinator, for clusters that removed the default system:service-account-issuer-discovery binding.
   issuerDiscovery: false
   inventory:
-    # Namespaced resources for list and watch. ConfigMaps are watched metadata-only by the agent; RBAC cannot express metadata-only access, so remove configmaps to deny it entirely.
+    # Additional built-in get/list/watch rules; automatic inventory separately grants wildcard list/watch. Secret and default ConfigMap collection use metadata-only requests.
     namespaced:
       - apiGroups: [""]
         resources: [pods, services, persistentvolumeclaims, configmaps, events, serviceaccounts, replicationcontrollers, resourcequotas, limitranges]

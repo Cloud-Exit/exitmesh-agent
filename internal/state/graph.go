@@ -9,18 +9,24 @@ import (
 
 // Edge types of the change graph.
 const (
-	EdgeOwns    = "owns"
-	EdgeRunsOn  = "runs-on"
-	EdgeSelects = "selects"
-	EdgeMounts  = "mounts"
-	EdgeBinds   = "binds"
-	EdgeRoutes  = "routes"
-	EdgeTargets = "targets"
-	EdgeScales  = "scales"
-	EdgeGuards  = "guards"
+	EdgeOwns            = "owns"
+	EdgeUsesSecret      = "uses-secret"
+	EdgeProducesSecret  = "produces-secret"
+	EdgeNeedsSecretSync = "needs-secret-sync"
+	EdgeRunsOn          = "runs-on"
+	EdgeSelects         = "selects"
+	EdgeMounts          = "mounts"
+	EdgeBinds           = "binds"
+	EdgeRoutes          = "routes"
+	EdgeTargets         = "targets"
+	EdgeScales          = "scales"
+	EdgeGuards          = "guards"
 )
 
 var edgeDocs = [][4]string{
+	{EdgeNeedsSecretSync, "workload", "ExternalSecret targeting a referenced Secret", "none; exists even when the Secret is missing"},
+	{EdgeUsesSecret, "workload", "Secret referenced by its pod spec", "none"},
+	{EdgeProducesSecret, "ExternalSecret", "Secret named by spec.target.name", "none"},
 	{EdgeOwns, "owner (ownerReferences[].uid)", "owned object", "`controller` (bool)"},
 	{EdgeRunsOn, "Pod", "Node (by spec.nodeName)", "none"},
 	{EdgeSelects, "Service", "Pod (spec.selector within the namespace)", "`ports`: sorted port names, or port/protocol when unnamed"},
@@ -57,24 +63,26 @@ func key3(a, b, c string) string { return a + "\x00" + b + "\x00" + c }
 
 // graph holds the internal entries and the reverse indexes used to resolve edges incrementally.
 type graph struct {
-	entries     map[string]*entry
-	byName      map[objKey]string
-	children    index
-	podsByNode  index
-	podsByNS    index
-	podsByLabel index
-	selectors   index
-	claimUsers  index
-	volumeUsers index
-	routeUsers  index
-	scaleUsers  index
+	entries         map[string]*entry
+	byName          map[objKey]string
+	children        index
+	podsByNode      index
+	podsByNS        index
+	podsByLabel     index
+	selectors       index
+	claimUsers      index
+	volumeUsers     index
+	routeUsers      index
+	scaleUsers      index
+	secretUsers     index
+	secretProducers index
 }
 
 func newGraph() *graph {
 	return &graph{
 		entries: map[string]*entry{}, byName: map[objKey]string{},
 		children: index{}, podsByNode: index{}, podsByNS: index{}, podsByLabel: index{}, selectors: index{},
-		claimUsers: index{}, volumeUsers: index{}, routeUsers: index{}, scaleUsers: index{},
+		claimUsers: index{}, volumeUsers: index{}, routeUsers: index{}, scaleUsers: index{}, secretUsers: index{}, secretProducers: index{},
 	}
 }
 
@@ -98,6 +106,12 @@ func (g *graph) drop(uid string) {
 func (g *graph) index(e *entry) {
 	uid, ns := e.res.UID, e.res.Namespace
 	g.byName[keyOf(&e.res)] = uid
+	for _, name := range secretRefs(e) {
+		g.secretUsers.add(key2(ns, name), uid)
+	}
+	if name := secretTarget(e); name != "" {
+		g.secretProducers.add(key2(ns, name), uid)
+	}
 	for _, o := range e.owners {
 		g.children.add(o.uid, uid)
 	}
@@ -134,6 +148,12 @@ func (g *graph) index(e *entry) {
 
 func (g *graph) unindex(e *entry) {
 	uid, ns := e.res.UID, e.res.Namespace
+	for _, name := range secretRefs(e) {
+		g.secretUsers.del(key2(ns, name), uid)
+	}
+	if name := secretTarget(e); name != "" {
+		g.secretProducers.del(key2(ns, name), uid)
+	}
 	if k := keyOf(&e.res); g.byName[k] == uid {
 		delete(g.byName, k)
 	}
@@ -229,6 +249,30 @@ func (g *graph) incident(uid string) map[protocol.EdgeKey]map[string]any {
 		return out
 	}
 	ns, name := e.res.Namespace, e.res.Name
+	for _, ref := range secretRefs(e) {
+		for producer := range g.secretProducers[key2(ns, ref)] {
+			out[protocol.EdgeKey{From: uid, Type: EdgeNeedsSecretSync, To: producer}] = map[string]any{}
+		}
+		if dest := g.byName[objKey{KindSecret, ns, ref}]; dest != "" {
+			out[protocol.EdgeKey{From: uid, Type: EdgeUsesSecret, To: dest}] = map[string]any{}
+		}
+	}
+	if ref := secretTarget(e); ref != "" {
+		for user := range g.secretUsers[key2(ns, ref)] {
+			out[protocol.EdgeKey{From: user, Type: EdgeNeedsSecretSync, To: uid}] = map[string]any{}
+		}
+		if dest := g.byName[objKey{KindSecret, ns, ref}]; dest != "" {
+			out[protocol.EdgeKey{From: uid, Type: EdgeProducesSecret, To: dest}] = map[string]any{}
+		}
+	}
+	if e.res.Kind == KindSecret {
+		for src := range g.secretUsers[key2(ns, name)] {
+			out[protocol.EdgeKey{From: src, Type: EdgeUsesSecret, To: uid}] = map[string]any{}
+		}
+		for src := range g.secretProducers[key2(ns, name)] {
+			out[protocol.EdgeKey{From: src, Type: EdgeProducesSecret, To: uid}] = map[string]any{}
+		}
+	}
 	for _, o := range e.owners {
 		if g.entries[o.uid] != nil && o.uid != uid {
 			out[protocol.EdgeKey{From: o.uid, Type: EdgeOwns, To: uid}] = map[string]any{"controller": o.controller}
@@ -313,4 +357,23 @@ func (g *graph) incident(uid string) map[protocol.EdgeKey]map[string]any {
 		}
 	}
 	return out
+}
+
+func secretRefs(e *entry) []string {
+	var out []string
+	if refs, ok := e.res.Fields["refs.secrets"].([]any); ok {
+		for _, v := range refs {
+			if s, ok := v.(string); ok {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+func secretTarget(e *entry) string {
+	if e.res.Kind != "external-secrets.io/ExternalSecret" {
+		return ""
+	}
+	s, _ := e.res.Fields["targetSecret"].(string)
+	return s
 }

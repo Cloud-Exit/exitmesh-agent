@@ -22,6 +22,8 @@ Labels (`kubernetes.labelAllowlist`, a trailing `*` matches a prefix), default:
 - `app.kubernetes.io/name`
 - `app.kubernetes.io/instance`
 - `app.kubernetes.io/component`
+- `app.kubernetes.io/managed-by`
+- `helm.sh/chart`
 - `app.kubernetes.io/part-of`
 - `app.kubernetes.io/version`
 - `app`
@@ -30,7 +32,9 @@ Labels (`kubernetes.labelAllowlist`, a trailing `*` matches a prefix), default:
 - `topology.kubernetes.io/region`
 - `node-role.kubernetes.io/*`
 
-Annotations (`kubernetes.annotationAllowlist`): none by default.
+Annotations (`kubernetes.annotationAllowlist`): Helm release name and namespace by default; Secret annotations are always omitted.
+
+Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references. Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret values and Helm release payloads are never read.
 
 ## Scopes
 
@@ -40,6 +44,9 @@ Scope keys are `<kind>|<namespace>`, with an empty namespace for cluster-wide co
 
 |Type|From|To|Attributes|
 |---|---|---|---|
+|`needs-secret-sync`|workload|ExternalSecret targeting a referenced Secret|none; exists even when the Secret is missing|
+|`uses-secret`|workload|Secret referenced by its pod spec|none|
+|`produces-secret`|ExternalSecret|Secret named by spec.target.name|none|
 |`owns`|owner (ownerReferences[].uid)|owned object|`controller` (bool)|
 |`runs-on`|Pod|Node (by spec.nodeName)|none|
 |`selects`|Service|Pod (spec.selector within the namespace)|`ports`: sorted port names, or port/protocol when unnamed|
@@ -64,6 +71,9 @@ API: `v1` `configmaps`, namespaced, metadata-only informer by default.
 |`annotations.<key>`|metadata.annotations (allowlisted keys)|string|allowlist|yes|
 |`owners.<kind>.<name>`|metadata.ownerReferences[] (value: controller flag)|bool|reference|yes|
 |`keys`|data and binaryData key names (never values; selecting it replaces the metadata-only informer)|list<string>|reference|no|
+|`helm.name`|metadata.labels.name when owner=helm|string|reference|yes|
+|`helm.revision`|metadata.labels.version when owner=helm|int|structural|yes|
+|`helm.status`|metadata.labels.status when owner=helm|string|structural|yes|
 
 ## Event
 
@@ -218,6 +228,20 @@ API: `v1` `pods`, namespaced.
 |`refs.secrets`|spec volumes, projected sources, env, envFrom, and imagePullSecrets Secret names|list<string>|reference|yes|
 |`refs.claims`|spec.volumes[].persistentVolumeClaim.claimName and ephemeral claim names|list<string>|reference|yes|
 
+## Secret
+
+API: `v1` `secrets`, namespaced, metadata-only informer by default.
+
+|Field|Source|Type|Redaction|Default|
+|---|---|---|---|---|
+|`created`|metadata.creationTimestamp|timestamp|structural|yes|
+|`terminating`|metadata.deletionTimestamp (present only while deletion is pending)|bool|structural|yes|
+|`labels.<key>`|metadata.labels (allowlisted keys)|string|allowlist|yes|
+|`owners.<kind>.<name>`|metadata.ownerReferences[] (value: controller flag)|bool|reference|yes|
+|`helm.name`|metadata.labels.name when owner=helm|string|reference|yes|
+|`helm.revision`|metadata.labels.version when owner=helm|int|structural|yes|
+|`helm.status`|metadata.labels.status when owner=helm|string|structural|yes|
+
 ## Service
 
 API: `v1` `services`, namespaced.
@@ -239,6 +263,30 @@ API: `v1` `services`, namespaced.
 |`internalTrafficPolicy`|spec.internalTrafficPolicy|string|structural|yes|
 |`externalName`|spec.externalName|string|text|no|
 |`loadBalancerIngress`|status.loadBalancer.ingress[] ip or hostname|list<string>|structural|no|
+
+## apiextensions.k8s.io/CustomResourceDefinition
+
+API: `apiextensions.k8s.io/v1` `customresourcedefinitions`, cluster.
+
+|Field|Source|Type|Redaction|Default|
+|---|---|---|---|---|
+|`created`|metadata.creationTimestamp|timestamp|structural|yes|
+|`terminating`|metadata.deletionTimestamp (present only while deletion is pending)|bool|structural|yes|
+|`labels.<key>`|metadata.labels (allowlisted keys)|string|allowlist|yes|
+|`annotations.<key>`|metadata.annotations (allowlisted keys)|string|allowlist|yes|
+|`owners.<kind>.<name>`|metadata.ownerReferences[] (value: controller flag)|bool|reference|yes|
+|`generation`|metadata.generation|int|structural|yes|
+|`observedGeneration`|status.observedGeneration|int|structural|yes|
+|`conditions.<type>.status`|status.conditions[type in any type].status|string|structural|yes|
+|`conditions.<type>.reason`|status.conditions[type in any type].reason|string|text|yes|
+|`apiVersion`|apiVersion|string|structural|yes|
+|`projectionVersion`|generic custom-resource projection version|int|structural|yes|
+|`conditions.<type>.observedGeneration`|status.conditions[].observedGeneration|int|structural|yes|
+|`crd.group`|CustomResourceDefinition spec.group|string|structural|yes|
+|`crd.kind`|CustomResourceDefinition spec.names.kind|string|structural|yes|
+|`crd.plural`|CustomResourceDefinition spec.names.plural|string|structural|yes|
+|`crd.scope`|CustomResourceDefinition spec.scope|string|structural|yes|
+|`crd.servedVersions`|CustomResourceDefinition spec.versions[].name where served|list<string>|structural|yes|
 
 ## apps/DaemonSet
 

@@ -91,7 +91,7 @@
 {{- range $rule := $rules -}}
 {{- range $res := $rule.resources -}}
 {{- if or (has $res $forbidden) (contains "/" $res) -}}
-{{- fail (printf "rbac.inventory.%s must not grant %q: the agent never reads Secrets, never uses review APIs, and requests no subresources" $scope $res) -}}
+{{- fail (printf "rbac.inventory.%s must not grant %q: explicit get rules must not add Secret payload access, review APIs, or subresources" $scope $res) -}}
 {{- end -}}
 {{- end -}}
 {{- range $g := $rule.apiGroups -}}

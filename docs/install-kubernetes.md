@@ -63,7 +63,7 @@ Capabilities are independent and each carries only its own RBAC and mounts:
 
 |Capability|Value|Grants|
 |---|---|---|
-|Inventory|`capabilities.inventory`|Coordinator `get`, `list`, `watch` on the resource list in `rbac.inventory` (workloads, services, networking, storage, policy, autoscaling, Gateway API, CRD definitions). No Secrets.|
+|Inventory|`capabilities.inventory`|Coordinator wildcard `list`, `watch` within the selected scope for automatic inventory, including Secret metadata, Helm revisions, CRDs, and custom resources; built-in `get` rules remain in `rbac.inventory`. Namespace-scoped installations also read CRD definitions for discovery. Secret values are never collected.|
 |Metrics|`capabilities.metrics`|Node agent `get` on `nodes/metrics`, used to scrape the local kubelet `/metrics` and `/metrics/cadvisor` at the node address. Annotated pod `/metrics` endpoints are reached over the pod network without RBAC; targets blocked by your NetworkPolicies are reported as coverage gaps.|
 |Logs|`capabilities.logs`|Read-only hostPath `/var/log/pods`. `nodes/log` is never requested.|
 
@@ -83,7 +83,7 @@ This is the summary shown at onboarding and printed by the chart after install.
 
 **Cluster-wide pod list disclosure.** Kubernetes RBAC cannot restrict `list` and `watch` on pods to the pods of one node, so each node agent holds cluster-wide pod read in RBAC terms. The agent always lists with a `spec.nodeName` field selector for its own node and never stores other nodes' pods. In the namespace profile the permission is limited to the listed namespaces.
 
-**ConfigMaps.** ConfigMaps are in the default inventory list so the agent can record references and structural facts through a metadata-only watch. RBAC cannot express metadata-only access, so the role technically permits reading ConfigMap contents; remove `configmaps` from `rbac.inventory.namespaced` to deny it.
+**ConfigMaps.** ConfigMaps are in the default inventory list so the agent can record references and structural facts through a metadata-only watch. RBAC cannot express metadata-only access, so the role technically permits reading ConfigMap contents. Removing a resource from `rbac.inventory` does not narrow the automatic wildcard list/watch grant. For externally managed narrow permissions, set `rbac.create=false` and provide your own Roles and bindings; denied collection scopes remain visible as unavailable.
 
 **Host mounts (node agents only).**
 

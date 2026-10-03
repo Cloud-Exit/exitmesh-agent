@@ -42,7 +42,7 @@ type Tracker struct {
 // NewTracker returns an empty Tracker.
 func NewTracker(o TrackerOptions) *Tracker {
 	if o.Normalizer == nil {
-		o.Normalizer = defaultNormalizer
+		o.Normalizer, _ = NewNormalizer(Options{})
 	}
 	if o.Clock == nil {
 		o.Clock = time.Now
@@ -251,7 +251,7 @@ func (t *Tracker) Remove(obj *unstructured.Unstructured) ([]protocol.Op, error) 
 		t.ev.forgetEvent(string(obj.GetUID()))
 		return nil, nil
 	}
-	spec := catalogByKind[kind]
+	spec := t.norm.kindSpec(kind)
 	if spec == nil {
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedKind, kind)
 	}
