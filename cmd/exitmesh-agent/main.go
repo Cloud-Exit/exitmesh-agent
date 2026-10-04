@@ -41,6 +41,7 @@ commands:
   decode         print an export file as JSON lines with named fields
   commit         apply an air-gap commit receipt
   deenroll       revoke this agent's credential in ExitMesh and stop writing
+  recover-enrollment  retry coordinator enrollment after token rotation (agent stopped)
   prepare-state  set ownership and mode of the state directory (init container)
   cleanup        delete the state directory after taking its lock (uninstall)
   purge-state    delete the state directory after taking its lock (package purge)
@@ -62,7 +63,7 @@ func commands() map[string]command {
 	return map[string]command{
 		"run": runCmd, "version": versionCmd, "status": statusCmd, "investigate": investigateCmd,
 		"export": exportCmd, "decode": decodeCmd, "commit": commitCmd, "deenroll": deenrollCmd, "prepare-state": prepareStateCmd,
-		"cleanup": cleanupCmd, "purge-state": purgeStateCmd, "prepare-image": prepareImageCmd,
+		"recover-enrollment": recoverEnrollmentCmd, "cleanup": cleanupCmd, "purge-state": purgeStateCmd, "prepare-image": prepareImageCmd,
 	}
 }
 

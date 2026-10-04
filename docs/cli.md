@@ -25,6 +25,7 @@ Flags use Go syntax: `--flag value`, `--flag=value`, or a single dash. `exitmesh
 |[`export`](#export)|air-gap profile|no (host); yes (coordinator)|
 |[`commit`](#commit)|air-gap profile|yes|
 |[`deenroll`](#deenroll)|package purge flow, operators|no (host); yes (coordinator)|
+|[`recover-enrollment`](#recover-enrollment)|coordinator token rotation recovery|must not be running|
 |[`prepare-state`](#prepare-state)|node DaemonSet init container|no|
 |[`cleanup`](#cleanup)|uninstall cleanup DaemonSet|must not be running|
 |[`purge-state`](#purge-state)|deb and rpm purge, tarball `uninstall.sh --purge`|must not be running|
@@ -193,3 +194,15 @@ exitmesh-agent prepare-image --dir <dir>
 |`--dir`|yes|State directory, an absolute path other than `/`.|
 
 For golden images (PRD H14). Refuses while the service holds the lock. Otherwise deletes the identity, credential, spool, and all other state, leaving an empty directory, so every instance started from the image enrolls as a new target. It prints the reminder that the image tooling must also reset `/etc/machine-id`; the agent does not write outside its state directory.
+
+### recover-enrollment
+
+```
+exitmesh-agent recover-enrollment --config /etc/exitmesh/config/agent.yaml
+```
+
+Use after rotating the coordinator enrollment token and credential. Stop the coordinator first and run this command as its user against the same mounted PVC, configuration, and updated enrollment-token Secret. This command is not available in version 0.11.0; use a build containing the recovery command.
+
+The command checks that the token names the existing Kubernetes target, takes the spool lock, and atomically clears the stored credential and a `superseded` or `unauthorized` halt. It also works without a halt. It preserves the writer ID, incarnation, epoch, queued records, acknowledgements, and all other state. A missing spool, active writer, different target, or other halt fails without resetting enrollment. Token values are never printed.
+
+Start the coordinator afterwards. It enrolls with the configured token and attempts to resume the existing history. Recovery does not validate the token with ExitMesh or override server ownership: a revoked token still fails enrollment, and a retired writer or closed epoch still requires resolution in ExitMesh. Do not delete the PVC to clear this error.

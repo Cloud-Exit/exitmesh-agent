@@ -72,6 +72,9 @@ Each successful connection logs `history session established` with the session I
 
 Enrollment retries until it succeeds or the process shuts down, including when a token is rejected. Every failed attempt logs `enrollment failed; retrying` with `attempt` and `retry_in`, even when the error is unchanged. The token file is reread on each attempt, so replacing a rejected token takes effect without a restart. Each HTTP enrollment attempt times out after 30 seconds; the exponential delay starts at 2 seconds for coordinators and 1 second for hosts, and never exceeds 5 minutes. Tunnel reconnects log `history session retry scheduled` with the attempt and actual jittered delay, capped at 5 minutes, and have no retry limit. Explicit de-enrollment and terminal writer ownership or protocol rejections still halt the writer.
 
+If both the coordinator enrollment token and credential have been rotated and startup refuses to run with a persisted `superseded` or `unauthorized` halt, preserve the PVC. With the coordinator stopped, use [`recover-enrollment`](cli.md#recover-enrollment) from a build containing that command against the existing PVC and updated token Secret, then restart. This clears the stored credential and recoverable halt together so the same writer can enroll again. Replacing the token Secret alone does not replace a credential already stored in the spool. Version 0.11.0 does not include the recovery command.
+
+
 An enrollment response containing HTML usually indicates an ingress route or redirect reached a web frontend instead of the agent API. The error reports the requested URL, HTTP status, and content type without including the response body. Route `/agent/v1/` to the agent API without stripping that prefix; enrollment uses `/agent/v1/enroll` and the WebSocket uses `/agent/v1/tunnel`.
 
 ## Log lines at steady state

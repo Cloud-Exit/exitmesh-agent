@@ -132,3 +132,37 @@ func TestEnrollmentCancellationInterruptsMaximumBackoff(t *testing.T) {
 		t.Fatal("cancellation waited for the retry delay")
 	}
 }
+
+func TestEnrollmentAfterOfflineRecovery(t *testing.T) {
+	e := newEnv(t)
+	c := enrollmentCoordinator(t, e, &syncBuffer{}, Tuning{})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.ensureIdentity(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before := c.sp.Identity()
+	writer := c.sp.WriterID()
+	if err := c.sp.SetHalted(client.HaltSuperseded, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(e.stateDir, "spool")
+	if err := spool.RecoverEnrollment(dir, e.targetID); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	c.sp, err = spool.Open(spool.Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.ensureIdentity(ctx); err != nil {
+		t.Fatal(err)
+	}
+	after := c.sp.Identity()
+	if after.TargetID != before.TargetID || c.sp.WriterID() != writer || after.Credential == "" || after.Credential == before.Credential {
+		t.Fatal("recovery did not enroll the same writer with a fresh credential")
+	}
+}
