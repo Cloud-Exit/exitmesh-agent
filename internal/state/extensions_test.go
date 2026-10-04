@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
@@ -566,4 +567,40 @@ func (d delayedDiscovery) ServerResourcesForGroupVersion(gv string) (*metav1.API
 		<-d.blocked
 	}
 	return d.DiscoveryInterface.ServerResourcesForGroupVersion(gv)
+}
+
+func TestSecretWatchPreservesInitialEventsBookmark(t *testing.T) {
+	e := newTestEnv(t, nil)
+	stream := watch.NewRaceFreeFake()
+	e.dyn.PrependWatchReactor("secrets", func(clienttesting.Action) (bool, watch.Interface, error) { return true, stream, nil })
+	c, err := NewCollector(CollectorOptions{Dynamic: e.dyn, Tracker: NewTracker(TrackerOptions{}), Resources: []string{"secrets"}, CustomResources: config.CustomResources{Enabled: ptr(false)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := c.watch(context.Background(), c.scopes[0], metav1.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Stop()
+	u := extensionObject(KindSecret, "", "")
+	u.SetResourceVersion("123")
+	u.SetAnnotations(map[string]string{"k8s.io/initial-events-end": "true", "copied": "value-sentinel"})
+	u.Object["data"] = map[string]any{"release": "value-sentinel"}
+	stream.Action(watch.Bookmark, u)
+	select {
+	case ev := <-w.ResultChan():
+		got := ev.Object.(*unstructured.Unstructured)
+		if ev.Type != watch.Bookmark || got.GetResourceVersion() != "123" || got.GetAnnotations()["k8s.io/initial-events-end"] != "true" {
+			t.Fatal("initial-events bookmark lost")
+		}
+		b, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "sentinel") {
+			t.Fatal("bookmark leaked values")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("bookmark not forwarded")
+	}
 }

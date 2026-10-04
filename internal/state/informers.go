@@ -415,6 +415,9 @@ func (c *Collector) watch(ctx context.Context, sc *scope, opts metav1.ListOption
 			// The projection replaces Object without mutating a shared watch input.
 			safe := &unstructured.Unstructured{Object: u.Object}
 			c.o.Tracker.Normalizer().strip(KindSecret, safe)
+			if ev.Type == watch.Bookmark && u.GetAnnotations()["k8s.io/initial-events-end"] == "true" {
+				safe.SetAnnotations(map[string]string{"k8s.io/initial-events-end": "true"})
+			}
 			ev.Object = safe
 		}
 		return ev, true
