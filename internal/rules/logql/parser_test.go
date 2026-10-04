@@ -287,6 +287,7 @@ func TestParseErrorPosition(t *testing.T) {
 }
 
 func FuzzParseExpr(f *testing.F) {
+	f.Add(`{A="0"} | A > -0s`)
 	for _, tc := range validQueries {
 		f.Add(tc.in)
 	}
@@ -300,4 +301,16 @@ func FuzzParseExpr(f *testing.F) {
 		}
 		assertRoundTrip(t, e)
 	})
+}
+
+func TestNegativeZeroDurationRoundTrip(t *testing.T) {
+	for _, literal := range []string{"-0s", "-0ms", "-0.1ns", "0s", "+0s"} {
+		t.Run(literal, func(t *testing.T) {
+			e, err := ParseExpr(`{A="0"} | A > ` + literal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertRoundTrip(t, e)
+		})
+	}
 }

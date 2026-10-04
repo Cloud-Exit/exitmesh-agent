@@ -1,6 +1,7 @@
 package logql
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -292,6 +293,9 @@ func (f *LabelFilterNumeric) String() string {
 func formatNumeric(k NumericKind, v float64) string {
 	switch k {
 	case NumericDuration:
+		if v == 0 && math.Signbit(v) {
+			return "-0s"
+		}
 		return formatDuration(time.Duration(v))
 	case NumericBytes:
 		return strconv.FormatUint(uint64(v), 10) + "B"
