@@ -38,7 +38,7 @@ func (c *Coordinator) ensureIdentity(ctx context.Context) error {
 	stopped := func() error {
 		return fmt.Errorf("coordinator: writer halted (%s at %s) and refuses to run; token rotation requires an updated enrollment token for the same target; other ownership failures require resolution in ExitMesh", halt.Code, halt.At.Format(time.RFC3339))
 	}
-	if halted && (c.airgap || (halt.Code != "superseded" && halt.Code != protocol.CodeUnauthorized)) {
+	if halted && c.airgap {
 		return stopped()
 	}
 	if c.airgap {
@@ -63,6 +63,22 @@ func (c *Coordinator) ensureIdentity(ctx context.Context) error {
 	opts := c.tunnelOptions()
 	opts.Credential = nil
 	req := protocol.EnrollRequest{WriterID: c.sp.WriterID(), TargetType: protocol.TargetKubernetes, Agent: c.agentInfo()}
+	var candidate *spool.Spool
+	candidateDir := ""
+	retainCandidate := false
+	defer func() {
+		if candidate != nil && candidate != c.sp {
+			if err := candidate.Close(); err != nil {
+				c.log.Warn("close candidate spool", "err", err)
+				return
+			}
+			if !retainCandidate {
+				if err := os.RemoveAll(candidateDir); err != nil {
+					c.log.Warn("remove unused candidate spool", "err", err)
+				}
+			}
+		}
+	}()
 	delay := c.t.RetryBase
 	for attempt := 1; ; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -73,12 +89,24 @@ func (c *Coordinator) ensureIdentity(ctx context.Context) error {
 		var res *protocol.EnrollResponse
 		if err == nil {
 			target, _ := tok.TargetID()
-			if id.TargetID != "" && id.TargetID != target {
-				return errors.New("coordinator: enrollment token target differs from the existing spool; refusing to move queued history")
+			changingTarget := id.TargetID != "" && id.TargetID != target
+			if changingTarget {
+				if candidate == nil {
+					candidate, candidateDir, err = c.sp.StageReplacement()
+					if err != nil {
+						return fmt.Errorf("coordinator: prepare target switch: %w", err)
+					}
+				}
+				req.WriterID = candidate.WriterID()
+			} else {
+				req.WriterID = c.sp.WriterID()
+				if halted && halt.Code != "superseded" && halt.Code != protocol.CodeUnauthorized {
+					return stopped()
+				}
 			}
 			hash := sha256.Sum256([]byte(raw))
 			fingerprint = hex.EncodeToString(hash[:])
-			if id.EnrollmentTokenHash == fingerprint {
+			if !changingTarget && id.EnrollmentTokenHash == fingerprint {
 				if halted {
 					return stopped()
 				}
@@ -98,8 +126,24 @@ func (c *Coordinator) ensureIdentity(ctx context.Context) error {
 			if res.TargetID != target {
 				return errors.New("coordinator: enrollment response target differs from token")
 			}
-			if err := c.sp.SetEnrollment(spool.Identity{TargetID: res.TargetID, TargetType: protocol.TargetKubernetes, Credential: res.Credential, CredentialID: res.CredentialID, EnrollmentTokenHash: fingerprint}); err != nil {
+			destination := c.sp
+			if id.TargetID != "" && id.TargetID != res.TargetID {
+				destination = candidate
+			}
+			if err := destination.SetEnrollment(spool.Identity{TargetID: res.TargetID, TargetType: protocol.TargetKubernetes, Credential: res.Credential, CredentialID: res.CredentialID, EnrollmentTokenHash: fingerprint}); err != nil {
 				return fmt.Errorf("coordinator: store credential: %w", err)
+			}
+			if destination != c.sp {
+				old := c.sp
+				retainCandidate = true
+				if err := old.ActivateReplacement(destination); err != nil {
+					return fmt.Errorf("coordinator: activate target switch: %w", err)
+				}
+				c.sp = destination
+				if err := old.Close(); err != nil {
+					return fmt.Errorf("coordinator: close archived spool: %w", err)
+				}
+				c.log.Info("target changed; previous spool archived", "old_target", id.TargetID, "new_target", res.TargetID, "archive_dir", old.Directory(), "writer", c.sp.WriterID().String())
 			}
 			c.targetID = res.TargetID
 			c.setErr("enrollment", nil)

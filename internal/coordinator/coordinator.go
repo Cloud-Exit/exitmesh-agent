@@ -324,7 +324,12 @@ func (c *Coordinator) Run(ctx context.Context) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	c.cancel = cancel
 	defer cancel()
-	sp, err := spool.Open(spool.Options{
+	unlock, err := spool.LockDir(c.cfg.StateDir)
+	if err != nil {
+		return fmt.Errorf("coordinator: state directory locked or unavailable: %w", err)
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	sp, err := spool.OpenActive(spool.Options{
 		Dir: filepath.Join(c.cfg.StateDir, "spool"), CapacityBytes: int64(c.cfg.Spool.Capacity),
 		WindowBytes: int64(c.cfg.Spool.Window), CoalesceAt: c.cfg.Spool.CoalesceAt, Clock: c.now, CommitFault: c.spoolFault,
 	})
@@ -336,7 +341,7 @@ func (c *Coordinator) Run(ctx context.Context) (err error) {
 	}
 	c.sp = sp
 	defer func() {
-		if cerr := sp.Close(); cerr != nil && err == nil {
+		if cerr := c.sp.Close(); cerr != nil && err == nil {
 			err = cerr
 		}
 	}()

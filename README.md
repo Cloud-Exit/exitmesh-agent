@@ -117,4 +117,4 @@ make chart-test   # helm lint and chart assertions
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for every quality gate, the DCO sign-off, and dependency rules. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
-Coordinator enrollment-token rotation is detected at startup. Update the mounted Secret and restart the coordinator using v0.13.0 or newer; it re-enrolls the same writer and preserves queued history. See [token rotation](docs/operations.md#coordinator-token-rotation) for upgrade behavior and recovery limits.
+The mounted enrollment-token Secret is authoritative at coordinator startup. Rotation within the same target refreshes the credential and preserves queued history. Starting with v0.15.0, a token for a different target is validated first, then the old spool is retained as an archive and a fresh writer starts for the new target. Update the Secret and upgrade/restart the coordinator; do not delete the PVC. See [token rotation](docs/operations.md#coordinator-token-rotation) for upgrade behavior and recovery limits.

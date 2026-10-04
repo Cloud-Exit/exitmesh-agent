@@ -268,3 +268,116 @@ func TestRejectedRotationPreservesHaltAndCredential(t *testing.T) {
 		t.Fatal("enrollment leaked credential or token fingerprint")
 	}
 }
+
+func TestStartupSwitchesTargetAndArchivesOldSpool(t *testing.T) {
+	e := newEnv(t)
+	r := e.start(e.config())
+	oldEpoch, _ := e.committed(r)
+	oldTarget, oldWriter := e.targetID, r.c.sp.WriterID()
+	if err := r.stop(); err != nil {
+		t.Fatal(err)
+	}
+	archiveDir := filepath.Join(e.stateDir, "spool")
+	old, err := spool.Open(spool.Options{Dir: archiveDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.SetHalted(protocol.CodeWriterRetired, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.SaveRecoverySnapshot([]byte("archived-snapshot")); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	e.targetID, e.token, err = e.cp.CreateTarget(protocol.TargetKubernetes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.config().EnrollmentTokenFile, []byte(e.token), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r = e.start(e.config())
+	newEpoch, _ := e.committed(r)
+	newWriter := r.c.sp.WriterID()
+	if newWriter == oldWriter || newEpoch == oldEpoch || r.c.sp.Identity().TargetID != e.targetID {
+		t.Fatal("target switch reused old history")
+	}
+	activeDir := r.c.sp.Directory()
+	if activeDir == archiveDir {
+		t.Fatal("target switch overwrote archive")
+	}
+	if err := r.stop(); err != nil {
+		t.Fatal(err)
+	}
+	old, err = spool.Open(spool.Options{Dir: archiveDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep, _ := old.Epoch()
+	b, ok, err := old.LoadRecoverySnapshot()
+	if err != nil || !ok || string(b) != "archived-snapshot" || old.Identity().TargetID != oldTarget || old.WriterID() != oldWriter || ep.ID != oldEpoch {
+		t.Fatal("old target state not preserved")
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r = e.start(e.config())
+	if r.c.sp.WriterID() != newWriter || r.c.sp.Directory() != activeDir {
+		t.Fatal("restart did not select new active spool")
+	}
+	if ep, _ := e.committed(r); ep != newEpoch {
+		t.Fatal("new target epoch did not resume")
+	}
+}
+
+func TestFailedTargetSwitchKeepsActiveSpool(t *testing.T) {
+	e := newEnv(t)
+	logs := &syncBuffer{}
+	c := enrollmentCoordinator(t, e, logs, Tuning{RetryBase: time.Millisecond, BackoffMax: 2 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.ensureIdentity(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before, writer := c.sp.Identity(), c.sp.WriterID()
+	if err := c.sp.SetHalted(protocol.CodeWriterRetired, "test"); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := e.cp.CreateTarget(protocol.TargetKubernetes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(c.cfg.EnrollmentTokenFile, []byte(token), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.cp.SetUnavailable(true)
+	retryCtx, stop := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- c.ensureIdentity(retryCtx) }()
+	t.Cleanup(func() { stop(); <-done })
+	eventually(t, "target switch retries", func() bool { return strings.Count(logs.String(), "enrollment failed; retrying") >= 3 })
+	stop()
+	err = <-done
+	done <- err
+	if !errors.Is(err, context.Canceled) {
+		t.Fatal("target switch did not cancel")
+	}
+	if c.sp.Identity() != before || c.sp.WriterID() != writer {
+		t.Fatal("failed switch changed active identity")
+	}
+	if h, ok := c.sp.Halted(); !ok || h.Code != protocol.CodeWriterRetired {
+		t.Fatal("failed switch changed halt")
+	}
+	if _, err := os.Stat(filepath.Join(e.stateDir, "active-spool")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failed switch activated candidate")
+	}
+	staged, err := filepath.Glob(filepath.Join(e.stateDir, "spool-writer-*"))
+	if err != nil || len(staged) != 0 {
+		t.Fatal("cancelled enrollment left staged spools")
+	}
+	if strings.Contains(logs.String(), token) || strings.Contains(logs.String(), before.Credential) {
+		t.Fatal("target switch leaked credentials")
+	}
+}
