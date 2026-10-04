@@ -2,8 +2,8 @@ apiVersion: v2
 name: exitmesh-agent
 description: ExitMesh Telemetry Agent for Kubernetes, a node agent DaemonSet and a single-replica coordinator StatefulSet with read-only cluster access and outbound-only connectivity.
 type: application
-version: 0.15.0
-appVersion: "0.15.0"
+version: 0.16.0
+appVersion: "0.16.0"
 kubeVersion: ">=1.27.0-0"
 home: https://github.com/cloud-exit/exitmesh-agent
 sources:
