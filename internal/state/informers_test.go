@@ -188,8 +188,8 @@ func hasOp(ops []protocol.Op, want string) bool { return slices.Contains(opKinds
 func assertReadOnly(t *testing.T, e *testEnv) {
 	t.Helper()
 	for _, a := range e.dyn.Actions() {
-		if a.GetResource().Resource == "secrets" {
-			t.Fatal("Secret payload API used")
+		if a.GetResource().Resource == "secrets" && a.GetVerb() != "list" && a.GetVerb() != "watch" {
+			t.Fatal("Secret access beyond list/watch")
 		}
 	}
 	for _, a := range e.actions() {
@@ -326,7 +326,7 @@ func TestCollectorSyncsAndFollowsChanges(t *testing.T) {
 	}
 	metaVerbs := map[string]bool{}
 	for _, a := range env.meta.Actions() {
-		if a.GetResource().Resource != "configmaps" && a.GetResource().Resource != "secrets" {
+		if a.GetResource().Resource != "configmaps" {
 			t.Fatalf("metadata client used for %s", a.GetResource())
 		}
 		metaVerbs[a.GetVerb()] = true

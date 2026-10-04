@@ -26,6 +26,7 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
+	"github.com/cloud-exit/exitmesh-agent/internal/redact"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
 
@@ -43,6 +44,8 @@ func extensionObject(kind, name, uid string) *unstructured.Unstructured {
 func TestSecretValuesNeverEnterStateAndHelmMetadataSurvives(t *testing.T) {
 	n, _ := NewNormalizer(Options{AnnotationAllowlist: []string{"*"}})
 	u := extensionObject(KindSecret, "sh.helm.release.v1.demo.v4", "sec")
+	u.Object["type"] = "helm.sh/release.v1"
+	u.Object["immutable"] = true
 	u.Object["data"] = map[string]any{"password": "private-value-sentinel", "release": "encoded-release-sentinel"}
 	u.Object["stringData"] = map[string]any{"password": "private-value-sentinel"}
 	u.SetAnnotations(map[string]string{"copied": "private-value-sentinel"})
@@ -54,6 +57,9 @@ func TestSecretValuesNeverEnterStateAndHelmMetadataSurvives(t *testing.T) {
 	r := tr.Snapshot().Resources["sec"]
 	if r.Fields["helm.name"] != "demo" || r.Fields["helm.status"] != "failed" {
 		t.Fatalf("missing release metadata: %v", r.Fields)
+	}
+	if r.Fields["type"] != "helm.sh/release.v1" || r.Fields["immutable"] != true || r.Fields["data.release"] != redact.Placeholder || r.Fields["stringData.password"] != redact.Placeholder {
+		t.Fatal("missing redacted Secret structure")
 	}
 	b, err := json.Marshal(tr.Snapshot().Resources)
 	if err != nil {
@@ -72,7 +78,7 @@ func TestSecretValuesNeverEnterStateAndHelmMetadataSurvives(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), "sentinel") || u.Object["data"] != nil || u.Object["stringData"] != nil {
+	if strings.Contains(string(b), "sentinel") || stringAt(u, "data", "release") != redact.Placeholder || stringAt(u, "stringData", "password") != redact.Placeholder {
 		t.Fatal("Secret payload survived cache transform")
 	}
 }
@@ -138,30 +144,90 @@ func TestExternalSecretConditionsAndDependencyEdges(t *testing.T) {
 	}
 }
 
-func TestSecretCollectionUsesOnlyMetadata(t *testing.T) {
-	e := newTestEnv(t, nil)
-	e.dyn.PrependReactor("*", "secrets", func(clienttesting.Action) (bool, runtime.Object, error) {
-		t.Error("full Secret API used")
+func TestSecretCollectionRedactsListAndWatch(t *testing.T) {
+	u := extensionObject(KindSecret, "sh.helm.release.v1.demo.v4", "secret-1")
+	u.Object["type"] = "helm.sh/release.v1"
+	u.Object["data"] = map[string]any{"release": "list-value-sentinel"}
+	e := newTestEnv(t, []*unstructured.Unstructured{u})
+	e.meta.PrependReactor("*", "secrets", func(clienttesting.Action) (bool, runtime.Object, error) {
+		t.Error("Secret structure lost through metadata-only API")
 		return true, nil, nil
 	})
 	tr := NewTracker(TrackerOptions{})
-	c, err := NewCollector(CollectorOptions{Dynamic: e.dyn, Metadata: e.meta, Tracker: tr, Resources: []string{"secrets"}})
+	c, err := NewCollector(CollectorOptions{Dynamic: e.dyn, Metadata: e.meta, Tracker: tr, Resources: []string{"secrets"}, CustomResources: config.CustomResources{Enabled: ptr(false)}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	listed, err := c.list(ctx, c.scopes[0], metav1.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stringAt(&listed.(*unstructured.UnstructuredList).Items[0], "data", "release") != redact.Placeholder {
+		t.Fatal("list boundary did not redact value")
+	}
+	boundaryWatch, err := c.watch(ctx, c.scopes[0], metav1.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer boundaryWatch.Stop()
 	done := make(chan struct{})
 	go func() { _ = c.Run(ctx); close(done) }()
 	defer func() { cancel(); <-done }()
 	select {
 	case <-c.Synced():
 	case <-time.After(5 * time.Second):
-		t.Fatal("Secret metadata scope did not synchronize")
+		t.Fatal("Secret scope did not synchronize")
 	}
-	if len(e.meta.Actions()) == 0 {
-		t.Fatal("metadata API not used")
+	check := func(key string) bool {
+		resources := tr.Snapshot().Resources
+		b, err := json.Marshal(resources)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "sentinel") {
+			t.Fatal("Secret value reached state")
+		}
+		r, ok := resources["secret-1"]
+		return ok && r.Fields[key] == redact.Placeholder && r.Fields["type"] == "helm.sh/release.v1"
 	}
+	if !check("data.release") {
+		t.Fatal("list lost redacted Secret structure")
+	}
+	eventually(t, "Secret watch", func() bool {
+		for _, a := range e.dyn.Actions() {
+			if a.GetVerb() == "watch" && a.GetResource().Resource == "secrets" {
+				return true
+			}
+		}
+		return false
+	})
+	u.Object["data"] = map[string]any{"release": "watch-value-sentinel", "tls.key": "private-key-sentinel"}
+	if _, err := e.dyn.Resource(schema.GroupVersionResource{Version: "v1", Resource: "secrets"}).Namespace(u.GetNamespace()).Update(ctx, u, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	timeout := time.After(time.Second)
+	for found := false; !found; {
+		select {
+		case ev := <-boundaryWatch.ResultChan():
+			b, err := json.Marshal(ev.Object)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), "sentinel") {
+				t.Fatal("watch boundary leaked values")
+			}
+			u := ev.Object.(*unstructured.Unstructured)
+			if stringAt(u, "data", "release") != redact.Placeholder {
+				t.Fatal("watch boundary lost redacted release key")
+			}
+			found = stringAt(u, "data", "tls.key") == redact.Placeholder
+		case <-timeout:
+			t.Fatal("missing redacted boundary update")
+		}
+	}
+	eventually(t, "redacted Secret update", func() bool { return check("data.tls.key") })
 }
 
 func customFixture() (*unstructured.Unstructured, *unstructured.Unstructured, schema.GroupVersionResource) {
@@ -356,6 +422,10 @@ func TestCustomDiscoveryPreservesRunningKindsAtCapacity(t *testing.T) {
 func extensionFixtures(t testing.TB) []*unstructured.Unstructured {
 	t.Helper()
 	secret := extensionObject(KindSecret, "demo", "helm-secret")
+	secret.Object["type"] = "helm.sh/release.v1"
+	secret.Object["immutable"] = false
+	secret.Object["data"] = map[string]any{"release": "fixture-value"}
+	secret.Object["stringData"] = map[string]any{"password": "fixture-value"}
 	cm := extensionObject(KindConfigMap, "demo", "helm-configmap")
 	crd := extensionObject(KindCRD, "widgets.example.com", "widget-crd")
 	crd.SetNamespace("")
@@ -370,7 +440,7 @@ func extensionFixtures(t testing.TB) []*unstructured.Unstructured {
 	return []*unstructured.Unstructured{secret, cm, crd}
 }
 
-func TestSecretHTTPNegotiationIsMetadataOnly(t *testing.T) {
+func TestConfigMapHTTPNegotiationIsMetadataOnly(t *testing.T) {
 	for _, watching := range []bool{false, true} {
 		for _, denied := range []bool{false, true} {
 			t.Run("watch="+strconv.FormatBool(watching)+"/denied="+strconv.FormatBool(denied), func(t *testing.T) {
@@ -411,7 +481,7 @@ func TestSecretHTTPNegotiationIsMetadataOnly(t *testing.T) {
 				}
 				n, _ := NewNormalizer(Options{})
 				c := &Collector{o: CollectorOptions{Metadata: mc}, exclude: map[string]bool{}}
-				sc := &scope{kind: KindSecret, spec: catalogByKind[KindSecret], metaOnly: true, tf: Transform(n, KindSecret)}
+				sc := &scope{kind: KindConfigMap, spec: catalogByKind[KindConfigMap], metaOnly: true, tf: Transform(n, KindConfigMap)}
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				var obj any

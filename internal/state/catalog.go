@@ -186,7 +186,7 @@ func buildCatalog() []*KindSpec {
 	}
 	tmpl := "spec.template.spec"
 	specs := []*KindSpec{
-		{Kind: KindSecret, GVR: core("secrets"), APIKind: "Secret", Namespaced: true, MetadataOnly: true, Fields: helmFields()},
+		{Kind: KindSecret, GVR: core("secrets"), APIKind: "Secret", Namespaced: true, Fields: secretFields()},
 		{Kind: KindCRD, GVR: gvr("apiextensions.k8s.io", "v1", "customresourcedefinitions"), APIKind: "CustomResourceDefinition", Fields: crdFields()},
 		{Kind: KindNamespace, GVR: core("namespaces"), APIKind: "Namespace", Fields: []Field{
 			f("phase", "status.phase", TypeString, RedactStructural, true),
@@ -513,7 +513,7 @@ func RenderFieldCatalog() string {
 		fmt.Fprintf(&b, "- `%s`\n", l)
 	}
 	b.WriteString("\nAnnotations (`kubernetes.annotationAllowlist`): Helm release name and namespace by default; Secret annotations are always omitted.\n\n")
-	b.WriteString("Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references. Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret values and Helm release payloads are never read.\n\n")
+	b.WriteString("Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references. Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret data and stringData keys are retained with constant redacted values before caching or export; Helm release payloads are never decoded.\n\n")
 	b.WriteString("## Scopes\n\nScope keys are `<kind>|<namespace>`, with an empty namespace for cluster-wide collection. Permission loss and collection failure set the scope unavailable; they never delete resources. Scope removal deletes with reason scope removed.\n\n")
 	b.WriteString("## Edges\n\n|Type|From|To|Attributes|\n|---|---|---|---|\n")
 	for _, e := range edgeDocs {

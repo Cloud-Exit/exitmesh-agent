@@ -4,7 +4,7 @@ The agent is built to be installed by teams that do not want to trust it with mo
 
 ## Boundary
 
-- The agent never writes to the Kubernetes API, never executes commands, reads only Secret metadata, never Secret values, and never self-updates.
+- The agent never writes to the Kubernetes API, never executes commands, collects Secret structure with all data and stringData values redacted before caching, storage, or export, and never self-updates.
 - It opens no inbound listener beyond the node-to-coordinator ClusterIP Service (port 8443). All traffic to ExitMesh is outbound over one WebSocket tunnel from the coordinator (or the host agent).
 - It writes only under `/var/lib/exitmesh` on nodes and hosts, and on the coordinator PVC mounted at `/data`.
 - A tunnel session confers no write authority over history: writer ownership is validated against the committed chain by ExitMesh on every session.
@@ -17,7 +17,7 @@ Capabilities are separate and independently removable; removing one removes its 
 
 |Capability|Identity|Rules|
 |---|---|---|
-|inventory|coordinator|`list`, `watch` across API groups and resources for default Helm, Secret metadata, and custom-resource coverage, plus `get` on the configured built-in resource list. Wildcard permissions can read full objects; Secret collection strictly uses the metadata-only API without a full-object fallback.|
+|inventory|coordinator|`list`, `watch` across API groups and resources for default Helm, redacted Secret structure, and custom-resource coverage, plus `get` on the configured built-in resource list. Secret list/watch responses include type and key names; data and stringData values are unconditionally replaced with `<redacted>` before entering the inventory cache. Secret annotations are omitted.|
 |metrics|node agents|`get` on `nodes/metrics`, for the local kubelet `/metrics` and `/metrics/cadvisor` only.|
 |logs|node agents|No RBAC; read-only hostPath `/var/log/pods`.|
 |always|node agents|`list`, `watch` on pods (cluster-wide in the cluster profile; the agent filters by `spec.nodeName`).|
@@ -46,7 +46,7 @@ Redaction runs before every sink: the evidence ring, the spool, transmission, an
 
 ## What is exported
 
-Normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. Never exported: raw logs, raw metric samples, full manifests, Secret contents, ConfigMap values, environment values, and command lines except allowlisted, redacted fields. Labels and annotations require allowlists (`kubernetes.labelAllowlist`, `kubernetes.annotationAllowlist`). The local export policy is enforced even when a rule or investigation asks for more.
+Normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. Never exported: raw logs, raw metric samples, full manifests, Secret values, ConfigMap values, environment values, and command lines except allowlisted, redacted fields. Labels and annotations require allowlists (`kubernetes.labelAllowlist`, `kubernetes.annotationAllowlist`). The local export policy is enforced even when a rule or investigation asks for more.
 
 ## Investigation
 

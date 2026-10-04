@@ -253,7 +253,7 @@ func (n *Normalizer) normalize(obj *unstructured.Unstructured) (*entry, error) {
 	case KindStorageCls:
 		err = n.storageClass(em, obj)
 	case KindSecret:
-		n.helm(em, obj)
+		n.secret(em, obj)
 	case KindConfigMap:
 		err = n.configMap(em, obj)
 		n.helm(em, obj)

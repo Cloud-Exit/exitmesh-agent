@@ -63,7 +63,7 @@ Capabilities are independent and each carries only its own RBAC and mounts:
 
 |Capability|Value|Grants|
 |---|---|---|
-|Inventory|`capabilities.inventory`|Coordinator wildcard `list`, `watch` within the selected scope for automatic inventory, including Secret metadata, Helm revisions, CRDs, and custom resources; built-in `get` rules remain in `rbac.inventory`. Namespace-scoped installations also read CRD definitions for discovery. Secret values are never collected.|
+|Inventory|`capabilities.inventory`|Coordinator wildcard `list`, `watch` within the selected scope for automatic inventory, including redacted Secret structure, Helm revisions, CRDs, and custom resources; built-in `get` rules remain in `rbac.inventory`. Namespace-scoped installations also read CRD definitions for discovery. Secret data and stringData values are redacted before caching or export.|
 |Metrics|`capabilities.metrics`|Node agent `get` on `nodes/metrics`, used to scrape the local kubelet `/metrics` and `/metrics/cadvisor` at the node address. Annotated pod `/metrics` endpoints are reached over the pod network without RBAC; targets blocked by your NetworkPolicies are reported as coverage gaps.|
 |Logs|`capabilities.logs`|Read-only hostPath `/var/log/pods`. `nodes/log` is never requested.|
 
@@ -71,7 +71,7 @@ Capabilities are independent and each carries only its own RBAC and mounts:
 
 This is the summary shown at onboarding and printed by the chart after install.
 
-**Kubernetes permissions.** Verbs are `get`, `list`, and `watch` only. No identity can create, update, patch, or delete anything, including its own DaemonSet or StatefulSet. Never requested: Secrets, `tokenreviews`, `subjectaccessreviews`, `pods/exec`, `pods/attach`, `pods/portforward`, `nodes/proxy`, `nodes/log`.
+**Kubernetes permissions.** Verbs are `get`, `list`, and `watch` only. No identity can create, update, patch, or delete anything, including its own DaemonSet or StatefulSet. Never requested: Secret get access, `tokenreviews`, `subjectaccessreviews`, `pods/exec`, `pods/attach`, `pods/portforward`, `nodes/proxy`, `nodes/log`.
 
 |Identity|Permission|Scope|
 |---|---|---|
@@ -94,7 +94,7 @@ This is the summary shown at onboarding and printed by the chart after install.
 
 **Container security.** Node agents run as UID 65532 holding only `CAP_DAC_READ_SEARCH` (to read root-owned log files), with a read-only root filesystem, `allowPrivilegeEscalation: false`, seccomp `RuntimeDefault`, never `privileged`, and no host network, PID, or IPC. Container runtimes never grant an added capability to a non-root container process, so the container starts as UID 0 with `CAP_DAC_READ_SEARCH`, `CAP_SETGID`, and `CAP_SETUID`, and the agent's first action is `--run-as 65532:65532`: it switches to that UID and GID, keeps `CAP_DAC_READ_SEARCH` as its only (ambient) capability, and re-executes itself before reading configuration. Each node agent reports its UID and effective capabilities on registration, and the connector shows them. A short init container runs as root with only `CAP_CHOWN` to set the ownership and mode of `/var/lib/exitmesh`. The coordinator meets the `restricted` profile. `node.runAsRootFallback=true` skips the switch and runs the node agent as UID 0 with `CAP_DAC_READ_SEARCH` alone, for environments that forbid `CAP_SETUID`; it is flagged on the connector.
 
-**Export preview.** Sent to ExitMesh: normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. Never sent: raw logs, raw metric samples, full manifests, Secret contents, ConfigMap values, environment values.
+**Export preview.** Sent to ExitMesh: normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. Never sent: raw logs, raw metric samples, full manifests, Secret values, ConfigMap values, environment values.
 
 ## Node to coordinator traffic
 

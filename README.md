@@ -22,13 +22,33 @@ The agent is licensed under the [Apache License 2.0](LICENSE).
 
 ## Read-only and outbound-only
 
-- **Secret inventory and privacy.** Secret objects are captured as metadata, including identity, ownership, and workload dependencies. Secret values are redacted by omission before storage or transit: the agent requests metadata-only responses and never collects or sends `data` or `stringData` to ExitMesh. Helm release names, revisions, and statuses come from storage-object labels, without decoding release payloads. Custom resources are discovered from the CRD watch by default and exported as bounded identity and condition projections. Independent discovery controls, include/exclude filters, and kind/scope limits keep collection bounded without delaying initial synchronization. ExternalSecret conditions, target Secret names, and workload references expose failed synchronization and affected workloads.
-- **Inventory permissions.** Automatic coverage grants the coordinator read-only `list` and `watch` across API groups and resources within the selected scope. Kubernetes cannot restrict these permissions to metadata-only responses; the agent enforces that boundary for Secrets. No write verbs are granted.
-- **Read-only.** Kubernetes access is `get`, `list`, and `watch` only. No writes of any kind, no Secret values, no `tokenreviews` or `subjectaccessreviews`, no `pods/exec`, `pods/attach`, `pods/portforward`, `nodes/proxy`, or `nodes/log`. The agent never executes commands and never self-updates.
+- **Secret inventory and privacy.** Secrets are collected with their identity, ownership, type, immutable flag, and data key names. Every value in `data` and `stringData` is replaced unconditionally with `<redacted>` before caching, storage, or transit to ExitMesh. Secret annotations are dropped because they can contain copied values. Helm release names, revisions, and statuses come from storage-object labels; release payloads remain redacted and are never decoded. ExternalSecret conditions, target Secret names, and workload references expose failed synchronization and affected workloads.
+- **Custom-resource inventory.** Custom resources are discovered from the CRD watch by default and exported as bounded identity and condition projections. Independent discovery controls, include/exclude filters, and kind/scope limits keep collection bounded without delaying initial synchronization.
+- **Inventory permissions.** Automatic coverage grants the coordinator read-only `list` and `watch` across API groups and resources within the selected scope. Secret responses are redacted locally before entering the inventory pipeline. No write verbs are granted.
+- **Read-only.** Kubernetes access is `get`, `list`, and `watch` only. No writes of any kind, no exported Secret values, no `tokenreviews` or `subjectaccessreviews`, no `pods/exec`, `pods/attach`, `pods/portforward`, `nodes/proxy`, or `nodes/log`. The agent never executes commands and never self-updates.
 - **One disclosed host directory.** Node agents mount `/var/log/pods` read-only and write only to `/var/lib/exitmesh` (mode 0700, capped at 1 GiB by the agent). Hosts run as the unprivileged `exitmesh` user under a hardened systemd unit whose only writable path is `/var/lib/exitmesh`.
 - **Outbound-only.** The coordinator (or host agent) dials out to your ExitMesh endpoint over a WebSocket tunnel. Nothing listens outside the cluster network; node agents reach the coordinator over a ClusterIP Service. Shipped NetworkPolicies make default-deny namespaces work unchanged.
 - **Durable store and forward.** Every checkpoint, delta, metric fact, and finding is spooled before it counts as emitted and is resent byte-identical until committed, so outages leave no gaps.
 - **Inspectable rules.** Rule bundles are signed for integrity, not secrecy. Every rule that runs on your infrastructure can be read on the coordinator volume or under `/var/lib/exitmesh`.
+
+
+Secret collection retains structure like this, then exports it as normalized inventory fields:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sh.helm.release.v1.hcloud-csi.v4
+  namespace: kube-system
+  labels:
+    owner: helm
+    name: hcloud-csi
+    status: deployed
+    version: "4"
+type: helm.sh/release.v1
+data:
+  release: <redacted>
+```
 
 ## Quickstart: Kubernetes
 
@@ -97,4 +117,4 @@ make chart-test   # helm lint and chart assertions
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for every quality gate, the DCO sign-off, and dependency rules. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
-Coordinator enrollment-token rotation is detected at startup. Update the mounted Secret and restart the coordinator using a version supporting automatic refresh; it re-enrolls the same writer and preserves queued history. See [token rotation](docs/operations.md#coordinator-token-rotation) for upgrade behavior and recovery limits.
+Coordinator enrollment-token rotation is detected at startup. Update the mounted Secret and restart the coordinator using v0.13.0 or newer; it re-enrolls the same writer and preserves queued history. See [token rotation](docs/operations.md#coordinator-token-rotation) for upgrade behavior and recovery limits.

@@ -183,7 +183,7 @@ Local administrator upper bounds; rules cannot exceed them.
 |`rbac.create`|`true`|Render RBAC.|
 |`rbac.clusterReads`|`true`|Cluster-scoped gets (`nodes`, `persistentvolumes`, `nodes/metrics`).|
 |`rbac.issuerDiscovery`|`false`|Grant the coordinator `get` on the issuer discovery URLs.|
-|`rbac.inventory.namespaced`, `rbac.inventory.cluster`|workload, network, storage, policy resources|Additional built-in inventory rules (`get`, `list`, `watch`); Secrets, subresources, and wildcards are refused in these get-capable lists. The chart separately grants wildcard `list`, `watch` for automatic custom-resource and Secret metadata inventory.|
+|`rbac.inventory.namespaced`, `rbac.inventory.cluster`|workload, network, storage, policy resources|Additional built-in inventory rules (`get`, `list`, `watch`); Secrets, subresources, and wildcards are refused in these get-capable lists. The chart separately grants wildcard `list`, `watch` for automatic custom-resource and redacted Secret structure inventory.|
 |`tls.mode`|`generate`|`generate`, `certManager`, or `existingSecret` for the node API certificate.|
 |`tls.caBundle`|empty|CA for node agents; required unless `generate`.|
 |`tls.existingSecret`|empty|`kubernetes.io/tls` Secret in the coordinator namespace.|

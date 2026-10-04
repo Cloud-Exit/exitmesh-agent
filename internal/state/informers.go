@@ -194,7 +194,7 @@ func NewCollector(o CollectorOptions) (*Collector, error) {
 	norm := o.Tracker.Normalizer()
 	for _, kind := range kinds {
 		spec := catalogByKind[kind]
-		metaOnly := spec.MetadataOnly && (kind == KindSecret || !norm.Selected(kind, "keys"))
+		metaOnly := spec.MetadataOnly && !norm.Selected(kind, "keys")
 		if metaOnly && o.Metadata == nil {
 			return nil, errors.New("state: collecting metadata requires a metadata client")
 		}
@@ -394,6 +394,11 @@ func (c *Collector) list(ctx context.Context, sc *scope, opts metav1.ListOptions
 	if err != nil {
 		return nil, err
 	}
+	if sc.kind == KindSecret {
+		for i := range l.Items {
+			c.o.Tracker.Normalizer().strip(KindSecret, &l.Items[i])
+		}
+	}
 	return l, nil
 }
 
@@ -401,7 +406,19 @@ func (c *Collector) watch(ctx context.Context, sc *scope, opts metav1.ListOption
 	if sc.metaOnly {
 		return c.o.Metadata.Resource(sc.spec.GVR).Namespace(sc.ns).Watch(ctx, opts)
 	}
-	return c.o.Dynamic.Resource(sc.spec.GVR).Namespace(sc.ns).Watch(ctx, opts)
+	w, err := c.o.Dynamic.Resource(sc.spec.GVR).Namespace(sc.ns).Watch(ctx, opts)
+	if err != nil || sc.kind != KindSecret {
+		return w, err
+	}
+	return watch.Filter(w, func(ev watch.Event) (watch.Event, bool) {
+		if u, ok := ev.Object.(*unstructured.Unstructured); ok {
+			// The projection replaces Object without mutating a shared watch input.
+			safe := &unstructured.Unstructured{Object: u.Object}
+			c.o.Tracker.Normalizer().strip(KindSecret, safe)
+			ev.Object = safe
+		}
+		return ev, true
+	}), nil
 }
 
 func (sc *scope) setAccessErr(err error) {

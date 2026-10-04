@@ -34,7 +34,7 @@ Labels (`kubernetes.labelAllowlist`, a trailing `*` matches a prefix), default:
 
 Annotations (`kubernetes.annotationAllowlist`): Helm release name and namespace by default; Secret annotations are always omitted.
 
-Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references. Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret values and Helm release payloads are never read.
+Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references. Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret data and stringData keys are retained with constant redacted values before caching or export; Helm release payloads are never decoded.
 
 ## Scopes
 
@@ -230,7 +230,7 @@ API: `v1` `pods`, namespaced.
 
 ## Secret
 
-API: `v1` `secrets`, namespaced, metadata-only informer by default.
+API: `v1` `secrets`, namespaced.
 
 |Field|Source|Type|Redaction|Default|
 |---|---|---|---|---|
@@ -238,6 +238,11 @@ API: `v1` `secrets`, namespaced, metadata-only informer by default.
 |`terminating`|metadata.deletionTimestamp (present only while deletion is pending)|bool|structural|yes|
 |`labels.<key>`|metadata.labels (allowlisted keys)|string|allowlist|yes|
 |`owners.<kind>.<name>`|metadata.ownerReferences[] (value: controller flag)|bool|reference|yes|
+|`apiVersion`|apiVersion|string|structural|yes|
+|`type`|type|string|structural|yes|
+|`immutable`|immutable|bool|structural|yes|
+|`data.<key>`|data keys with values replaced by a constant redaction marker|string|structural|yes|
+|`stringData.<key>`|stringData keys with values replaced by a constant redaction marker|string|structural|yes|
 |`helm.name`|metadata.labels.name when owner=helm|string|reference|yes|
 |`helm.revision`|metadata.labels.version when owner=helm|int|structural|yes|
 |`helm.status`|metadata.labels.status when owner=helm|string|structural|yes|

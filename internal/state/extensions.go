@@ -4,9 +4,36 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cloud-exit/exitmesh-agent/internal/redact"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+func secretFields() []Field {
+	return append([]Field{
+		f("apiVersion", "apiVersion", TypeString, RedactStructural, true),
+		f("type", "type", TypeString, RedactStructural, true),
+		f("immutable", "immutable", TypeBool, RedactStructural, true),
+		f("data.<key>", "data keys with values replaced by a constant redaction marker", TypeString, RedactStructural, true),
+		f("stringData.<key>", "stringData keys with values replaced by a constant redaction marker", TypeString, RedactStructural, true),
+	}, helmFields()...)
+}
+
+func (n *Normalizer) secret(em *emitter, obj *unstructured.Unstructured) {
+	em.put("apiVersion", obj.GetAPIVersion())
+	em.put("type", stringAt(obj, "type"))
+	if v, ok, _ := unstructured.NestedBool(obj.Object, "immutable"); ok {
+		em.put("immutable", v)
+	}
+	for _, field := range []string{"data", "stringData"} {
+		values, _ := obj.Object[field].(map[string]any)
+		for key := range values {
+			em.set(field+".<key>", field+"."+key, redact.Placeholder)
+		}
+	}
+	n.helm(em, obj)
+}
 
 func helmFields() []Field {
 	return []Field{
@@ -155,6 +182,23 @@ func (n *Normalizer) stripExtension(kind string, u *unstructured.Unstructured) {
 		meta["annotations"] = ann
 	}
 	out["metadata"] = meta
+	if kind == KindSecret {
+		if v, ok, _ := unstructured.NestedString(u.Object, "type"); ok {
+			out["type"] = v
+		}
+		if v, ok, _ := unstructured.NestedBool(u.Object, "immutable"); ok {
+			out["immutable"] = v
+		}
+		for _, field := range []string{"data", "stringData"} {
+			if values, ok := u.Object[field].(map[string]any); ok {
+				safe := make(map[string]any, len(values))
+				for key := range values {
+					safe[key] = redact.Placeholder
+				}
+				out[field] = safe
+			}
+		}
+	}
 	if kind != KindSecret {
 		status := map[string]any{}
 		if v, ok, _ := unstructured.NestedInt64(u.Object, "status", "observedGeneration"); ok {
