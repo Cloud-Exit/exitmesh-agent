@@ -132,3 +132,19 @@ Custom-resource projection version 1 exports identity, allowlisted metadata, own
 Automatic inventory requires wildcard list/watch permissions. Kubernetes RBAC cannot limit those grants to metadata responses or exclusively to custom resources. The agent requests only Secret metadata and selects custom-resource fields before caching or export. Namespace filters and exclusions apply to namespaced resources.
 
 `kubernetes.customResources.enabled` defaults to true and is independent of `kubernetes.resources`, which selects built-in inventory kinds. Set it to false to stop custom-instance discovery; explicitly selected CRD definition inventory still works. `maxKinds` (default 100) and `maxScopes` (default 256) bound collection, counting each kind/namespace pair as a scope. Include/exclude glob lists match `group/Kind` or `plural.group`, and exclusions take precedence. Eligible running kinds retain their slots; remaining slots are filled in kind order. Excess kinds are not collected and discovery reports partial coverage with a limit reason. Restrict includes to prioritize the kinds you need. These controls limit collection, not the approved wildcard list/watch permission grant.
+
+## Coordinator token rotation
+
+The enrollment token mounted from the Kubernetes Secret is the bootstrap key. ExitMesh returns a separate writer credential, which the coordinator persists on its PVC for session reconnects. The raw enrollment token is never copied to the PVC; a SHA-256 fingerprint records which token produced the credential.
+
+On startup, the coordinator rereads the mounted token. A changed fingerprint triggers enrollment for the same writer and target before session startup. Successful enrollment atomically replaces the credential and clears a `superseded` or `unauthorized` halt. Failed enrollment preserves the old credential and halt and retries with logged backoff. Retired writers, closed epochs, other ownership halts, and tokens for a different target are not automatically recovered.
+
+After updating the enrollment-token Secret, restart the coordinator normally:
+
+```sh
+kubectl -n exitmesh rollout restart statefulset/exitmesh-agent-coordinator
+kubectl -n exitmesh rollout status statefulset/exitmesh-agent-coordinator --timeout=300s
+kubectl -n exitmesh logs -f statefulset/exitmesh-agent-coordinator -c coordinator
+```
+
+Use the installed StatefulSet name if it differs. Look for `refreshing enrollment`, `enrolled`, and `history session established`. Secret changes during an established session do not trigger this startup path until restart. On the first upgrade from 0.11 or 0.12, existing state has no token fingerprint, so the coordinator performs one refresh using the current mounted token; the token must still be valid. Subsequent restarts with the same token reuse the issued credential. Queued history, writer identity, and epoch are retained. Do not delete the PVC for token rotation. Versions 0.11 and 0.12 do not implement this automatic refresh.

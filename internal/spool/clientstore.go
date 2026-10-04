@@ -75,7 +75,12 @@ func (a ClientStore) Identity() client.Identity {
 }
 
 func (a ClientStore) SetIdentity(id client.Identity) error {
-	return mapErr(a.S.SetIdentity(Identity{TargetID: id.TargetID, TargetType: id.TargetType, Credential: id.Credential, CredentialID: id.CredentialID, MachineID: id.MachineID}))
+	previous := a.S.Identity()
+	hash := ""
+	if previous.TargetID == id.TargetID {
+		hash = previous.EnrollmentTokenHash
+	}
+	return mapErr(a.S.SetIdentity(Identity{TargetID: id.TargetID, TargetType: id.TargetType, Credential: id.Credential, CredentialID: id.CredentialID, MachineID: id.MachineID, EnrollmentTokenHash: hash}))
 }
 
 func (a ClientStore) Epoch() (client.EpochState, bool) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/spool"
+	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol/client"
 )
 
@@ -130,5 +132,139 @@ func TestEnrollmentCancellationInterruptsMaximumBackoff(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cancellation waited for the retry delay")
+	}
+}
+
+func TestStartupRefreshesRotatedEnrollmentToken(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%v", legacy), func(t *testing.T) {
+			e := newEnv(t)
+			r := e.start(e.config())
+			epoch, _ := e.committed(r)
+			before := r.c.sp.Identity()
+			writer := r.c.sp.WriterID()
+			if err := r.stop(); err != nil {
+				t.Fatal(err)
+			}
+			s, err := spool.Open(spool.Options{Dir: filepath.Join(e.stateDir, "spool")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := before
+			id.EnrollmentTokenHash = "previous-token-fingerprint"
+			if legacy {
+				id.EnrollmentTokenHash = ""
+			}
+			if err := s.SetIdentity(id); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetHalted(client.HaltSuperseded, "test"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			r = e.start(e.config())
+			after := r.c.sp.Identity()
+			resumedEpoch, _ := e.committed(r)
+			if after.Credential == before.Credential || after.Credential == "" || after.EnrollmentTokenHash == "" {
+				t.Fatal("startup did not refresh credential")
+			}
+			if r.c.sp.WriterID() != writer || resumedEpoch != epoch {
+				t.Fatal("rotation replaced writer history")
+			}
+			if _, ok := r.c.sp.Halted(); ok {
+				t.Fatal("halt not cleared after successful enrollment")
+			}
+			if err := r.stop(); err != nil {
+				t.Fatal(err)
+			}
+			r = e.start(e.config())
+			if r.c.sp.Identity() != after {
+				t.Fatal("unchanged token caused re-enrollment")
+			}
+		})
+	}
+}
+
+func TestEnrollmentRotationRefusesOwnershipAndTargetChanges(t *testing.T) {
+	for _, scenario := range []string{"unchanged token", "retired", "closed epoch", "different target"} {
+		t.Run(scenario, func(t *testing.T) {
+			e := newEnv(t)
+			c := enrollmentCoordinator(t, e, &syncBuffer{}, Tuning{})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := c.ensureIdentity(ctx); err != nil {
+				t.Fatal(err)
+			}
+			id := c.sp.Identity()
+			code := client.HaltSuperseded
+			switch scenario {
+			case "retired":
+				code = protocol.CodeWriterRetired
+				id.EnrollmentTokenHash = "old"
+			case "closed epoch":
+				code = protocol.CodeEpochClosed
+				id.EnrollmentTokenHash = "old"
+			case "different target":
+				if err := os.WriteFile(c.cfg.EnrollmentTokenFile, []byte("emx1_c_t-other_fixture1234567890"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := c.sp.SetIdentity(id); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.sp.SetHalted(code, "test"); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.ensureIdentity(ctx); err == nil {
+				t.Fatal("unsafe recovery accepted")
+			}
+			if c.sp.Identity() != id {
+				t.Fatal("failed recovery changed identity")
+			}
+			if h, ok := c.sp.Halted(); !ok || h.Code != code {
+				t.Fatal("failed recovery cleared halt")
+			}
+		})
+	}
+}
+
+func TestRejectedRotationPreservesHaltAndCredential(t *testing.T) {
+	e := newEnv(t)
+	logs := &syncBuffer{}
+	c := enrollmentCoordinator(t, e, logs, Tuning{RetryBase: time.Millisecond, BackoffMax: 2 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.ensureIdentity(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before := c.sp.Identity()
+	if err := c.sp.SetHalted(client.HaltSuperseded, "test"); err != nil {
+		t.Fatal(err)
+	}
+	bad := e.token + "invalid"
+	if err := os.WriteFile(c.cfg.EnrollmentTokenFile, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	retryCtx, stop := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- c.ensureIdentity(retryCtx) }()
+	t.Cleanup(func() { stop(); <-done })
+	eventually(t, "rotated enrollment retries", func() bool { return strings.Count(logs.String(), "enrollment failed; retrying") >= 3 })
+	stop()
+	err := <-done
+	done <- err
+	if !errors.Is(err, context.Canceled) {
+		t.Fatal("rotation did not cancel")
+	}
+	if c.sp.Identity() != before {
+		t.Fatal("rejected token replaced credential")
+	}
+	if _, ok := c.sp.Halted(); !ok {
+		t.Fatal("rejected token cleared halt")
+	}
+	if strings.Contains(logs.String(), bad) || strings.Contains(logs.String(), before.Credential) || strings.Contains(logs.String(), before.EnrollmentTokenHash) {
+		t.Fatal("enrollment leaked credential or token fingerprint")
 	}
 }

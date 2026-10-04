@@ -2,6 +2,8 @@ package coordinator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -29,14 +31,21 @@ func (c *Coordinator) readToken() (string, protocol.EnrollmentToken, error) {
 	return raw, tok, nil
 }
 
-// ensureIdentity enrolls on first start; an air-gapped coordinator takes its target id from the cluster token.
+// ensureIdentity refreshes enrollment when the mounted token changes.
 func (c *Coordinator) ensureIdentity(ctx context.Context) error {
 	id := c.sp.Identity()
-	if id.TargetID != "" && (c.airgap || id.Credential != "") {
-		c.targetID = id.TargetID
-		return nil
+	halt, halted := c.sp.Halted()
+	stopped := func() error {
+		return fmt.Errorf("coordinator: writer halted (%s at %s) and refuses to run; token rotation requires an updated enrollment token for the same target; other ownership failures require resolution in ExitMesh", halt.Code, halt.At.Format(time.RFC3339))
+	}
+	if halted && (c.airgap || (halt.Code != "superseded" && halt.Code != protocol.CodeUnauthorized)) {
+		return stopped()
 	}
 	if c.airgap {
+		if id.TargetID != "" {
+			c.targetID = id.TargetID
+			return nil
+		}
 		_, tok, err := c.readToken()
 		if err != nil {
 			return err
@@ -59,14 +68,37 @@ func (c *Coordinator) ensureIdentity(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		raw, _, err := c.readToken()
+		raw, tok, err := c.readToken()
+		fingerprint := ""
 		var res *protocol.EnrollResponse
 		if err == nil {
+			target, _ := tok.TargetID()
+			if id.TargetID != "" && id.TargetID != target {
+				return errors.New("coordinator: enrollment token target differs from the existing spool; refusing to move queued history")
+			}
+			hash := sha256.Sum256([]byte(raw))
+			fingerprint = hex.EncodeToString(hash[:])
+			if id.EnrollmentTokenHash == fingerprint {
+				if halted {
+					return stopped()
+				}
+				if id.Credential != "" {
+					c.targetID = id.TargetID
+					return nil
+				}
+			}
+			if attempt == 1 && id.TargetID != "" {
+				c.log.Info("enrollment token changed or not previously tracked; refreshing enrollment")
+			}
 			req.Token = raw
 			res, err = tunnel.Enroll(ctx, opts, req)
 		}
 		if err == nil {
-			if err := c.sp.SetIdentity(spool.Identity{TargetID: res.TargetID, TargetType: protocol.TargetKubernetes, Credential: res.Credential, CredentialID: res.CredentialID}); err != nil {
+			target, _ := tok.TargetID()
+			if res.TargetID != target {
+				return errors.New("coordinator: enrollment response target differs from token")
+			}
+			if err := c.sp.SetEnrollment(spool.Identity{TargetID: res.TargetID, TargetType: protocol.TargetKubernetes, Credential: res.Credential, CredentialID: res.CredentialID, EnrollmentTokenHash: fingerprint}); err != nil {
 				return fmt.Errorf("coordinator: store credential: %w", err)
 			}
 			c.targetID = res.TargetID

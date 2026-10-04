@@ -71,11 +71,12 @@ func (o Options) withDefaults() Options {
 
 // Identity is the enrolled identity stored with the spool.
 type Identity struct {
-	TargetID     string `json:"target_id"`
-	TargetType   string `json:"target_type"`
-	Credential   string `json:"credential"`
-	CredentialID string `json:"credential_id"`
-	MachineID    string `json:"machine_id"`
+	EnrollmentTokenHash string `json:"enrollment_token_hash,omitempty"`
+	TargetID            string `json:"target_id"`
+	TargetType          string `json:"target_type"`
+	Credential          string `json:"credential"`
+	CredentialID        string `json:"credential_id"`
+	MachineID           string `json:"machine_id"`
 }
 
 // EpochState is the current epoch and its chain position.
@@ -439,6 +440,35 @@ func (s *Spool) SetIdentity(id Identity) error {
 		return err
 	}
 	s.identity = id
+	return nil
+}
+
+// SetEnrollment commits a successful coordinator enrollment and clears only recoverable halts.
+func (s *Spool) SetEnrollment(id Identity) error {
+	if !protocol.ValidTargetID(id.TargetID) || id.TargetType != protocol.TargetKubernetes || id.Credential == "" || id.EnrollmentTokenHash == "" {
+		return errors.New("spool: incomplete coordinator enrollment")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrClosed
+	}
+	if s.identity.TargetID != "" && s.identity.TargetID != id.TargetID {
+		return errors.New("spool: enrollment cannot change target")
+	}
+	if s.halt != nil && s.halt.Code != "superseded" && s.halt.Code != protocol.CodeUnauthorized {
+		return ErrHalted
+	}
+	if err := s.db.Update(func(tx *bolt.Tx) error {
+		m := tx.Bucket(bucketMeta)
+		if err := putJSON(m, keyIdentity, id); err != nil {
+			return err
+		}
+		return m.Delete(keyHalt)
+	}); err != nil {
+		return err
+	}
+	s.identity, s.halt = id, nil
 	return nil
 }
 

@@ -340,9 +340,6 @@ func (c *Coordinator) Run(ctx context.Context) (err error) {
 			err = cerr
 		}
 	}()
-	if h, ok := sp.Halted(); ok {
-		return fmt.Errorf("coordinator: this writer was stopped (%s: %s at %s) and refuses to run; resolve the cause in ExitMesh, then clear the halt or reinstall with a new spool", h.Code, h.Message, h.At.Format(time.RFC3339))
-	}
 	c.log.Info("spool opened", "writer", sp.WriterID().String(), "incarnation", sp.Incarnation())
 	if err := c.ensureIdentity(ctx); err != nil {
 		if ctx.Err() != nil {
