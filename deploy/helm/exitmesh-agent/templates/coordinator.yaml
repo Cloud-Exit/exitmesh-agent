@@ -33,7 +33,7 @@ metadata:
 spec:
   replicas: 1
   serviceName: {{ $name }}
-  podManagementPolicy: OrderedReady
+  podManagementPolicy: Parallel
   updateStrategy:
     type: RollingUpdate
   persistentVolumeClaimRetentionPolicy:

@@ -13,6 +13,18 @@ kubectl -n exitmesh-node logs -l app.kubernetes.io/component=node --prefix --tai
 
 The connector page is the primary view: agent versions per node, last checkpoint and last applied delta, coverage per node, namespace, resource type, and capability, bundle convergence, rule states, coordinator storage placement, spool use, and the projected outage window. The agent logs in JSON through a redaction handler; logs never carry raw payloads, credentials, or tokens.
 
+## Coordinator pod management policy
+
+The chart uses `podManagementPolicy: Parallel` for the coordinator StatefulSet. The coordinator still runs one replica.
+
+Kubernetes does not allow changing this field on an existing StatefulSet. When upgrading an installation that uses `OrderedReady`, orphan the existing StatefulSet before applying the updated chart through Helm or your GitOps controller:
+
+```sh
+kubectl -n exitmesh delete statefulset exitmesh-agent-coordinator --cascade=orphan
+```
+
+Use your installed StatefulSet name if it differs. Orphan deletion preserves the existing pod and PVC so the recreated StatefulSet can adopt them. Do not use a normal cascading deletion: the chart's `whenDeleted: Delete` retention policy can delete the PVC. Apply the updated chart immediately afterward to restore controller management.
+
 ## Never force-delete the coordinator pod
 
 Do not run `kubectl delete pod --force --grace-period=0` on the coordinator, and do not remove its finalizers. Kubernetes documents that force-deleting a StatefulSet pod can leave two instances running, and the coordinator relies on at-most-one pod (together with `ReadWriteOncePod` or the spool file lock, and writer ownership checks in ExitMesh) for its single-writer guarantee. A normal `kubectl delete pod` is safe: the StatefulSet recreates the pod only after the old one has terminated, and the new process takes the spool lock, increments its incarnation, resumes its epoch, and reconciles through relist and diff. Node agents spool meanwhile.
