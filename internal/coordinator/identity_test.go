@@ -375,7 +375,7 @@ func TestFailedTargetSwitchKeepsActiveSpool(t *testing.T) {
 	}
 	staged, err := filepath.Glob(filepath.Join(e.stateDir, "spool-writer-*"))
 	if err != nil || len(staged) != 0 {
-		t.Fatal("cancelled enrollment left staged spools")
+		t.Fatal("canceled enrollment left staged spools")
 	}
 	if strings.Contains(logs.String(), token) || strings.Contains(logs.String(), before.Credential) {
 		t.Fatal("target switch leaked credentials")

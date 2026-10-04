@@ -14,7 +14,12 @@ const replacementPrefix = "spool-writer-"
 // OpenActive resolves the coordinator binding; the caller holds the parent directory lock.
 func OpenActive(opts Options) (*Spool, error) {
 	root := filepath.Dir(opts.Dir)
-	b, err := os.ReadFile(filepath.Join(root, activeSpoolFile))
+	dir, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	b, err := dir.ReadFile(activeSpoolFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -24,12 +29,12 @@ func OpenActive(opts Options) (*Spool, error) {
 			return nil, errors.New("spool: invalid active spool binding")
 		}
 		opts.Dir = filepath.Join(root, name)
-		if info, err := os.Lstat(opts.Dir); err != nil {
+		if info, err := dir.Lstat(name); err != nil {
 			return nil, err
 		} else if !info.IsDir() {
 			return nil, errors.New("spool: active binding is not a directory")
 		}
-		if info, err := os.Lstat(filepath.Join(opts.Dir, "meta.db")); err != nil {
+		if info, err := dir.Lstat(filepath.Join(name, "meta.db")); err != nil {
 			return nil, fmt.Errorf("spool: active binding is missing its database: %w", err)
 		} else if !info.Mode().IsRegular() {
 			return nil, errors.New("spool: active binding is not a regular database")
