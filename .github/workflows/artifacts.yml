@@ -35,7 +35,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: anchore/sbom-action/download-syft@v0.24.2
+      - uses: anchore/sbom-action/download-syft@v0.24.3
       - uses: azure/setup-helm@v5
         with:
           version: ${{ env.HELM_VERSION }}
