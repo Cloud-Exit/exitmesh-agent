@@ -36,8 +36,8 @@ github.com/VictoriaMetrics/VictoriaMetrics v1.132.0 h1:7J6U3j4WvjyEez+Ibb2bAYBbM
 github.com/VictoriaMetrics/VictoriaMetrics v1.132.0/go.mod h1:NpJOi7BbuSKVHPioRwS3yhdL9irJrKMWB+GBwI7+iT8=
 github.com/VictoriaMetrics/metrics v1.40.2 h1:OVSjKcQEx6JAwGeu8/KQm9Su5qJ72TMEW4xYn5vw3Ac=
 github.com/VictoriaMetrics/metrics v1.40.2/go.mod h1:XE4uudAAIRaJE614Tl5HMrtoEU6+GDZO4QTnNSsZRuA=
-github.com/VictoriaMetrics/metricsql v0.87.4 h1:IgJuD6cEhhaC0kyDJcVtyjcIuiWX9yIMnbzH2F6MSpw=
-github.com/VictoriaMetrics/metricsql v0.87.4/go.mod h1:d4EisFO6ONP/HIGDYTAtwrejJBBeKGQYiRl095bS4QQ=
+github.com/VictoriaMetrics/metricsql v0.87.5 h1:ASS6+Emy95a/jkRGbsEV6AjkSPFhR04e1ya+CwWUpv0=
+github.com/VictoriaMetrics/metricsql v0.87.5/go.mod h1:d4EisFO6ONP/HIGDYTAtwrejJBBeKGQYiRl095bS4QQ=
 github.com/alecthomas/kingpin/v2 v2.4.0 h1:f48lwail6p8zpO1bC4TxtqACaGqHYA22qkHjHpqDjYY=
 github.com/alecthomas/kingpin/v2 v2.4.0/go.mod h1:0gyi0zQnjuFk8xrkNKamJoyUo382HRL7ATRpFZCw6tE=
 github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b h1:mimo19zliBX/vSQ6PWWSL9lK8qwHozUj03+zLoEB8O0=

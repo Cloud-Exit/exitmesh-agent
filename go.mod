@@ -7,7 +7,7 @@ toolchain go1.27.1
 require (
 	cel.dev/cel-go v0.32.0
 	github.com/VictoriaMetrics/VictoriaLogs v1.43.1
-	github.com/VictoriaMetrics/metricsql v0.87.4
+	github.com/VictoriaMetrics/metricsql v0.87.5
 	github.com/alecthomas/kingpin/v2 v2.4.0
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b
 	github.com/coder/websocket v1.8.15
