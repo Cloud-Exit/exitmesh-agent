@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/cloud-exit/exitmesh-agent/internal/coordinator"
 	"github.com/cloud-exit/exitmesh-agent/internal/investigate"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
@@ -410,17 +412,23 @@ func TestInvestigationToolsThroughRefcp(t *testing.T) {
 	if !slices.Equal(pods, []string{"pod-1", "pod-2"}) {
 		t.Fatalf("state.query pods %v", pods)
 	}
+
+	res = e.callTool("object.get", args(map[string]any{"uid": "pod-1"}))
+	checkEnvelope(t, "object.get", res, "live", start, end, "")
+	if uid, _, _ := unstructured.NestedString(res, "data", "object", "metadata", "uid"); uid != "pod-1" {
+		t.Fatalf("object.get %v", res)
+	}
 	// Audits are tunnel notifications handled apart from the tool response, so they can land after it.
 	e.waitFor("every investigation audited at refcp", func() bool {
 		audited := map[string]bool{}
 		for _, au := range e.cp.Audit(e.target) {
 			if au.Event == "investigation" {
-				for _, tool := range []string{"promql.query", "logql.query", "evidence.query", "state.query"} {
+				for _, tool := range []string{"promql.query", "logql.query", "evidence.query", "state.query", "object.get"} {
 					audited[tool] = audited[tool] || strings.Contains(au.Detail, tool)
 				}
 			}
 		}
-		return len(audited) == 4 && audited["promql.query"] && audited["logql.query"] && audited["evidence.query"] && audited["state.query"]
+		return len(audited) == 5 && audited["promql.query"] && audited["logql.query"] && audited["evidence.query"] && audited["state.query"] && audited["object.get"]
 	})
 }
 

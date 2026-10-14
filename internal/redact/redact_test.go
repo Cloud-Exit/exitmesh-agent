@@ -38,6 +38,20 @@ func TestKeyValue(t *testing.T) {
 	}
 }
 
+func TestIsSecretField(t *testing.T) {
+	r := Default()
+	for _, k := range []string{"password", "clientSecret", "client_secret", "dbPassword", "apiKey", "X-Api-Key", "bearerToken"} {
+		if !r.IsSecretField(k) {
+			t.Errorf("%s not secret", k)
+		}
+	}
+	for _, k := range []string{"secretName", "sessionAffinity", "tokenExpirationSeconds", "name", "image", "secretRef"} {
+		if r.IsSecretField(k) {
+			t.Errorf("%s secret", k)
+		}
+	}
+}
+
 func TestExtraPatterns(t *testing.T) {
 	r, err := New(Config{ExtraPatterns: []string{`\bcust-[0-9]{4}\b`}})
 	if err != nil {

@@ -3,8 +3,11 @@ package investigate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
@@ -291,5 +294,57 @@ func (s *Service) graphQuery(_ context.Context, c *call) (*Result, error) {
 		}
 	}
 	res.Data = map[string]any{"edges": nonNil(ge), "resources": nonNil(rs)}
+	return res, nil
+}
+
+func (s *Service) objectGet(ctx context.Context, c *call) (*Result, error) {
+	var a struct {
+		Request
+		ResourceRef
+	}
+	if err := decodeStrict(c.raw, &a); err != nil {
+		return nil, err
+	}
+	if err := a.ResourceRef.validate(); err != nil {
+		return nil, err
+	}
+	st, err := c.currentState()
+	if err != nil {
+		return nil, err
+	}
+	r, err := lookupResource(st, a.ResourceRef)
+	if err != nil {
+		return nil, err
+	}
+	if !c.scope.contains(r) {
+		return nil, errorf(ClassUnauthorized, "resource %s is outside the request scope", r.UID)
+	}
+	obj, err := s.o.Objects.LiveObject(ctx, r.Kind, r.Namespace, r.Name)
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return nil, err
+	case err != nil:
+		return nil, errorf(ClassUnavailable, "live read of %s failed: %s", r.UID, s.o.Redactor.String(err.Error()))
+	case obj == nil:
+		return nil, errorf(ClassUnavailable, "resource %s no longer exists", r.UID)
+	}
+	if uid, _, _ := unstructured.NestedString(obj, "metadata", "uid"); uid != r.UID {
+		return nil, errorf(ClassUnavailable, "resource %s was replaced by %s", r.UID, uid)
+	}
+	res := c.newResult(sourceLive, "", "", "")
+	if c.req.Window != nil && c.req.Window.End < c.now.UnixMilli()-60_000 {
+		res.limit("object.get answers from the live object; the requested window is not reconstructed")
+	}
+	ref := StateResource{UID: r.UID, Kind: r.Kind, Namespace: r.Namespace, Name: r.Name}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return nil, errorf(ClassInternal, "encode object: %v", err)
+	}
+	res.Data = map[string]any{"resource": ref, "object": obj}
+	if int64(len(b)) > res.Limits.MaxBytes {
+		res.Truncated = true
+		res.limit("object is %d bytes, above max_bytes %d; object omitted", len(b), res.Limits.MaxBytes)
+		res.Data = map[string]any{"resource": ref, "object": nil}
+	}
 	return res, nil
 }

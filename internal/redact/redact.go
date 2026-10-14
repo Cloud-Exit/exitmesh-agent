@@ -113,6 +113,21 @@ func (r *Redactor) IsSecretKey(key string) bool {
 	return false
 }
 
+// IsSecretField reports whether a structured field name ends in a secret key name, ignoring case, '_' and '-', so clientSecret matches and secretName does not.
+func (r *Redactor) IsSecretField(key string) bool {
+	k := fieldForm(key)
+	for s := range r.secretKeys {
+		if strings.HasSuffix(k, fieldForm(s)) {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldForm(s string) string {
+	return strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(s))
+}
+
 // KeyValue redacts value when key names a secret, and otherwise redacts patterns inside value.
 func (r *Redactor) KeyValue(key, value string) string {
 	if r.IsSecretKey(key) {

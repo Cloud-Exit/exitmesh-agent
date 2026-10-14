@@ -45,6 +45,7 @@ Scope entries combine per dimension and the dimensions intersect: namespaces are
 |Tool|Arguments beyond the request|Behavior|
 |---|---|---|
 |`state.query`|`kind`, `namespace`, `name`, `fields` (dot path to required value)|Filters the current normalized state to resources inside the scope. Items are bounded by `max_lines` and `max_bytes`. Collection scopes that are partial or unavailable for the asked kind and namespaces are limitations. A `namespace` outside the scope is rejected.|
+|`object.get`|`uid`, or `kind`, `namespace`, `name`|Coordinator only. Reads the live Kubernetes object of one resource that is in the current state and inside the scope, through a named list (the coordinator holds list and watch, not get). Secret `data` and `stringData`, ConfigMap `data` and `binaryData`, container `env[].value`, every Secret annotation, and `kubectl.kubernetes.io/last-applied-configuration` are replaced by the redaction placeholder; `managedFields` is dropped; fields whose name ends in a secret key name (for example `clientSecret`) are replaced; every other string passes the redactor. Structure, keys, and references are kept. `data` is `{resource, object}`; an object above `max_bytes` is omitted and the result is truncated. A resource that is gone or was replaced under the same name is `unavailable`.|
 |`graph.query`|`from`, `edge_types`, `depth` (1 to 5), `direction` (`out`, `in`, `both`)|Breadth-first traversal of change-graph edges from in-scope resources. Edges whose other end is outside the scope are omitted and counted as a limitation.|
 |`promql.query`|`query`, `step_ms`|Coordinator: fan-out to node agents (`promql_query` tasks) and evaluation over the coordinator's `kube_*` and pushed series. Host: the local TSDB. Zero `step_ms` is an instant query at `window.end`; a range query has at most 11000 points per series.|
 |`logql.query`|`query`, `step_ms` (metric queries), `direction`|Node agents perform on-demand bounded reads of `/var/log/pods` whether or not a rule tails the stream (PRD I1a); a bare stream selector runs as a `log_read` task. Host: allowlisted log files and the journal.|
@@ -117,7 +118,7 @@ Missing sources, expired retention, unavailable endpoints, and insufficient auth
 |Uncovered node|`node <n> is not covered by a node agent; its data is missing`|
 |No sources|`no node agents are connected and no coordinator series apply; no data was read`|
 |Truncation|`series limit`, `sample limit`, `byte limit`, `line limit`, on-demand read bounds, response cap|
-|State|`collection scope <scope key> is partial: <reason>` (or `unavailable`); `state.query answers from current state; the requested window is not reconstructed`|
+|State|`collection scope <scope key> is partial: <reason>` (or `unavailable`); `state.query answers from current state; the requested window is not reconstructed`; `object.get answers from the live object; the requested window is not reconstructed`|
 
 ## Audit
 

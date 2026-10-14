@@ -37,6 +37,7 @@ const (
 	ToolLookback    = "lookback.query"
 	ToolFindingSave = "finding.save"
 	ToolEvidence    = "evidence.query"
+	ToolObject      = "object.get"
 )
 
 // Audit outcomes.
@@ -65,6 +66,13 @@ type Options struct {
 	SaveFinding func(findings.Observation) error
 	Clock       func() time.Time
 	Redactor    *redact.Redactor
+	// Objects serves object.get; the tool is advertised only when set.
+	Objects ObjectSource
+}
+
+// ObjectSource reads one live Kubernetes object with Secret, ConfigMap, and environment values already redacted; nil means it does not exist.
+type ObjectSource interface {
+	LiveObject(ctx context.Context, kind, namespace, name string) (map[string]any, error)
 }
 
 // NodeRouter runs tasks on node agents.
@@ -160,6 +168,9 @@ func NewService(o Options) (*Service, error) {
 		ToolLookback:    {lookbackDesc, lookbackSchema, s.lookbackQuery},
 		ToolFindingSave: {findingDesc, findingSchema, s.findingSave},
 		ToolEvidence:    {evidenceDesc, evidenceSchema, s.evidenceQuery},
+	}
+	if o.Objects != nil {
+		s.tools[ToolObject] = toolDef{objectDesc, objectSchema, s.objectGet}
 	}
 	return s, nil
 }

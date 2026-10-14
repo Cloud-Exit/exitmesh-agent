@@ -479,7 +479,7 @@ Errors use JSON-RPC error objects with `data.code` set to one of the decision co
 
 ### 9.5 Investigation tools
 
-The writer advertises MCP tools `state.query`, `graph.query`, `promql.query`, `logql.query`, `logsql.query`, and `lookback.query`. Every call carries `scope` (namespaces, resources, nodes), `window` (`start`, `end` in ms), `limits`, `requester`, and `purpose`. Results carry `source`, `window`, `limits`, `truncated`, `limitations`, and the query hash. Results are never retained by the writer.
+The writer advertises MCP tools `state.query`, `graph.query`, `promql.query`, `logql.query`, `logsql.query`, and `lookback.query`, and a Kubernetes writer also advertises `object.get`, which returns the live object of one in-scope resource with Secret values, ConfigMap values, and environment values redacted. Every call carries `scope` (namespaces, resources, nodes), `window` (`start`, `end` in ms), `limits`, `requester`, and `purpose`. Results carry `source`, `window`, `limits`, `truncated`, `limitations`, and the query hash. Results are never retained by the writer.
 
 ## 10. Export format
 

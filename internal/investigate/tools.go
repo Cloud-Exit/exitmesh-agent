@@ -71,6 +71,7 @@ const (
 	logsqlDesc   = "Run native LogsQL, parsed and scope-injected, against a configured VictoriaLogs lookback source."
 	lookbackDesc = "Run the same validated PromQL, MetricsQL, or LogQL query against a configured external lookback source."
 	evidenceDesc = "Read the redacted matched-line evidence that node agents (or the host) hold in memory for a rule, within the request scope and window, without consuming it."
+	objectDesc   = "Read the live Kubernetes object of one resource in the current state, within the request scope, with Secret values, ConfigMap values, environment values, and secret-named fields redacted."
 	findingDesc  = "Re-run a validated query and save its result as a query-generated finding with query hash and requester provenance."
 )
 
@@ -93,6 +94,10 @@ var (
 		"language": map[string]any{"type": "string", "enum": []string{LangPromQL, LangMetricsQL, LangLogQL}},
 		"query":    str("query in the given language"), "step_ms": stepProp, "direction": directionProp,
 	}, "source", "language", "query", "window")
+	objectSchema = toolSchema(map[string]any{
+		"uid": str("resource UID"), "kind": str("resource kind, for example Pod or apps/Deployment"),
+		"namespace": str("namespace of a namespaced resource"), "name": str("resource name"),
+	})
 	evidenceSchema = toolSchema(map[string]any{"rule_id": str("rule whose evidence to read")}, "rule_id", "window")
 	findingSchema  = toolSchema(map[string]any{
 		"tool":      map[string]any{"type": "string", "enum": []string{ToolPromQL, ToolLogQL, ToolLogsQL, ToolLookback}},

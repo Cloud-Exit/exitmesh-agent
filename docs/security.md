@@ -46,7 +46,7 @@ Redaction runs before every sink: the evidence ring, the spool, transmission, an
 
 ## What is exported
 
-Normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. Never exported: raw logs, raw metric samples, full manifests, Secret values, ConfigMap values, environment values, and command lines except allowlisted, redacted fields. Labels and annotations require allowlists (`kubernetes.labelAllowlist`, `kubernetes.annotationAllowlist`). The local export policy is enforced even when a rule or investigation asks for more.
+Normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. Full manifests leave the cluster only on demand through `object.get`, one in-scope resource per call, redacted (docs/investigation.md). Never exported: raw logs, raw metric samples, Secret values, ConfigMap values, environment values, and command lines except allowlisted, redacted fields. Labels and annotations require allowlists (`kubernetes.labelAllowlist`, `kubernetes.annotationAllowlist`). The local export policy is enforced even when a rule or investigation asks for more.
 
 ## Investigation
 

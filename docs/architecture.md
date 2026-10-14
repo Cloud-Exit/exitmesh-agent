@@ -217,7 +217,7 @@ func NewExecutor(o ExecOptions) *Executor // node agents and hosts: PromQL over 
 func (e *Executor) Execute(ctx context.Context, t nodeapi.Task) nodeapi.TaskResult
 ```
 
-Tools: `state.query`, `graph.query`, `promql.query`, `logql.query`, `logsql.query`, `lookback.query`, `evidence.query` (non-destructive reads of node evidence rings through node task kind `evidence_read`), `finding.save`. Every query is parsed with its language's parser, scope matchers are injected at the AST, and it is re-serialized (PRD I2). Results carry source, window, limits, truncation, limitations, and the query hash; nothing is retained.
+Tools: `state.query`, `object.get` (the live object of one in-scope resource, redacted; coordinator only), `graph.query`, `promql.query`, `logql.query`, `logsql.query`, `lookback.query`, `evidence.query` (non-destructive reads of node evidence rings through node task kind `evidence_read`), `finding.save`. Every query is parsed with its language's parser, scope matchers are injected at the AST, and it is re-serialized (PRD I2). Results carry source, window, limits, truncation, limitations, and the query hash; nothing is retained.
 
 ## Roles
 
