@@ -14,7 +14,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/go-jose/go-jose/v4 v4.1.5
-	github.com/godbus/dbus/v5 v5.2.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/klauspost/compress v1.20.1
 	github.com/knqyf263/go-rpmdb v0.1.1
 	github.com/pierrec/lz4/v4 v4.1.31
