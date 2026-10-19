@@ -129,7 +129,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      - uses: helm/chart-testing-action@v2.8.0
+      - uses: helm/chart-testing-action@v2.9.0
       - run: helm lint --strict deploy/helm/exitmesh-agent
       - name: chart-testing lint
         run: ct lint --charts deploy/helm/exitmesh-agent --check-version-increment=false --validate-maintainers=false --helm-lint-extra-args "--set endpoint=https://cp.example.com --set enrollment.token=emx1_c_t-ci_abcdefghijklmnop --set-json trust.roots=[\"ci-root:MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=\"]"
