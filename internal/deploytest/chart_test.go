@@ -319,12 +319,8 @@ func TestNodeAgentSecurityContext(t *testing.T) {
 			t.Errorf("env %s must come from the downward API field %s", name, path)
 		}
 	}
-	lm := env["EXITMESH_MEMORY_LIMIT_MIB"]
-	if lm.ValueFrom == nil || lm.ValueFrom.ResourceFieldRef == nil || lm.ValueFrom.ResourceFieldRef.Resource != "limits.memory" || lm.ValueFrom.ResourceFieldRef.Divisor.String() != "1Mi" {
-		t.Error("memory limit must come from resourceFieldRef limits.memory")
-	}
-	if env["GOMEMLIMIT"].Value != "$(EXITMESH_MEMORY_LIMIT_MIB)000KiB" {
-		t.Errorf("GOMEMLIMIT = %q", env["GOMEMLIMIT"].Value)
+	if _, ok := env["GOMEMLIMIT"]; ok {
+		t.Error("chart must preserve automatic cgroup memory headroom")
 	}
 
 	fb := daemonSet(t, render(t, append([]string{"--set", "node.runAsRootFallback=true"}, baseArgs...)...), nodeDS)
@@ -443,6 +439,11 @@ func TestCoordinatorRestricted(t *testing.T) {
 			}
 		}
 		for _, c := range append(spec.InitContainers, spec.Containers...) {
+			for _, env := range c.Env {
+				if env.Name == "GOMEMLIMIT" {
+					t.Error("coordinator must preserve automatic cgroup memory headroom")
+				}
+			}
 			sc := c.SecurityContext
 			if sc == nil || sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation || sc.Capabilities == nil ||
 				!reflect.DeepEqual(sc.Capabilities.Drop, []corev1.Capability{"ALL"}) || len(sc.Capabilities.Add) != 0 ||

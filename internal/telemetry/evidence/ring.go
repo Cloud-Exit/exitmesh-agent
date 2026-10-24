@@ -2,6 +2,8 @@
 package evidence
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"maps"
 	"sort"
 	"sync"
@@ -79,19 +81,30 @@ func (rr *ruleRing) fit(extra int64) {
 
 // Ring is safe for concurrent use.
 type Ring struct {
-	mu      sync.Mutex
-	ceiling int64
-	red     *redact.Redactor
-	rules   map[string]*ruleRing
-	bytes   int64
+	mu         sync.Mutex
+	ceiling    int64
+	red        *redact.Redactor
+	rules      map[string]*ruleRing
+	bytes      int64
+	labelHash  [32]byte
+	labelCache map[string]string
+	labelSize  int64
 }
 
 // New returns a ring with the given ceiling (DefaultCeiling when zero or negative).
 func New(ceiling int64) *Ring {
+	return NewWithRedactor(ceiling, nil)
+}
+
+// NewWithRedactor applies the agent's complete redaction policy at the evidence boundary.
+func NewWithRedactor(ceiling int64, red *redact.Redactor) *Ring {
 	if ceiling <= 0 {
 		ceiling = DefaultCeiling
 	}
-	return &Ring{ceiling: ceiling, red: redact.Default(), rules: map[string]*ruleRing{}}
+	if red == nil {
+		red = redact.Default()
+	}
+	return &Ring{ceiling: ceiling, red: red, rules: map[string]*ruleRing{}}
 }
 
 // SetRules sets active rules and weights (non-positive means 1) and drops samples of unlisted rules.
@@ -135,21 +148,68 @@ func (r *Ring) clean(s Sample) (Sample, int64) {
 	out := Sample{Time: s.Time, Text: r.red.String(s.Text)}
 	size := int64(len(out.Text) + sampleOverhead)
 	if len(s.Labels) > 0 {
+		key := labelFingerprint(s.Labels)
+		if r.labelCache != nil && key == r.labelHash {
+			out.Labels = r.labelCache
+			return out, size + r.labelSize
+		}
 		out.Labels = make(map[string]string, len(s.Labels))
+		labelSize := int64(64 + 64*len(s.Labels))
 		for k, v := range s.Labels {
 			v = r.red.KeyValue(k, v)
 			out.Labels[k] = v
-			size += int64(len(k) + len(v))
+			labelSize += int64(len(k) + len(v))
+		}
+		size += labelSize
+		if labelSize <= 64<<10 {
+			r.labelHash, r.labelCache, r.labelSize = key, out.Labels, labelSize
 		}
 	}
 	return out, size
 }
 
+func labelFingerprint(labels map[string]string) [32]byte {
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	var length [8]byte
+	for _, k := range keys {
+		for _, s := range []string{k, labels[k]} {
+			binary.LittleEndian.PutUint64(length[:], uint64(len(s)))
+			h.Write(length[:])
+			h.Write([]byte(s))
+		}
+	}
+	var out [32]byte
+	h.Sum(out[:0])
+	return out
+}
+
 // Add redacts and stores a matched sample, activating unknown rules with weight 1.
 func (r *Ring) Add(ruleID string, s Sample) bool {
-	s, size := r.clean(s)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	s, size := r.clean(s)
+	return r.add(ruleID, s, size)
+}
+
+// AddMany sanitizes one sample once and shares it across its matching rules.
+func (r *Ring) AddMany(ruleIDs []string, s Sample) {
+	if len(ruleIDs) == 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, size := r.clean(s)
+	for _, id := range ruleIDs {
+		r.add(id, s, size)
+	}
+}
+
+func (r *Ring) add(ruleID string, s Sample, size int64) bool {
 	rr := r.rules[ruleID]
 	if rr == nil {
 		rr = &ruleRing{weight: 1}
@@ -186,6 +246,7 @@ func (r *Ring) Take(ruleID string, n int) ([]Sample, bool) {
 	out := make([]Sample, len(live))
 	for i, it := range live {
 		out[i] = it.s
+		out[i].Labels = maps.Clone(it.s.Labels)
 	}
 	limited := rr.limitedSinceTake
 	r.bytes -= rr.bytes

@@ -9,7 +9,33 @@ import (
 	"github.com/prometheus/prometheus/promql"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
+	"github.com/cloud-exit/exitmesh-agent/internal/rules/engine"
 )
+
+func TestCoordinatorPodSeriesCannotOverrideLocalPods(t *testing.T) {
+	h := newHarness(t, options{caps: "metrics"})
+	h.coord.setKube(nodeapi.KubeUpdate{Revision: 1, Series: []nodeapi.KubeSeries{
+		{Labels: map[string]string{"__name__": "kube_pod_info", "pod": "coordinator-only-pod"}, Value: 1},
+		{Labels: map[string]string{"__name__": "kube_node_status_condition", "node": testNode, "condition": "Ready"}, Value: 1},
+	}})
+	h.start()
+	h.waitFor("coordinator revision", func() bool { return len(h.instant("kube_node_status_condition")) == 1 })
+	if v := h.instant(`kube_pod_info{pod="coordinator-only-pod"}`); len(v) != 0 {
+		t.Fatal("coordinator supplied a second pod history")
+	}
+	h.waitFor("authoritative pod history", func() bool { return len(h.instant("kube_pod_info")) > 0 })
+}
+
+func TestScrapeBudgetLossMarksCoverage(t *testing.T) {
+	h := newHarness(t, options{caps: "metrics", extraNode: "  maxSeries: 1\n"})
+	a := h.start()
+	h.waitScrapes(2)
+	h.clock.Advance(time.Hour)
+	h.waitFor("budget loss coverage", func() bool { return a.coverageReport()["metrics.budget_limited"] != "" })
+	if a.engineCoverage() != engine.CoverageUncovered {
+		t.Fatal("partial metrics reported as complete rule input")
+	}
+}
 
 const promGroups = `groups:
   - name: node

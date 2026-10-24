@@ -33,6 +33,8 @@ type Options struct {
 	Retention time.Duration
 	// MaxBytes bounds blocks, WAL, and head chunks together; zero disables the size bound.
 	MaxBytes int64
+	// MaxSeries bounds retained head series, including stale series; zero disables admission limits.
+	MaxSeries int
 	// BlockDuration is the head compaction granularity, which is also the retention granularity.
 	BlockDuration time.Duration
 	// WALSegmentBytes must be a multiple of 32 KiB.
@@ -48,6 +50,8 @@ type DB struct {
 	retention time.Duration
 	maxBytes  int64
 	limit     int64
+	series    *seriesBudget
+	appendMu  sync.Mutex
 }
 
 var (
@@ -74,6 +78,9 @@ func Open(dir string, o Options) (*DB, error) {
 	if o.MaxBytes < 0 {
 		return nil, errors.New("tsdb: negative MaxBytes")
 	}
+	if o.MaxSeries < 0 {
+		return nil, errors.New("tsdb: negative MaxSeries")
+	}
 	ret := ClampRetention(o.Retention)
 	opts := ptsdb.DefaultOptions()
 	opts.RetentionDuration = ret.Milliseconds()
@@ -85,18 +92,37 @@ func Open(dir string, o Options) (*DB, error) {
 	opts.WALCompression = compression.Snappy
 	opts.MaxBlockChunkSegmentSize = 8 << 20
 	opts.BlockReloadInterval = 10 * time.Second
+	budget := &seriesBudget{limit: int64(o.MaxSeries)}
+	if o.MaxSeries > 0 {
+		opts.SeriesLifecycleCallback = budget
+	}
 	db, err := ptsdb.Open(dir, o.Logger, nil, opts, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &DB{db: db, retention: ret, maxBytes: o.MaxBytes}, nil
+	budget.enforcing.Store(true)
+	return &DB{db: db, retention: ret, maxBytes: o.MaxBytes, series: budget}, nil
 }
 
 // Querier implements storage.Queryable.
 func (d *DB) Querier(mint, maxt int64) (storage.Querier, error) { return d.db.Querier(mint, maxt) }
 
 // Appender implements storage.Appendable.
-func (d *DB) Appender(ctx context.Context) storage.Appender { return d.db.Appender(ctx) }
+func (d *DB) Appender(ctx context.Context) storage.Appender {
+	app := d.db.Appender(ctx)
+	if d.series.limit == 0 {
+		return app
+	}
+	return &limitedAppender{Appender: app, mu: &d.appendMu}
+}
+
+// RelieveSeriesPressure moves stale series to blocks so total target churn cannot stall admission.
+func (d *DB) RelieveSeriesPressure() error {
+	if d.series.limit == 0 || d.series.count.Load() < d.series.limit || d.db.Head().NumStaleSeries() == 0 {
+		return nil
+	}
+	return d.db.CompactStaleHead()
+}
 
 // Retention returns the effective retention.
 func (d *DB) Retention() time.Duration {

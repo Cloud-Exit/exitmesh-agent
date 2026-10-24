@@ -255,7 +255,7 @@ func (a *Agent) refreshKube() {
 			for _, s := range series {
 				out = append(out, engine.Series{Labels: s.Labels, Samples: []engine.Sample{{T: now.UnixMilli(), F: s.Value}}})
 			}
-			a.mem.Replace(sourcePods, out)
+			a.mem.ReplaceSnapshot(sourcePods, out, a.t.KubeRefresh)
 		}
 	}
 	a.kube.mu.Lock()
@@ -264,12 +264,13 @@ func (a *Agent) refreshKube() {
 	if up != nil {
 		out := make([]engine.Series, 0, len(up.Series))
 		for _, s := range up.Series {
-			if s.Labels[model.MetricNameLabel] == "" {
+			name := s.Labels[model.MetricNameLabel]
+			if name == "" || strings.HasPrefix(name, "kube_pod_") {
 				continue
 			}
 			out = append(out, engine.Series{Labels: labels.FromMap(s.Labels), Samples: []engine.Sample{{T: now.UnixMilli(), F: s.Value}}})
 		}
-		a.mem.Replace(sourceCoordinator, out)
+		a.mem.ReplaceSnapshot(sourceCoordinator, out, a.t.KubeRefresh)
 	}
 }
 

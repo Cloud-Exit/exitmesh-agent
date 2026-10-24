@@ -54,6 +54,9 @@ func (a *Agent) factsLoop(ctx context.Context) {
 
 // emitFacts computes the interval's facts and queues those that moved past the thresholds.
 func (a *Agent) emitFacts(ctx context.Context) error {
+	if err := a.pruneFacts(); err != nil {
+		return err
+	}
 	facts, err := metricfacts.Compute(ctx, a.query, a.prom, a.clock(), a.t.Facts)
 	if err != nil {
 		return err
@@ -87,15 +90,61 @@ func (a *Agent) emitFacts(ctx context.Context) error {
 				return err
 			}
 			ops[f.Key()] = b
-			a.facts.last[f.Key()] = f.Fields
 			if f.UID != "" {
 				ops[factUIDPrefix+f.Key()] = []byte(f.UID)
-				a.facts.lastUID[f.Key()] = f.UID
 			}
 		}
 		if err := a.facts.store.Batch(ops); err != nil {
 			return fmt.Errorf("persist metric facts state: %w", err)
 		}
+		for _, f := range batch {
+			a.facts.last[f.Key()] = f.Fields
+			if f.UID != "" {
+				a.facts.lastUID[f.Key()] = f.UID
+			}
+		}
+	}
+	return nil
+}
+
+func (a *Agent) pruneFacts() error {
+	if !a.pods.synced() {
+		return nil
+	}
+	live := map[string]string{}
+	for _, p := range a.pods.snapshot() {
+		live[p.Namespace+"/"+p.Name] = string(p.UID)
+	}
+	f := &a.facts
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ops := map[string][]byte{}
+	check := func(key string) {
+		parts := strings.SplitN(key, "/", 4)
+		if len(parts) != 4 || parts[0] != "container" {
+			return
+		}
+		uid, ok := live[parts[1]+"/"+parts[2]]
+		if ok && (f.lastUID[key] == "" || f.lastUID[key] == uid) {
+			return
+		}
+		ops[key], ops[factUIDPrefix+key] = nil, nil
+	}
+	for key := range f.last {
+		check(key)
+	}
+	for key := range f.lastUID {
+		check(key)
+	}
+	if len(ops) == 0 {
+		return nil
+	}
+	if err := f.store.Batch(ops); err != nil {
+		return fmt.Errorf("prune metric facts state: %w", err)
+	}
+	for key := range ops {
+		delete(f.last, key)
+		delete(f.lastUID, strings.TrimPrefix(key, factUIDPrefix))
 	}
 	return nil
 }
@@ -103,6 +152,9 @@ func (a *Agent) emitFacts(ctx context.Context) error {
 func (a *Agent) diskLoop(ctx context.Context) {
 	pressured := false
 	a.budget.Run(ctx, a.t.DiskCheck, func(r disk.Report, err error) {
+		if err := a.db.RelieveSeriesPressure(); err != nil && ctx.Err() == nil {
+			a.log.Warn("series budget compaction", "err", err)
+		}
 		if err != nil && ctx.Err() == nil {
 			a.log.Warn("disk budget check", "err", err)
 		}
