@@ -62,7 +62,7 @@ func (a *heldTransaction) Commit() error {
 	case <-a.owner.release:
 		return a.Appender.Commit()
 	case <-a.ctx.Done():
-		_ = a.Appender.Rollback()
+		_ = a.Rollback()
 		return a.ctx.Err()
 	}
 }
