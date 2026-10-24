@@ -40,6 +40,7 @@ type MemSeries struct {
 type memSerie struct {
 	lset    labels.Labels
 	samples []Sample
+	head    int
 }
 
 // NewMemSeries returns an empty store keeping samples for retention (default 1h).
@@ -55,6 +56,15 @@ func NewMemSeries(retention time.Duration, clock func() time.Time) *MemSeries {
 
 // Replace sets the current series of source. Series of source absent from series are marked stale.
 func (m *MemSeries) Replace(source string, series []Series) {
+	m.replace(source, series, 0)
+}
+
+// ReplaceSnapshot retains changes immediately and samples unchanged values at the given interval.
+func (m *MemSeries) ReplaceSnapshot(source string, series []Series, interval time.Duration) {
+	m.replace(source, series, min(interval, m.retention).Milliseconds())
+}
+
+func (m *MemSeries) replace(source string, series []Series, interval int64) {
 	maxT := int64(math.MinInt64)
 	for _, s := range series {
 		for _, p := range s.Samples {
@@ -86,6 +96,9 @@ func (m *MemSeries) Replace(source string, series []Series) {
 		sort.SliceStable(pts, func(i, j int) bool { return pts[i].T < pts[j].T })
 		for _, p := range pts {
 			if n := len(ms.samples); n == 0 || p.T > ms.samples[n-1].T {
+				if n > 0 && p.T-ms.samples[n-1].T < interval && math.Float64bits(p.F) == math.Float64bits(ms.samples[n-1].F) {
+					continue
+				}
 				ms.samples = append(ms.samples, p)
 			}
 		}
@@ -106,13 +119,15 @@ func (m *MemSeries) Replace(source string, series []Series) {
 	}
 	cutoff := maxT - m.retention.Milliseconds()
 	for key, ms := range cur {
-		i := sort.Search(len(ms.samples), func(i int) bool { return ms.samples[i].T >= cutoff })
+		i := ms.head + sort.Search(len(ms.samples)-ms.head, func(i int) bool { return ms.samples[ms.head+i].T >= cutoff })
 		if i == len(ms.samples) {
 			delete(cur, key)
 			continue
 		}
-		if i > 0 {
+		ms.head = i
+		if i >= 64 && i*2 >= len(ms.samples) {
 			ms.samples = append([]Sample(nil), ms.samples[i:]...)
+			ms.head = 0
 		}
 	}
 	if len(cur) == 0 {
@@ -165,12 +180,13 @@ func (q *memQuerier) collect(start, end int64, ms []*labels.Matcher) []*selected
 			if !matchAll(s.lset, ms) {
 				continue
 			}
-			lo := sort.Search(len(s.samples), func(i int) bool { return s.samples[i].T >= start })
-			hi := sort.Search(len(s.samples), func(i int) bool { return s.samples[i].T > end })
+			live := s.samples[s.head:]
+			lo := sort.Search(len(live), func(i int) bool { return live[i].T >= start })
+			hi := sort.Search(len(live), func(i int) bool { return live[i].T > end })
 			if lo >= hi {
 				continue
 			}
-			pts := append([]Sample(nil), s.samples[lo:hi]...)
+			pts := append([]Sample(nil), live[lo:hi]...)
 			if cur, ok := byKey[key]; ok {
 				cur.samples = append(cur.samples, pts...)
 				cur.merged = true

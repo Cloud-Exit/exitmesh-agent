@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cloud-exit/exitmesh-agent/internal/redact"
 )
 
 func sample(i int, text string) Sample {
@@ -107,6 +109,31 @@ func TestDefensiveRedaction(t *testing.T) {
 	got, _ := r.Take("r", 1)
 	if strings.Contains(got[0].Text, "hunter2") || got[0].Labels["token"] == "abc" || got[0].Labels["pod"] != "api" {
 		t.Fatalf("not redacted %+v", got[0])
+	}
+}
+
+func TestSharedEvidenceRedactionAndIsolation(t *testing.T) {
+	red, err := redact.New(redact.Config{ExtraPatterns: []string{`customer-[0-9]+`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewWithRedactor(0, red)
+	r.SetRules(map[string]float64{"a": 1, "b": 1})
+	labels := map[string]string{"pod": "worker", "customer": "customer-123"}
+	r.AddMany([]string{"a", "b"}, Sample{Text: "request customer-123", Labels: labels})
+	labels["pod"] = "changed"
+	a, _ := r.Take("a", 1)
+	if len(a) != 1 || a[0].Text != "request <redacted>" || a[0].Labels["customer"] != redact.Placeholder || a[0].Labels["pod"] != "worker" {
+		t.Fatal("shared evidence was not independently redacted")
+	}
+	a[0].Labels["pod"] = "mutated"
+	b := r.Peek("b", 1)
+	if len(b) != 1 || b[0].Labels["pod"] != "worker" {
+		t.Fatal("taking one rule's evidence changed another rule")
+	}
+	r.AddMany([]string{"b"}, Sample{Text: "next", Labels: labels})
+	if got := r.Peek("b", 1); got[0].Labels["pod"] != "changed" {
+		t.Fatal("updated stream labels were not observed")
 	}
 }
 

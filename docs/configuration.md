@@ -66,7 +66,7 @@ Coordinator spool on the PVC (hosts use `host.spoolReserve`).
 |`node.logsPath`|`/var/log/pods`|Pod log root (logs capability).|
 |`node.scrapeInterval`|`30s`|Scrape interval for the kubelet and annotated pods.|
 |`node.maxTargets`|`200`|Scrape target budget per node.|
-|`node.maxSeries`|`100000`|Series budget per node.|
+|`node.maxSeries`|`100000`|Active scraped-series budget. Retained TSDB head series are also capped at this value plus three health series per allowed target; stale series count until compacted.|
 |`node.maxSamplesPerSecond`|`20000`|Ingest budget per node.|
 |`node.kubeletTLS`|`verify`|`verify` or `skip` verification of the kubelet serving certificate.|
 |`node.kubeletPort`|`10250`|Kubelet port on the node address (`NODE_IP`).|
@@ -162,8 +162,7 @@ Local administrator upper bounds; rules cannot exceed them.
 |Variable|Set by|Meaning|
 |---|---|---|
 |`NODE_NAME`, `POD_NAME`, `POD_NAMESPACE`, `NODE_IP`|chart, downward API|Identity and node address of each pod.|
-|`EXITMESH_MEMORY_LIMIT_MIB`|chart, `resourceFieldRef` on `limits.memory`|Container memory limit in MiB.|
-|`GOMEMLIMIT`|chart and systemd unit|Go soft memory limit with headroom. The chart renders `$(EXITMESH_MEMORY_LIMIT_MIB)000KiB`, about 97.7 percent of the container limit, so it follows the effective limit; the unit sets `172MiB` under `MemoryMax=192M`.|
+|`GOMEMLIMIT`|optional override; systemd unit|Go soft memory limit. The chart leaves this unset so the binary reserves 10 percent of its effective cgroup memory limit for memory outside the Go runtime. The unit sets `172MiB` under `MemoryMax=192M`.|
 
 ## Helm chart values
 

@@ -168,3 +168,25 @@ Starting with v0.15.0, a token naming a different target triggers enrollment of 
 The old spool is retained at its existing path as an archive. Initially that path is `/data/spool`; later writers use `/data/spool-writer-*`. The file `/data/active-spool` identifies the active directory. A parent directory lock prevents concurrent coordinators during the switch. A restart before pointer activation still selects the old spool; a restart after activation selects the new one. An invalid or rejected token cannot activate a new spool. Failed activation retains the prepared spool because the pointer may already have been committed.
 
 Look for `target changed; previous spool archived`, which records the old and new target IDs and the archive directory without logging credentials. The next start resumes the selected writer rather than creating another one. Archives and any crash-interrupted staging directories remain on the PVC and consume space; they are not deleted automatically or sent to the new target. Retain or remove inactive directories according to your retention needs, never the directory named by `active-spool`. Versions before v0.15.0 do not understand this pointer, so do not roll back to them after switching targets.
+
+## Node CPU and memory
+
+Node telemetry costs depend on log volume, metric cardinality, and pod churn. The memory limit is not a target working set. The Helm chart leaves `GOMEMLIMIT` unset so the binary uses 90 percent of the effective cgroup limit, allowing room for mapped files and other memory outside the Go runtime. For a 512MiB limit, this gives a 460.8MiB Go soft limit. Lowering that limit can increase garbage-collection work if the retained data is too large.
+
+Unchanged node `kube_*` snapshots are sampled at the one-minute refresh cadence. Value changes and deletions remain immediate. The local pod watch supplies the authoritative pod history; coordinator updates supply non-pod series. History eviction advances through expired samples and compacts storage occasionally, instead of copying the entire window on each update. Range queries shorter than the sampling cadence should not assume an unchanged sample exists in every window.
+
+Scraping permits two concurrent fetch-and-parse transactions, each with the existing 32MiB response limit. Waiting for a slot is bounded by the target timeout. The retained TSDB head budget counts stale series as well as active series, with space for three health series per configured target. When the head reaches its limit, periodic maintenance compacts stale series to blocks, preserving query history and freeing admission capacity. Existing WAL data is replayed even when it exceeds the current budget; new series wait for capacity while existing series continue to update.
+
+`metrics.budget_limited` reports samples or series rejected in the latest scrape, and rule input coverage becomes incomplete. Coverage recovers after successful scrapes without drops. Deleted pods' metric-fact cache entries are removed from memory and durable metadata after the pod watch has synchronized. A temporary metrics scrape failure does not expire a live pod's cached facts.
+
+Matched log evidence is sanitized once before sharing across rules. A bounded cache reuses sanitized stream labels; reads return independent label maps. Default and custom redaction remain in force. Evidence accounting includes a conservative allowance for label-map overhead, so a small ring may retain fewer samples and report evidence-limited coverage sooner.
+
+The resource regression benchmarks can be run with:
+
+```sh
+CGO_ENABLED=0 go test ./internal/node ./internal/rules/engine ./internal/telemetry/scrape \
+  -run '^$' -bench 'Benchmark(DefaultLogRules|MemSeriesRetentionCopy|MetricsBudget)' \
+  -benchmem -count=3
+```
+
+These synthetic workloads measure processing costs, not total pod memory or a production sizing guarantee. Confirm an incident with workload log rates, retained series counts, memory growth over time, and profiles. The node role does not expose a pprof listener or local admin status socket.
