@@ -47,12 +47,13 @@ type Budgets struct {
 
 // Options configures a Manager.
 type Options struct {
-	Appendable      storage.Appendable
-	Budgets         Budgets
-	DefaultInterval time.Duration
-	DefaultTimeout  time.Duration
-	MaxBodyBytes    int64
-	Logger          *slog.Logger
+	Appendable           storage.Appendable
+	Budgets              Budgets
+	DefaultInterval      time.Duration
+	DefaultTimeout       time.Duration
+	MaxBodyBytes         int64
+	MaxConcurrentScrapes int
+	Logger               *slog.Logger
 }
 
 // TargetStatus reports one target for coverage.
@@ -70,6 +71,7 @@ type TargetStatus struct {
 	SeriesDropped  uint64
 	SamplesDropped uint64
 	AppendErrors   uint64
+	BudgetLimited  bool
 }
 
 // Manager runs one loop per accepted target.
@@ -77,6 +79,7 @@ type Manager struct {
 	o       Options
 	limiter *limiter
 	active  atomic.Int64
+	slots   chan struct{}
 
 	syncMu  sync.Mutex
 	mu      sync.Mutex
@@ -95,10 +98,13 @@ func NewManager(o Options) *Manager {
 	if o.MaxBodyBytes <= 0 {
 		o.MaxBodyBytes = 32 << 20
 	}
+	if o.MaxConcurrentScrapes <= 0 {
+		o.MaxConcurrentScrapes = 2
+	}
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &Manager{o: o, limiter: newLimiter(float64(o.Budgets.MaxSamplesPerSecond), time.Now), loops: map[string]*loop{}}
+	return &Manager{o: o, limiter: newLimiter(float64(o.Budgets.MaxSamplesPerSecond), time.Now), loops: map[string]*loop{}, slots: make(chan struct{}, o.MaxConcurrentScrapes)}
 }
 
 // Sync replaces the target set, admitting targets in order up to MaxTargets and staling removed ones.

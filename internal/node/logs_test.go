@@ -55,14 +55,14 @@ func (h *harness) itemBytes() []byte {
 }
 
 func TestLogQLRuleRedactedEvidenceAndNoUnmatchedRetention(t *testing.T) {
-	h := newHarness(t, options{caps: "logs"})
+	h := newHarness(t, options{caps: "logs", extraTop: "policy:\n  redactionPatterns: ['customer-[0-9]+']\n"})
 	h.writeLog("prod", "web-1", "uid-web-1", "app", "OutOfMemory from before the agent started")
 	h.coord.setBundle(h.trust.payload(t, logBundle("l1", []ruleSpec{oomRule}, oomGroup)))
 	a := h.startLogs("l1")
 	h.waitFor("existing stream opened at its end", func() bool { return a.tailer.Stats().Files >= 1 })
 	h.writeLog("prod", "web-1", "uid-web-1", "app",
 		"GET /healthz 200 UNMATCHED-MARKER-app", "GET /ready 200 UNMATCHED-MARKER-app", "GET /x 404 UNMATCHED-MARKER-app",
-		"OutOfMemory: worker killed password=hunter2secret", "OutOfMemory: worker killed password=hunter2secret",
+		"OutOfMemory: customer-123 worker killed password=hunter2secret", "OutOfMemory: worker killed password=hunter2secret",
 		"Authorization: Bearer abcdefghijklmnopqrst OutOfMemory again")
 	h.writeLog("prod", "web-1", "uid-web-1", "sidecar", "OutOfMemory UNMATCHED-MARKER-sidecar")
 	h.writeLog("other", "chatty-1", "uid-chatty-1", "main", "hello UNMATCHED-MARKER-chatty")
@@ -97,7 +97,7 @@ func TestLogQLRuleRedactedEvidenceAndNoUnmatchedRetention(t *testing.T) {
 		t.Fatalf("evidence counts %d, want 3 matched lines", total)
 	}
 	check := func(stage string) {
-		for _, needle := range []string{"UNMATCHED-MARKER", "hunter2secret", "abcdefghijklmnopqrst", "before the agent started"} {
+		for _, needle := range []string{"UNMATCHED-MARKER", "hunter2secret", "abcdefghijklmnopqrst", "before the agent started", "customer-123"} {
 			if hits := scanState(t, h.dir, needle); len(hits) > 0 {
 				t.Fatalf("%s: %q retained in %v", stage, needle, hits)
 			}

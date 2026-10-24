@@ -97,7 +97,6 @@ spec:
               value: {{ .Values.namespaces.node | quote }}
             - name: EXITMESH_NODE_SERVICE_ACCOUNT
               value: {{ include "exitmesh.nodeName" . | quote }}
-            {{- include "exitmesh.goMemLimitEnv" (dict "container" "coordinator") | nindent 12 }}
           resources:
             {{- toYaml $v.coordinator.resources | nindent 12 }}
           securityContext:

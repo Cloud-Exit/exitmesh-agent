@@ -86,18 +86,6 @@ helm.sh/chart: {{ include "exitmesh.chart" .ctx }}
 {{- if .Values.airgap.enabled -}}{{ .Values.airgap.spoolCapacity }}{{- else -}}{{ .Values.coordinator.spool.capacity }}{{- end -}}
 {{- end -}}
 
-{{/* GOMEMLIMIT is the memory limit in MiB rendered as thousands of KiB, about 97.7 percent of the limit. */}}
-{{- define "exitmesh.goMemLimitEnv" -}}
-- name: EXITMESH_MEMORY_LIMIT_MIB
-  valueFrom:
-    resourceFieldRef:
-      containerName: {{ .container }}
-      resource: limits.memory
-      divisor: 1Mi
-- name: GOMEMLIMIT
-  value: "$(EXITMESH_MEMORY_LIMIT_MIB)000KiB"
-{{- end -}}
-
 {{- define "exitmesh.restrictedContainerSecurityContext" -}}
 allowPrivilegeEscalation: false
 privileged: false

@@ -136,3 +136,44 @@ func TestMemSeriesRetentionAndOrdering(t *testing.T) {
 		t.Fatalf("expired source kept: %v", got)
 	}
 }
+
+func TestSnapshotCadencePreservesChangesAndStaleness(t *testing.T) {
+	now := at(0)
+	m := NewMemSeries(time.Hour, func() time.Time { return now })
+	x := labels.FromStrings("__name__", "x")
+	for i := 0; i <= 360; i++ {
+		now = at(time.Duration(i) * time.Second)
+		m.ReplaceSnapshot("kube", []Series{{Labels: x, Samples: []Sample{{T: ms(now), F: 1}}}}, time.Minute)
+	}
+	v := instant(t, m, "count_over_time(x[10m])", now)
+	if len(v) != 1 || v[0].F != 7 {
+		t.Fatalf("unchanged snapshot samples: %v", v)
+	}
+	now = now.Add(time.Second)
+	m.ReplaceSnapshot("kube", []Series{{Labels: x, Samples: []Sample{{T: ms(now), F: 2}}}}, time.Minute)
+	if v := instant(t, m, "x", now); len(v) != 1 || v[0].F != 2 {
+		t.Fatalf("change delayed by cadence: %v", v)
+	}
+	now = now.Add(time.Second)
+	m.ReplaceSnapshot("kube", nil, time.Minute)
+	if v := instant(t, m, "x", now); len(v) != 0 {
+		t.Fatalf("missing snapshot stayed live: %v", v)
+	}
+	now = now.Add(time.Second)
+	m.ReplaceSnapshot("kube", []Series{{Labels: x, Samples: []Sample{{T: ms(now), F: 2}}}}, time.Minute)
+	if v := instant(t, m, "x", now); len(v) != 1 || v[0].F != 2 {
+		t.Fatalf("reappearing snapshot stayed stale: %v", v)
+	}
+}
+
+func TestMemSeriesRetentionRollover(t *testing.T) {
+	m := NewMemSeries(100*time.Second, nil)
+	x := labels.FromStrings("__name__", "x")
+	for i := 0; i <= 300; i++ {
+		m.Replace("s", []Series{{Labels: x, Samples: []Sample{{T: ms(at(time.Duration(i) * time.Second)), F: 1}}}})
+	}
+	v := instant(t, m, "count_over_time(x[2m])", at(300*time.Second))
+	if len(v) != 1 || v[0].F != 101 {
+		t.Fatalf("retention rollover returned expired or missing samples: %v", v)
+	}
+}

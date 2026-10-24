@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/prometheus/storage"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/redact"
+	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/tsdb"
 )
 
 const acceptHeader = "application/openmetrics-text;version=1.0.0;q=0.75,text/plain;version=0.0.4;q=0.5,*/*;q=0.1"
@@ -147,6 +148,27 @@ type scrapeResult struct {
 }
 
 func (l *loop) scrapeOnce(start time.Time) {
+	select {
+	case l.m.slots <- struct{}{}:
+	default:
+		ctx, cancel := context.WithTimeout(l.ctx, l.t.Timeout)
+		defer cancel()
+		select {
+		case l.m.slots <- struct{}{}:
+			start = time.Now()
+		case <-ctx.Done():
+			l.mu.Lock()
+			l.st.Health, l.st.Reason, l.st.BudgetLimited = HealthDown, ReasonTimeout, true
+			l.st.LastError = "timed out waiting for a scrape slot"
+			l.st.LastScrape, l.st.LastDuration = start, time.Since(start)
+			l.mu.Unlock()
+			return
+		}
+	}
+	defer func() { <-l.m.slots }()
+	if l.ctx.Err() != nil {
+		return
+	}
 	ts := max(start.UnixMilli(), l.lastTS+1)
 	body, ctype, err := l.fetch()
 	app := l.m.o.Appendable.Appender(l.ctx)
@@ -170,6 +192,10 @@ func (l *loop) scrapeOnce(start time.Time) {
 		ref, aerr := app.Append(l.reportRef[i], l.reportLabels(reportNames[i]), ts, v)
 		if aerr == nil {
 			l.reportRef[i] = ref
+		} else if errors.Is(aerr, tsdb.ErrSeriesLimit) {
+			res.seriesDropped++
+		} else {
+			res.appendErrors++
 		}
 	}
 	l.reported = true
@@ -187,6 +213,7 @@ func (l *loop) scrapeOnce(start time.Time) {
 	l.st.SeriesDropped += res.seriesDropped
 	l.st.SamplesDropped += res.rateDropped
 	l.st.AppendErrors += res.appendErrors
+	l.st.BudgetLimited = res.seriesDropped > 0 || res.rateDropped > 0
 	if err != nil {
 		l.st.Health = HealthDown
 		l.st.Reason = classify(err)
@@ -244,14 +271,15 @@ func (l *loop) appendBody(app storage.Appender, body []byte, ctype string, ts in
 			continue
 		}
 		if !cached {
+			if (maxPer > 0 && len(l.cache) >= maxPer) || !l.m.reserveSeries() {
+				res.seriesDropped++
+				continue
+			}
 			p.Labels(&lset)
 			final := l.mutate(lset)
 			if final.Get(model.MetricNameLabel) == "" {
+				l.m.releaseSeries(1)
 				res.appendErrors++
-				continue
-			}
-			if (maxPer > 0 && len(l.cache) >= maxPer) || !l.m.reserveSeries() {
-				res.seriesDropped++
 				continue
 			}
 			ce = &entry{lset: final}
@@ -269,7 +297,11 @@ func (l *loop) appendBody(app storage.Appender, body []byte, ctype string, ts in
 		allowance--
 		ref, aerr := app.Append(ce.ref, ce.lset, ts, v)
 		if aerr != nil {
-			res.appendErrors++
+			if errors.Is(aerr, tsdb.ErrSeriesLimit) {
+				res.seriesDropped++
+			} else {
+				res.appendErrors++
+			}
 			if !cached {
 				l.m.releaseSeries(1)
 			}

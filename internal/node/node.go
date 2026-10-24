@@ -398,6 +398,7 @@ func (a *Agent) open() error {
 	if a.caps[config.CapMetrics] {
 		if a.db, err = tsdb.Open(filepath.Join(dir, "tsdb"), tsdb.Options{
 			MaxBytes: capBytes / 2, BlockDuration: a.t.TSDBBlock, WALSegmentBytes: a.t.TSDBWALBytes, Logger: a.log.With("component", "tsdb"),
+			MaxSeries: a.cfg.Node.MaxSeries + 3*a.cfg.Node.MaxTargets,
 		}); err != nil {
 			return fmt.Errorf("node: tsdb: %w", err)
 		}
@@ -412,7 +413,7 @@ func (a *Agent) open() error {
 	if a.norm, err = state.NewNormalizer(state.OptionsFromConfig(a.cfg.Kubernetes, a.red)); err != nil {
 		return fmt.Errorf("node: normalizer: %w", err)
 	}
-	a.ring = evidence.New(int64(a.cfg.Node.EvidenceRing))
+	a.ring = evidence.NewWithRedactor(int64(a.cfg.Node.EvidenceRing), a.red)
 	a.pods = newPodWatch(a.deps.Kube, a.node, a.scope, a.onPods)
 	if a.caps[config.CapLogs] {
 		if a.tailer, err = logs.NewTailer(logs.Options{

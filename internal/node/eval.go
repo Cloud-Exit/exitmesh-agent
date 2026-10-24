@@ -216,18 +216,14 @@ func (a *Agent) onLine(l logs.Line) {
 	if set == nil {
 		return
 	}
-	var text string
+	var matched []string
 	for _, lr := range set.rules {
 		if len(lr.ids) == 0 || !lr.prog.Observe(l.Labels, l.Time, l.Text) {
 			continue
 		}
-		if text == "" {
-			text = a.red.String(l.Text)
-		}
-		for _, id := range lr.ids {
-			a.ring.Add(id, evidence.Sample{Time: l.Time, Labels: l.Labels, Text: text})
-		}
+		matched = append(matched, lr.ids...)
 	}
+	a.ring.AddMany(matched, evidence.Sample{Time: l.Time, Labels: l.Labels, Text: l.Text})
 }
 
 func (a *Agent) onLogEvent(e logs.Event) {
@@ -240,7 +236,7 @@ func (a *Agent) engineCoverage() engine.Coverage {
 	if a.warming() {
 		return engine.CoverageWarming
 	}
-	if a.caps[capMetrics] && (a.kubeletDown() || a.gate.paused.Load()) {
+	if a.caps[capMetrics] && (a.kubeletDown() || a.gate.paused.Load() || a.metricsLimited()) {
 		return engine.CoverageUncovered
 	}
 	if a.caps[capLogs] && a.cov.logsUnavailable() != "" {

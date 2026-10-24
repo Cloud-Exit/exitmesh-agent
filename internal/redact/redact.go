@@ -94,7 +94,9 @@ func (r *Redactor) String(s string) string {
 		return s
 	}
 	for _, ru := range r.rules {
-		s = ru.re.ReplaceAllString(s, ru.repl)
+		if ru.re.MatchString(s) {
+			s = ru.re.ReplaceAllString(s, ru.repl)
+		}
 	}
 	return s
 }

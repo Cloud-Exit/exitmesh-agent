@@ -65,6 +65,20 @@ func TestExtraPatterns(t *testing.T) {
 	}
 }
 
+func TestCleanStringAllocations(t *testing.T) {
+	r := Default()
+	text := "level=info request completed successfully status=200"
+	allocs := testing.AllocsPerRun(100, func() {
+		if r.String(text) != text {
+			t.Fatal("clean text changed")
+		}
+	})
+	// Race instrumentation adds allocations to regexp's pooled matcher.
+	if allocs > 16 {
+		t.Fatalf("clean text allocated %.0f times", allocs)
+	}
+}
+
 func TestHandler(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(NewHandler(slog.NewTextHandler(&buf, nil), nil))

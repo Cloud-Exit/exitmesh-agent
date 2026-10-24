@@ -97,7 +97,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
-            {{- include "exitmesh.goMemLimitEnv" (dict "container" "node-agent") | nindent 12 }}
           resources:
             {{- toYaml $v.node.resources | nindent 12 }}
           # Starts as root only to switch to the agent UID keeping CAP_DAC_READ_SEARCH (runtimes never grant added capabilities to non-root).

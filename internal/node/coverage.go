@@ -143,6 +143,7 @@ func (a *Agent) coverageReport() map[string]string {
 		}
 	}
 	if a.caps[capMetrics] {
+		limited := a.metricsLimited()
 		switch r := a.kubeletReason(); {
 		case a.gate != nil && a.gate.paused.Load():
 			out[capMetrics] = "unavailable: " + errDiskCap.Error()
@@ -150,8 +151,13 @@ func (a *Agent) coverageReport() map[string]string {
 			out[capMetrics] = warmValue
 		case r != "":
 			out[capMetrics] = "unavailable: kubelet " + r
+		case limited:
+			out[capMetrics] = "incomplete: scrape budget exceeded"
 		default:
 			out[capMetrics] = coverageAvailable
+		}
+		if limited {
+			out["metrics.budget_limited"] = "scrape samples or retained series exceeded the budget"
 		}
 		out["metrics.pod_targets"] = a.podTargetSummary()
 		if a.budget != nil {
@@ -215,6 +221,17 @@ func (a *Agent) coverageReport() map[string]string {
 	}
 	a.rules.mu.Unlock()
 	return out
+}
+
+func (a *Agent) metricsLimited() bool {
+	if a.scraper != nil {
+		for _, target := range a.scraper.Status() {
+			if target.BudgetLimited {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (a *Agent) podTargetSummary() string {
