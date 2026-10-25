@@ -18,7 +18,7 @@ require (
 	github.com/google/osv-scalibr v0.5.3
 	github.com/klauspost/compress v1.20.1
 	github.com/knqyf263/go-rpmdb v0.1.1
-	github.com/pierrec/lz4/v4 v4.1.31
+	github.com/pierrec/lz4/v4 v4.1.33
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
 	github.com/prometheus/common v0.71.0
