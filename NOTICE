@@ -16,6 +16,9 @@ licensed under the Apache License, Version 2.0.
 This product includes software from the CEL project (https://github.com/google/cel-go),
 Copyright Google LLC, licensed under the Apache License, Version 2.0.
 
+This product includes software from OSV-SCALIBR (https://github.com/google/osv-scalibr),
+Copyright Google LLC, licensed under the Apache License, Version 2.0, used for image package inventories.
+
 This product includes software from VictoriaMetrics (https://github.com/VictoriaMetrics),
 Copyright VictoriaMetrics, licensed under the Apache License, Version 2.0.
 

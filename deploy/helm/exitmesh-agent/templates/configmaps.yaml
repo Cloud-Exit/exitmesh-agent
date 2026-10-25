@@ -75,6 +75,8 @@ data:
     investigation:
       {{- toYaml . | nindent 6 }}
     {{- end }}
+    imageInventory:
+      enabled: {{ $v.imageInventory.enabled }}
   {{- with $v.endpointCA }}
   endpoint-ca.crt: |
     {{- . | trim | nindent 4 }}
@@ -108,3 +110,6 @@ data:
       maxSamplesPerSecond: {{ int $v.node.maxSamplesPerSecond }}
       kubeletTLS: {{ $v.node.kubeletTLS | quote }}
       kubeletPort: {{ int $v.node.kubeletPort }}
+    imageInventory:
+      enabled: {{ $v.imageInventory.enabled }}
+      contentStore: {{ $v.imageInventory.contentStore | quote }}

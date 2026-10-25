@@ -72,6 +72,7 @@ const (
 	lookbackDesc = "Run the same validated PromQL, MetricsQL, or LogQL query against a configured external lookback source."
 	evidenceDesc = "Read the redacted matched-line evidence that node agents (or the host) hold in memory for a rule, within the request scope and window, without consuming it."
 	objectDesc   = "Read the live Kubernetes object of one resource in the current state, within the request scope, with Secret values, ConfigMap values, environment values, and secret-named fields redacted."
+	imageDesc    = "Return the package inventory (OS and language packages with OSV ecosystems, never file contents) and OCI source labels of one running image digest, built by the node agent that runs it; status pending means the build is in progress, so ask again later."
 	findingDesc  = "Re-run a validated query and save its result as a query-generated finding with query hash and requester provenance."
 )
 
@@ -98,6 +99,16 @@ var (
 		"uid": str("resource UID"), "kind": str("resource kind, for example Pod or apps/Deployment"),
 		"namespace": str("namespace of a namespaced resource"), "name": str("resource name"),
 	})
+	imageSchema = func() json.RawMessage {
+		props := commonProps()
+		delete(props, "window")
+		props["digest"] = map[string]any{"type": "string", "pattern": "^sha256:[a-f0-9]{64}$", "description": "image digest from a container status imageID (index, manifest, or config digest)"}
+		b, err := json.Marshal(object(props, "digest"))
+		if err != nil {
+			panic(err)
+		}
+		return b
+	}()
 	evidenceSchema = toolSchema(map[string]any{"rule_id": str("rule whose evidence to read")}, "rule_id", "window")
 	findingSchema  = toolSchema(map[string]any{
 		"tool":      map[string]any{"type": "string", "enum": []string{ToolPromQL, ToolLogQL, ToolLogsQL, ToolLookback}},

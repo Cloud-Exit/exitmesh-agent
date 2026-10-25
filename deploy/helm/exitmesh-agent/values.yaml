@@ -210,6 +210,14 @@ policy: {}
 # Live query bounds (config investigation section).
 investigation: {}
 
+# Package inventories of running images, read by node agents from the containerd content store and served by image.sbom.get.
+imageInventory:
+  enabled: true
+  # Host path of the containerd content store, mounted read-only into node agents. Defaults to containerd's path;
+  # k3s: /var/lib/rancher/k3s/agent/containerd/io.containerd.content.v1.content
+  # RKE2: /var/lib/rancher/rke2/agent/containerd/io.containerd.content.v1.content
+  contentStore: /var/lib/containerd/io.containerd.content.v1.content
+
 logging:
   level: info
   format: json

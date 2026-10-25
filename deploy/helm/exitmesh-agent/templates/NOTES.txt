@@ -20,6 +20,9 @@ Host-mount summary (node agents)
 {{- if .Values.capabilities.logs }}
   /var/log/pods      read-only, for log rules and investigation.
 {{- end }}
+{{- if .Values.imageInventory.enabled }}
+  {{ .Values.imageInventory.contentStore }}  read-only, the containerd content store, for package inventories of running images.
+{{- end }}
 {{- if .Values.node.runAsRootFallback }}
   Capabilities: all dropped except CAP_DAC_READ_SEARCH; read-only root filesystem; never privileged. An init container runs as root with only CAP_CHOWN to set ownership of /var/lib/exitmesh.
 {{- else }}
@@ -32,6 +35,7 @@ WARNING: node.runAsRootFallback=true. Node agents run as UID 0. Use this only wh
 
 Export preview
   Sent to ExitMesh: normalized state facts and their deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence.
+  On demand: one redacted live object per object.get call; the package inventory of one running image per image.sbom.get call (package metadata only).
   Never sent: raw logs, raw metric samples, full manifests, Secret contents, ConfigMap values, or environment values.
   Historical log and metric search is not an ExitMesh feature. Connect your own monitoring stack as a read-only lookback source (values: lookback).
 

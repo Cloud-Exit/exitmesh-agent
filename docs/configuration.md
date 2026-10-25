@@ -150,6 +150,23 @@ Local administrator upper bounds; rules cannot exceed them.
 |`investigation.maxSamples`|`500000`|Sample limit.|
 |`investigation.maxWindow`|`6h`|Maximum time window of a live query.|
 
+## imageInventory
+
+Package inventories of running images (docs/architecture.md, Image inventory). Node agents build them; the coordinator advertises `image.sbom.get` while enabled.
+
+|Key|Default|Meaning|
+|---|---|---|
+|`imageInventory.enabled`|`true`|Build inventories on node agents and advertise `image.sbom.get` on the coordinator.|
+|`imageInventory.contentStore`|`/var/lib/containerd/io.containerd.content.v1.content`|Absolute path of the containerd content store, read-only. k3s: `/var/lib/rancher/k3s/agent/containerd/io.containerd.content.v1.content`; RKE2: `/var/lib/rancher/rke2/agent/containerd/io.containerd.content.v1.content`.|
+|`imageInventory.maxLayerBytes`|`4Gi`|Uncompressed layer bytes read per image.|
+|`imageInventory.maxFiles`|`500000`|Layer entries read per image.|
+|`imageInventory.maxStagedBytes`|`128Mi`|Package metadata files staged under `<stateDir>/sbom/work` per image.|
+|`imageInventory.maxPackages`|`20000`|Packages per image.|
+|`imageInventory.timeout`|`10m`|Wall time per image.|
+|`imageInventory.cacheEntries`, `cacheBytes`|`256`, `64Mi`|Bounds of the per-digest result cache under `<stateDir>/sbom/cache`, evicted least recently used.|
+
+Reaching a build bound returns the packages found so far with `truncated: true` and a reason; it is never reported as a complete list.
+
 ## logging
 
 |Key|Default|Meaning|
@@ -209,6 +226,7 @@ Local administrator upper bounds; rules cannot exceed them.
 |`airgap.exportDir`|`/data/export`|Export directory on the PVC.|
 |`airgap.persistenceSize`, `airgap.spoolCapacity`|`60Gi`, `50Gi`|Enlarged PVC and spool when `airgap.enabled`.|
 |`policy`, `investigation`|empty|Rendered to the matching sections.|
+|`imageInventory.enabled`, `imageInventory.contentStore`|`true`, `/var/lib/containerd/io.containerd.content.v1.content`|Rendered to `imageInventory` of both roles; the node DaemonSet mounts the content store read-only while enabled.|
 |`logging.level`, `logging.format`|`info`, `json`|Rendered to `logging`.|
 |`networkPolicy.enabled`|`true`|Ship NetworkPolicies.|
 |`networkPolicy.dns.ports`|`[53]`|DNS egress (UDP and TCP).|

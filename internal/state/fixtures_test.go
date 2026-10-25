@@ -71,7 +71,7 @@ func podSpec() corev1.PodSpec {
 		ImagePullSecrets:   []corev1.LocalObjectReference{{Name: "regcred"}},
 		InitContainers: []corev1.Container{{
 			Name: "init", Image: "busybox:1.36", Command: []string{"sh", "-c"}, Args: []string{"echo ready"},
-			Ports:     []corev1.ContainerPort{{Name: "probe", ContainerPort: 7070}},
+			Ports:     []corev1.ContainerPort{{Name: "probe", ContainerPort: 7070, HostPort: 7070}},
 			Env:       []corev1.EnvVar{{Name: "SEED", ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "seed"}, Key: "value"}}}},
 			EnvFrom:   []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "init-secret"}}}},
 			Resources: corev1.ResourceRequirements{Requests: rl("cpu", "10m"), Limits: rl("memory", "16Mi")},
@@ -81,7 +81,7 @@ func podSpec() corev1.PodSpec {
 			Image:   "nginx:1.25",
 			Command: []string{"/app/server"},
 			Args:    []string{"--db=postgres://admin:hunter2@db:5432/app", "--verbose"},
-			Ports:   []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}, {ContainerPort: 9090, Protocol: corev1.ProtocolUDP}},
+			Ports:   []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}, {ContainerPort: 9090, Protocol: corev1.ProtocolUDP, HostPort: 19090, HostIP: "127.0.0.1"}},
 			Env: []corev1.EnvVar{
 				{Name: "DB_PASSWORD", Value: secretLiteral},
 				{Name: "MODE", ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "web-config"}, Key: "mode"}}},
@@ -247,7 +247,7 @@ func fixtureObjects(t testing.TB) []*unstructured.Unstructured {
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
 		ObjectMeta: meta("web", "shop", "svc-1"),
 		Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer, ClusterIP: "10.96.0.10", Selector: map[string]string{"app": "web"},
-			Ports:           []corev1.ServicePort{{Name: "http", Port: 80, TargetPort: intstr.FromString("http"), Protocol: corev1.ProtocolTCP}},
+			Ports:           []corev1.ServicePort{{Name: "http", Port: 80, TargetPort: intstr.FromString("http"), Protocol: corev1.ProtocolTCP, NodePort: 30080}},
 			SessionAffinity: corev1.ServiceAffinityNone, ExternalTrafficPolicy: corev1.ServiceExternalTrafficPolicyLocal,
 			InternalTrafficPolicy: ptr(corev1.ServiceInternalTrafficPolicyCluster)},
 		Status: corev1.ServiceStatus{LoadBalancer: corev1.LoadBalancerStatus{Ingress: []corev1.LoadBalancerIngress{{IP: "203.0.113.5"}}}},

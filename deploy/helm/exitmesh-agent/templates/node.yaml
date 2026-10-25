@@ -124,6 +124,11 @@ spec:
               mountPath: /var/log/pods
               readOnly: true
             {{- end }}
+            {{- if $v.imageInventory.enabled }}
+            - name: content-store
+              mountPath: {{ $v.imageInventory.contentStore }}
+              readOnly: true
+            {{- end }}
             - name: config
               mountPath: /etc/exitmesh/config
               readOnly: true
@@ -143,6 +148,12 @@ spec:
           hostPath:
             path: /var/log/pods
             type: Directory
+        {{- end }}
+        {{- if $v.imageInventory.enabled }}
+        # No type check: on a node whose runtime keeps no content here the agent reports the image inventory unavailable instead of failing to start.
+        - name: content-store
+          hostPath:
+            path: {{ $v.imageInventory.contentStore }}
         {{- end }}
         - name: config
           configMap:

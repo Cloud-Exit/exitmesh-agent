@@ -29,7 +29,7 @@ Never requested by any capability: `nodes/proxy` (reaches the full kubelet API),
 
 |Where|Access|Enforcement|
 |---|---|---|
-|Node agent|`/var/log/pods` read-only; `/var/lib/exitmesh` read-write, mode 0700, owned by UID 65532|Pod spec; the chart renders no other hostPath. `DirectoryOrCreate`; an init container running as root with only `CAP_CHOWN` sets ownership and mode once.|
+|Node agent|`/var/log/pods` read-only; the containerd content store (`imageInventory.contentStore`) read-only while `imageInventory.enabled`; `/var/lib/exitmesh` read-write, mode 0700, owned by UID 65532|Pod spec; the chart renders no other hostPath. `DirectoryOrCreate`; an init container running as root with only `CAP_CHOWN` sets ownership and mode once.|
 |Node agent container|runs as UID 65532 holding only `CAP_DAC_READ_SEARCH`, read-only root filesystem, `allowPrivilegeEscalation: false`, seccomp `RuntimeDefault`, no host network, PID, or IPC, never `privileged`|Pod security context plus `--run-as` (below); the node namespace is labelled `privileged` only because hostPath volumes require it. The UID and effective capabilities are reported on the connector.|
 |Coordinator|Pod Security `restricted`: non-root, no capabilities, read-only root filesystem, seccomp `RuntimeDefault`, only PVC, ConfigMap, Secret, and projected volumes|Namespace label `pod-security.kubernetes.io/enforce=restricted`.|
 |Host agent|User `exitmesh`, groups `systemd-journal` and (where present) `adm`; unit with `NoNewPrivileges`, `ProtectSystem=strict`, `ReadWritePaths=/var/lib/exitmesh`, `ProtectHome`, `PrivateTmp`, empty capability sets, kernel protections, address family and system call filters|systemd unit shipped in the package.|
@@ -46,7 +46,7 @@ Redaction runs before every sink: the evidence ring, the spool, transmission, an
 
 ## What is exported
 
-Normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. Full manifests leave the cluster only on demand through `object.get`, one in-scope resource per call, redacted (docs/investigation.md). Never exported: raw logs, raw metric samples, Secret values, ConfigMap values, environment values, and command lines except allowlisted, redacted fields. Labels and annotations require allowlists (`kubernetes.labelAllowlist`, `kubernetes.annotationAllowlist`). The local export policy is enforced even when a rule or investigation asks for more.
+Normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. Full manifests leave the cluster only on demand through `object.get`, one in-scope resource per call, redacted (docs/investigation.md). Image package inventories (package names, versions, package URLs, metadata file paths, and the OCI source and revision labels, never file contents) leave the cluster only on demand through `image.sbom.get`, one digest per call. Never exported: raw logs, raw metric samples, Secret values, ConfigMap values, environment values, and command lines except allowlisted, redacted fields. Labels and annotations require allowlists (`kubernetes.labelAllowlist`, `kubernetes.annotationAllowlist`). The local export policy is enforced even when a rule or investigation asks for more.
 
 ## Investigation
 

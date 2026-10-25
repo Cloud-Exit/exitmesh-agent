@@ -364,14 +364,14 @@ func TestHostPaths(t *testing.T) {
 					if h.Type == nil || *h.Type != corev1.HostPathDirectoryOrCreate {
 						t.Errorf("%s: /var/lib/exitmesh must be DirectoryOrCreate", vs.name)
 					}
-				case "/var/log/pods":
+				case "/var/log/pods", defaultContentStore:
 					if ds.Name != nodeDS {
-						t.Errorf("%s: %s mounts /var/log/pods", vs.name, ds.Name)
+						t.Errorf("%s: %s mounts %s", vs.name, ds.Name, h.Path)
 					}
 					for _, c := range append(spec.InitContainers, spec.Containers...) {
 						for _, vm := range c.VolumeMounts {
 							if vm.Name == name && !vm.ReadOnly {
-								t.Errorf("%s: /var/log/pods must be mounted read-only", vs.name)
+								t.Errorf("%s: %s must be mounted read-only", vs.name, h.Path)
 							}
 						}
 					}
@@ -400,9 +400,67 @@ func TestHostPaths(t *testing.T) {
 		paths = append(paths, h.Path)
 	}
 	slices.Sort(paths)
-	if !reflect.DeepEqual(paths, []string{"/var/lib/exitmesh", "/var/log/pods"}) {
+	if !reflect.DeepEqual(paths, []string{defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}) {
 		t.Fatalf("node agent hostPaths = %v", paths)
 	}
+}
+
+const defaultContentStore = "/var/lib/containerd/io.containerd.content.v1.content"
+
+func TestImageInventoryContentStoreMount(t *testing.T) {
+	mounts := func(ds *appsv1.DaemonSet, path string) (init, agent []corev1.VolumeMount) {
+		name := ""
+		for n, h := range hostPaths(ds.Spec.Template.Spec) {
+			if h.Path == path {
+				name = n
+				if h.Type != nil && *h.Type != "" {
+					t.Errorf("content store hostPath type %s blocks nodes whose runtime keeps no content there", *h.Type)
+				}
+			}
+		}
+		for _, c := range ds.Spec.Template.Spec.InitContainers {
+			for _, vm := range c.VolumeMounts {
+				if vm.Name == name {
+					init = append(init, vm)
+				}
+			}
+		}
+		for _, vm := range containerByName(ds.Spec.Template.Spec.Containers, "node-agent").VolumeMounts {
+			if vm.Name == name {
+				agent = append(agent, vm)
+			}
+		}
+		return init, agent
+	}
+	m := render(t, baseArgs...)
+	init, agent := mounts(daemonSet(t, m, nodeDS), defaultContentStore)
+	if len(init) != 0 || len(agent) != 1 || !agent[0].ReadOnly || agent[0].MountPath != defaultContentStore {
+		t.Fatalf("default content store mounts init=%+v agent=%+v", init, agent)
+	}
+	coord, node := agentConfigs(t, m)
+	if !node.ImageInventory.Active() || node.ImageInventory.ContentStore != defaultContentStore || !coord.ImageInventory.Active() {
+		t.Fatalf("image inventory config node=%+v coordinator=%+v", node.ImageInventory, coord.ImageInventory)
+	}
+
+	k3s := "/var/lib/rancher/k3s/agent/containerd/io.containerd.content.v1.content"
+	m = render(t, append([]string{"--set", "imageInventory.contentStore=" + k3s}, baseArgs...)...)
+	if _, agent := mounts(daemonSet(t, m, nodeDS), k3s); len(agent) != 1 || !agent[0].ReadOnly || agent[0].MountPath != k3s {
+		t.Fatalf("k3s content store mounts %+v", agent)
+	}
+	if _, node := agentConfigs(t, m); node.ImageInventory.ContentStore != k3s {
+		t.Fatalf("k3s content store not configured: %+v", node.ImageInventory)
+	}
+
+	m = render(t, append([]string{"--set", "imageInventory.enabled=false"}, baseArgs...)...)
+	for _, h := range hostPaths(daemonSet(t, m, nodeDS).Spec.Template.Spec) {
+		if h.Path == defaultContentStore {
+			t.Fatal("content store mounted with image inventory disabled")
+		}
+	}
+	if coord, node := agentConfigs(t, m); node.ImageInventory.Active() || coord.ImageInventory.Active() {
+		t.Fatal("image inventory still enabled in the agent config")
+	}
+	schemaFails(t, "contentStore", append([]string{"--set", "imageInventory.contentStore=relative/path"}, baseArgs...)...)
 }
 
 var restrictedVolumeTypes = func(v corev1.Volume) bool {

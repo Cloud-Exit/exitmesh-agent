@@ -22,6 +22,7 @@ import (
 	metadatafake "k8s.io/client-go/metadata/fake"
 	clienttesting "k8s.io/client-go/testing"
 
+	"github.com/cloud-exit/exitmesh-agent/internal/imagesbom/imagesbomtest"
 	"github.com/cloud-exit/exitmesh-agent/internal/state"
 )
 
@@ -42,7 +43,8 @@ var depGVR = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource:
 // podOf names the pod scheduled on each node.
 var podOf = map[string]struct{ name, uid string }{nodeA: {"web-1", "pod-1"}, nodeB: {"web-2", "pod-2"}}
 
-func typedObjects() []runtime.Object {
+// typedObjects runs image on the app container of the node A pod.
+func typedObjects(image string) []runtime.Object {
 	rep := int32(2)
 	ctrl := true
 	tmpl := corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "web", "pod-template-hash": "7d9f"}},
@@ -82,7 +84,11 @@ func typedObjects() []runtime.Object {
 		}
 		pod.Spec.NodeName = n
 		for _, c := range pod.Spec.Containers {
-			pod.Status.ContainerStatuses = append(pod.Status.ContainerStatuses, corev1.ContainerStatus{Name: c.Name, Ready: true, Image: c.Image})
+			cs := corev1.ContainerStatus{Name: c.Name, Ready: true, Image: c.Image}
+			if n == nodeA && c.Name == "app" {
+				cs.ImageID = "docker.io/library/nginx@" + image
+			}
+			pod.Status.ContainerStatuses = append(pod.Status.ContainerStatuses, cs)
 		}
 		objs = append(objs, pod)
 	}
@@ -96,6 +102,9 @@ type cluster struct {
 	disc *discoveryfake.FakeDiscovery
 	kube *kubefake.Clientset
 	objs []runtime.Object
+	// contentStore holds image, which the node A pod runs.
+	contentStore string
+	image        string
 }
 
 func toUnstructured(t testing.TB, obj runtime.Object) *unstructured.Unstructured {
@@ -130,7 +139,9 @@ func newCluster(t testing.TB) *cluster {
 	for _, s := range state.Catalog() {
 		listKinds[s.GVR] = s.APIKind + "List"
 	}
-	c := &cluster{objs: typedObjects(), disc: &discoveryfake.FakeDiscovery{Fake: &clienttesting.Fake{}}}
+	store := imagesbomtest.ContentStore(t, t.TempDir())
+	image := imagesbomtest.AlpineImage(t, store)
+	c := &cluster{objs: typedObjects(image), disc: &discoveryfake.FakeDiscovery{Fake: &clienttesting.Fake{}}, contentStore: store, image: image}
 	var us []runtime.Object
 	for _, o := range c.objs {
 		us = append(us, toUnstructured(t, o))

@@ -531,6 +531,7 @@ func (c *Coordinator) setup(ctx context.Context) error {
 		Role: investigate.RoleCoordinator, State: c.stateView, Nodes: router{c}, Coordinator: c.mem,
 		Lookback: c.cfg.Lookback, HTTPClient: c.d.LookbackClient, Limits: c.cfg.Investigation, Audit: c.auditInvestigation,
 		SaveFinding: c.saveQueryFinding, Clock: c.now, Redactor: c.red, Objects: c.col,
+		ImageInventory: c.cfg.ImageInventory.Active(),
 	}); err != nil {
 		return fmt.Errorf("coordinator: investigation: %w", err)
 	}

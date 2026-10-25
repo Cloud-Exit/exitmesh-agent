@@ -34,7 +34,7 @@ Labels (`kubernetes.labelAllowlist`, a trailing `*` matches a prefix), default:
 
 Annotations (`kubernetes.annotationAllowlist`): Helm release name and namespace by default; Secret annotations are always omitted.
 
-Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references. Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret data and stringData keys are retained with constant redacted values before caching or export; Helm release payloads are never decoded.
+Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references; Gateway API HTTPRoute and TLSRoute additionally export their parent, backend, and hostname references (below). Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret data and stringData keys are retained with constant redacted values before caching or export; Helm release payloads are never decoded.
 
 ## Scopes
 
@@ -52,12 +52,23 @@ Scope keys are `<kind>|<namespace>`, with an empty namespace for cluster-wide co
 |`selects`|Service|Pod (spec.selector within the namespace)|`ports`: sorted port names, or port/protocol when unnamed|
 |`mounts`|Pod|PersistentVolumeClaim (volumes, ephemeral claims)|none|
 |`binds`|PersistentVolumeClaim|PersistentVolume (spec.volumeName)|none|
-|`routes`|networking.k8s.io/Ingress|Service (backends)|`ports`: sorted backend ports|
+|`routes`|networking.k8s.io/Ingress, gateway.networking.k8s.io/HTTPRoute, or gateway.networking.k8s.io/TLSRoute|Service (Ingress backends, route spec.rules[].backendRefs)|`ports`: sorted backend ports|
+|`routes`|gateway.networking.k8s.io/Gateway|HTTPRoute or TLSRoute naming it in spec.parentRefs|none|
 |`targets`|networking.k8s.io/NetworkPolicy|Pod (spec.podSelector within the namespace)|none|
 |`scales`|autoscaling/HorizontalPodAutoscaler|scale target (spec.scaleTargetRef)|none|
 |`guards`|policy/PodDisruptionBudget|Pod (spec.selector within the namespace)|none|
 
 An edge exists only while both endpoints are in state.
+
+## Gateway API routes
+
+`gateway.networking.k8s.io/HTTPRoute` and `gateway.networking.k8s.io/TLSRoute`, when their CRDs are discovered, export these fields on top of the custom-resource projection; matches, filters, and every other spec field are omitted before caching.
+
+|Field|Source|Type|Redaction|Default|
+|---|---|---|---|---|
+|`parentRefs`|HTTPRoute and TLSRoute spec.parentRefs[] as Kind[.group]:namespace/name[#sectionName] (Kind defaults to Gateway, namespace to the route's)|list<string>|reference|yes|
+|`backends`|HTTPRoute and TLSRoute spec.rules[].backendRefs[] as service:port, namespace/service:port in another namespace, or Kind.group:namespace/name for other kinds|list<string>|reference|yes|
+|`hostnames`|HTTPRoute and TLSRoute spec.hostnames|list<string>|structural|yes|
 
 ## ConfigMap
 
@@ -193,6 +204,7 @@ API: `v1` `pods`, namespaced.
 |`containers.<container>.requests.<resource>`|spec.containers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.limits.<resource>`|spec.containers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.ports`|spec.containers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`containers.<container>.hostPorts`|spec.containers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`containers.<container>.envRefs`|spec.containers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`containers.<container>.envFrom`|spec.containers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`containers.<container>.command`|spec.containers[].command|list<string>|text|no|
@@ -210,6 +222,7 @@ API: `v1` `pods`, namespaced.
 |`initContainers.<container>.requests.<resource>`|spec.initContainers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.limits.<resource>`|spec.initContainers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.ports`|spec.initContainers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`initContainers.<container>.hostPorts`|spec.initContainers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`initContainers.<container>.envRefs`|spec.initContainers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`initContainers.<container>.envFrom`|spec.initContainers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`initContainers.<container>.command`|spec.initContainers[].command|list<string>|text|no|
@@ -261,6 +274,7 @@ API: `v1` `services`, namespaced.
 |`type`|spec.type|string|structural|yes|
 |`clusterIP`|spec.clusterIP|string|structural|yes|
 |`ports`|spec.ports[] as name:port/protocol->targetPort|list<string>|structural|yes|
+|`nodePorts`|spec.ports[] with a nodePort as name:nodePort/protocol|list<string>|structural|yes|
 |`hasSelector`|spec.selector is non-empty|bool|structural|yes|
 |`selector`|spec.selector as a canonical selector|string|text|no|
 |`sessionAffinity`|spec.sessionAffinity|string|structural|yes|
@@ -318,6 +332,7 @@ API: `apps/v1` `daemonsets`, namespaced.
 |`containers.<container>.requests.<resource>`|spec.template.spec.containers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.limits.<resource>`|spec.template.spec.containers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.ports`|spec.template.spec.containers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`containers.<container>.hostPorts`|spec.template.spec.containers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`containers.<container>.envRefs`|spec.template.spec.containers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`containers.<container>.envFrom`|spec.template.spec.containers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`containers.<container>.command`|spec.template.spec.containers[].command|list<string>|text|no|
@@ -326,6 +341,7 @@ API: `apps/v1` `daemonsets`, namespaced.
 |`initContainers.<container>.requests.<resource>`|spec.template.spec.initContainers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.limits.<resource>`|spec.template.spec.initContainers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.ports`|spec.template.spec.initContainers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`initContainers.<container>.hostPorts`|spec.template.spec.initContainers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`initContainers.<container>.envRefs`|spec.template.spec.initContainers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`initContainers.<container>.envFrom`|spec.template.spec.initContainers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`initContainers.<container>.command`|spec.template.spec.initContainers[].command|list<string>|text|no|
@@ -362,6 +378,7 @@ API: `apps/v1` `deployments`, namespaced.
 |`containers.<container>.requests.<resource>`|spec.template.spec.containers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.limits.<resource>`|spec.template.spec.containers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.ports`|spec.template.spec.containers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`containers.<container>.hostPorts`|spec.template.spec.containers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`containers.<container>.envRefs`|spec.template.spec.containers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`containers.<container>.envFrom`|spec.template.spec.containers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`containers.<container>.command`|spec.template.spec.containers[].command|list<string>|text|no|
@@ -370,6 +387,7 @@ API: `apps/v1` `deployments`, namespaced.
 |`initContainers.<container>.requests.<resource>`|spec.template.spec.initContainers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.limits.<resource>`|spec.template.spec.initContainers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.ports`|spec.template.spec.initContainers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`initContainers.<container>.hostPorts`|spec.template.spec.initContainers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`initContainers.<container>.envRefs`|spec.template.spec.initContainers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`initContainers.<container>.envFrom`|spec.template.spec.initContainers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`initContainers.<container>.command`|spec.template.spec.initContainers[].command|list<string>|text|no|
@@ -402,6 +420,7 @@ API: `apps/v1` `replicasets`, namespaced.
 |`containers.<container>.requests.<resource>`|spec.template.spec.containers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.limits.<resource>`|spec.template.spec.containers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.ports`|spec.template.spec.containers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`containers.<container>.hostPorts`|spec.template.spec.containers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`containers.<container>.envRefs`|spec.template.spec.containers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`containers.<container>.envFrom`|spec.template.spec.containers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`containers.<container>.command`|spec.template.spec.containers[].command|list<string>|text|no|
@@ -410,6 +429,7 @@ API: `apps/v1` `replicasets`, namespaced.
 |`initContainers.<container>.requests.<resource>`|spec.template.spec.initContainers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.limits.<resource>`|spec.template.spec.initContainers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.ports`|spec.template.spec.initContainers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`initContainers.<container>.hostPorts`|spec.template.spec.initContainers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`initContainers.<container>.envRefs`|spec.template.spec.initContainers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`initContainers.<container>.envFrom`|spec.template.spec.initContainers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`initContainers.<container>.command`|spec.template.spec.initContainers[].command|list<string>|text|no|
@@ -447,6 +467,7 @@ API: `apps/v1` `statefulsets`, namespaced.
 |`containers.<container>.requests.<resource>`|spec.template.spec.containers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.limits.<resource>`|spec.template.spec.containers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.ports`|spec.template.spec.containers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`containers.<container>.hostPorts`|spec.template.spec.containers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`containers.<container>.envRefs`|spec.template.spec.containers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`containers.<container>.envFrom`|spec.template.spec.containers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`containers.<container>.command`|spec.template.spec.containers[].command|list<string>|text|no|
@@ -455,6 +476,7 @@ API: `apps/v1` `statefulsets`, namespaced.
 |`initContainers.<container>.requests.<resource>`|spec.template.spec.initContainers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.limits.<resource>`|spec.template.spec.initContainers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.ports`|spec.template.spec.initContainers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`initContainers.<container>.hostPorts`|spec.template.spec.initContainers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`initContainers.<container>.envRefs`|spec.template.spec.initContainers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`initContainers.<container>.envFrom`|spec.template.spec.initContainers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`initContainers.<container>.command`|spec.template.spec.initContainers[].command|list<string>|text|no|
@@ -507,6 +529,7 @@ API: `batch/v1` `cronjobs`, namespaced.
 |`containers.<container>.requests.<resource>`|spec.jobTemplate.spec.template.spec.containers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.limits.<resource>`|spec.jobTemplate.spec.template.spec.containers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.ports`|spec.jobTemplate.spec.template.spec.containers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`containers.<container>.hostPorts`|spec.jobTemplate.spec.template.spec.containers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`containers.<container>.envRefs`|spec.jobTemplate.spec.template.spec.containers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`containers.<container>.envFrom`|spec.jobTemplate.spec.template.spec.containers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`containers.<container>.command`|spec.jobTemplate.spec.template.spec.containers[].command|list<string>|text|no|
@@ -515,6 +538,7 @@ API: `batch/v1` `cronjobs`, namespaced.
 |`initContainers.<container>.requests.<resource>`|spec.jobTemplate.spec.template.spec.initContainers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.limits.<resource>`|spec.jobTemplate.spec.template.spec.initContainers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.ports`|spec.jobTemplate.spec.template.spec.initContainers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`initContainers.<container>.hostPorts`|spec.jobTemplate.spec.template.spec.initContainers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`initContainers.<container>.envRefs`|spec.jobTemplate.spec.template.spec.initContainers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`initContainers.<container>.envFrom`|spec.jobTemplate.spec.template.spec.initContainers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`initContainers.<container>.command`|spec.jobTemplate.spec.template.spec.initContainers[].command|list<string>|text|no|
@@ -549,6 +573,7 @@ API: `batch/v1` `jobs`, namespaced.
 |`containers.<container>.requests.<resource>`|spec.template.spec.containers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.limits.<resource>`|spec.template.spec.containers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.ports`|spec.template.spec.containers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`containers.<container>.hostPorts`|spec.template.spec.containers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`containers.<container>.envRefs`|spec.template.spec.containers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`containers.<container>.envFrom`|spec.template.spec.containers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`containers.<container>.command`|spec.template.spec.containers[].command|list<string>|text|no|
@@ -557,6 +582,7 @@ API: `batch/v1` `jobs`, namespaced.
 |`initContainers.<container>.requests.<resource>`|spec.template.spec.initContainers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.limits.<resource>`|spec.template.spec.initContainers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
 |`initContainers.<container>.ports`|spec.template.spec.initContainers[].ports[] as name:port/protocol|list<string>|structural|yes|
+|`initContainers.<container>.hostPorts`|spec.template.spec.initContainers[].ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort|list<string>|structural|yes|
 |`initContainers.<container>.envRefs`|spec.template.spec.initContainers[].env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)|list<string>|reference|yes|
 |`initContainers.<container>.envFrom`|spec.template.spec.initContainers[].envFrom[] as configMap:name or secret:name|list<string>|reference|yes|
 |`initContainers.<container>.command`|spec.template.spec.initContainers[].command|list<string>|text|no|

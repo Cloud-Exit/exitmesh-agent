@@ -54,6 +54,7 @@ const (
 	TaskLogQLQuery  TaskKind = "logql_query"
 	TaskLogRead     TaskKind = "log_read"
 	TaskEvidence    TaskKind = "evidence_read"
+	TaskImageSBOM   TaskKind = "image_sbom"
 )
 
 // QueueUsage mirrors the node agent queue occupancy.

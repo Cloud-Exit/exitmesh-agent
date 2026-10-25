@@ -480,3 +480,33 @@ func TestNoDashCharacters(t *testing.T) {
 		}
 	}
 }
+
+// TestScalibrImportsStayNarrow keeps osv-scalibr registries out of the binary; they link every plugin.
+func TestScalibrImportsStayNarrow(t *testing.T) {
+	cmd := exec.Command("go", "list", "-deps", "./cmd/exitmesh-agent")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	const root = "github.com/google/osv-scalibr"
+	var linked []string
+	for _, pkg := range strings.Fields(string(out)) {
+		if pkg != root && !strings.HasPrefix(pkg, root+"/") {
+			continue
+		}
+		linked = append(linked, pkg)
+		rel := strings.TrimPrefix(pkg, root)
+		switch {
+		case rel == "", strings.HasSuffix(rel, "/list"), strings.Contains(rel, "/layerscanning"),
+			strings.HasPrefix(rel, "/detector"), strings.HasPrefix(rel, "/enricher"), strings.HasPrefix(rel, "/annotator"):
+			t.Errorf("%s is a scalibr registry or scanner beyond the image inventory extractors", pkg)
+		}
+	}
+	for _, want := range []string{"os/dpkg", "os/apk", "os/rpm", "language/golang/gobinary", "language/javascript/packagejson", "language/python/wheelegg", "language/java/archive"} {
+		if !slices.Contains(linked, root+"/extractor/filesystem/"+want) {
+			t.Errorf("image inventory extractor %s is not linked", want)
+		}
+	}
+}
