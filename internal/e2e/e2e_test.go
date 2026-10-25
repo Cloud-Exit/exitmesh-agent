@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/coordinator"
+	"github.com/cloud-exit/exitmesh-agent/internal/imagesbom/imagesbomtest"
 	"github.com/cloud-exit/exitmesh-agent/internal/investigate"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/redact"
@@ -418,17 +419,34 @@ func TestInvestigationToolsThroughRefcp(t *testing.T) {
 	if uid, _, _ := unstructured.NestedString(res, "data", "object", "metadata", "uid"); uid != "pod-1" {
 		t.Fatalf("object.get %v", res)
 	}
+	var sbom map[string]any
+	e.waitFor("image.sbom.get ready from the node that runs the image", func() bool {
+		sbom = e.callTool("image.sbom.get", map[string]any{"digest": e.cl.image})
+		return sbom["status"] == "ready"
+	})
+	pkgs, _ := sbom["packages"].([]any)
+	if len(pkgs) != 1 || pkgs[0].(map[string]any)["ecosystem"] != imagesbomtest.AlpineEcosystem || sbom["labels"].(map[string]any)["source"] != imagesbomtest.AlpineSource {
+		t.Fatalf("image.sbom.get %v", sbom)
+	}
+	if res := e.callTool("image.sbom.get", map[string]any{"digest": "sha256:" + strings.Repeat("0", 64)}); res["status"] != "unavailable" || res["reason"] == "" {
+		t.Fatalf("image.sbom.get for an image nothing runs %v", res)
+	}
 	// Audits are tunnel notifications handled apart from the tool response, so they can land after it.
 	e.waitFor("every investigation audited at refcp", func() bool {
 		audited := map[string]bool{}
 		for _, au := range e.cp.Audit(e.target) {
 			if au.Event == "investigation" {
-				for _, tool := range []string{"promql.query", "logql.query", "evidence.query", "state.query", "object.get"} {
+				for _, tool := range []string{"promql.query", "logql.query", "evidence.query", "state.query", "object.get", "image.sbom.get"} {
 					audited[tool] = audited[tool] || strings.Contains(au.Detail, tool)
 				}
 			}
 		}
-		return len(audited) == 5 && audited["promql.query"] && audited["logql.query"] && audited["evidence.query"] && audited["state.query"] && audited["object.get"]
+		for _, ok := range audited {
+			if !ok {
+				return false
+			}
+		}
+		return len(audited) == 6
 	})
 }
 

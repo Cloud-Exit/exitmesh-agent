@@ -24,6 +24,7 @@ import (
 
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/findings"
+	"github.com/cloud-exit/exitmesh-agent/internal/imagesbom"
 	"github.com/cloud-exit/exitmesh-agent/internal/kv"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
 	"github.com/cloud-exit/exitmesh-agent/internal/privdrop"
@@ -144,6 +145,7 @@ type Agent struct {
 	budget   *disk.Budget
 	exec     TaskExecutor
 	pods     *podWatch
+	images   *imagesbom.Inventory
 	norm     *state.Normalizer
 	scope    nsScope
 
@@ -342,6 +344,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	goLoop(&wg, a.sendLoop)
 	goLoop(&wg, a.registerLoop)
 	goLoop(&wg, a.taskLoop)
+	if a.images != nil {
+		goLoop(&wg, a.images.Run)
+	}
 	if a.db != nil {
 		goLoop(&wg, a.factsLoop)
 		goLoop(&wg, a.diskLoop)
@@ -451,6 +456,10 @@ func (a *Agent) open() error {
 		a.exec = a.defaultExecutor()
 	}
 	a.exec = scopedExecutor{next: a.exec, scope: a.scope}
+	if err := a.openImages(); err != nil {
+		return err
+	}
+	a.exec = imageExecutor{next: a.exec, images: a.images, node: a.node}
 	if err := a.loadLastKnownGood(); err != nil {
 		return err
 	}

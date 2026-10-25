@@ -37,6 +37,8 @@ CI additionally installs the chart into kind clusters across the supported Kuber
 
 Dependencies are pinned in `go.mod`. A new module must be pure Go and licensed under Apache 2.0, MIT, BSD, or ISC; open an issue before adding one. Never import Loki, Grafana, or any AGPL or GPL code.
 
+The image inventory links osv-scalibr (Apache 2.0) only through its filesystem extractor runner and the dpkg, apk, rpm, Go binary, npm `package.json`, Python wheel and egg, and Java archive extractors; the root package and every plugin registry stay out because they link every plugin, which `internal/deploytest` checks. The modules these packages add are all Apache 2.0, MIT, BSD, or ISC.
+
 Approved license exceptions (MPL-2.0, approved by Cloud Exit B.V. on 2026-09-30):
 
 |Module|Reached through|

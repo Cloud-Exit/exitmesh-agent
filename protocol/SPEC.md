@@ -481,6 +481,19 @@ Errors use JSON-RPC error objects with `data.code` set to one of the decision co
 
 The writer advertises MCP tools `state.query`, `graph.query`, `promql.query`, `logql.query`, `logsql.query`, and `lookback.query`, and a Kubernetes writer also advertises `object.get`, which returns the live object of one in-scope resource with Secret values, ConfigMap values, and environment values redacted. Every call carries `scope` (namespaces, resources, nodes), `window` (`start`, `end` in ms), `limits`, `requester`, and `purpose`. Results carry `source`, `window`, `limits`, `truncated`, `limitations`, and the query hash. Results are never retained by the writer.
 
+Minor revision: a Kubernetes writer with image inventory enabled also advertises `image.sbom.get`, which returns the package inventory of one running container image. Its arguments are `digest` (`sha256:` followed by 64 lowercase hex characters: an image index, manifest, or config digest as a container status `imageID` reports it) and, optionally, `request_id`, `requester`, `purpose`, `scope` (absent means cluster-wide; a narrower scope only answers for images that an in-scope pod runs), and `limits`. Its result does not use the envelope above:
+
+```
+{ "status": "ready" | "pending" | "unavailable", "digest": tstr, ? "reason": tstr,
+  "labels": { ? "source": tstr, ? "revision": tstr },
+  "packages": [* { "ecosystem": tstr, "name": tstr, "version": tstr, ? "purl": tstr, ? "location": tstr }],
+  "truncated": bool, "scanner": tstr }
+```
+
+`pending` means the node agent that runs the image is building the inventory; the caller asks again later. `unavailable` carries `reason`, a sentence. `labels` are the image config labels `org.opencontainers.image.source` and `org.opencontainers.image.revision`. `ecosystem` is the OSV ecosystem name, including the release for OS packages (`Debian:12`, `Ubuntu:22.04`, `Alpine:v3.20`). `truncated` is true, with a `reason`, when a build bound was reached and the package list is incomplete. `scanner` names the inventory engine and its version. The result carries package metadata only, never file contents. Readers that never call the tool are unaffected.
+
+`limits.max_lines` bounds the package count and `limits.max_bytes` bounds the encoded JSON result, including labels and the reason. Requested limits are clamped to the administrator's investigation limits. A limited response keeps a package prefix and sets `truncated` with a reason; oversized optional labels or reasons may be omitted or replaced. A byte bound that cannot hold the required result fields and a truncation reason is rejected as `invalid_request`. Extraction failures and unresolved metadata hardlinks also set `truncated` with a reason. Response truncation does not replace the cached inventory.
+
 ## 10. Export format
 
 An air-gap export file is:

@@ -471,7 +471,9 @@ node:
 investigation:
   maxConcurrency: 4
   timeout: 10s
-`, a.dir, e.listen, e.cert, token, e.tr.rootEntry(), name, a.logs) + strings.Join(extra, "")
+imageInventory:
+  contentStore: %s
+`, a.dir, e.listen, e.cert, token, e.tr.rootEntry(), name, a.logs, e.cl.contentStore) + strings.Join(extra, "")
 	cfg, err := config.Parse([]byte(y))
 	if err != nil {
 		t.Fatal(err)

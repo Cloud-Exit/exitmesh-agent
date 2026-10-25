@@ -141,6 +141,7 @@ func podSpecFields(p string, pod bool) []Field {
 			f(b+"requests.<resource>", s+"resources.requests (cpu in cores, others in base units)", TypeQuantity, RedactStructural, true),
 			f(b+"limits.<resource>", s+"resources.limits (cpu in cores, others in base units)", TypeQuantity, RedactStructural, true),
 			f(b+"ports", s+"ports[] as name:port/protocol", TypeStringList, RedactStructural, true),
+			f(b+"hostPorts", s+"ports[] with a hostPort as [hostIP:][name:]hostPort/protocol->containerPort", TypeStringList, RedactStructural, true),
 			f(b+"envRefs", s+"env[].valueFrom as NAME=configMap:name/key, NAME=secret:name/key, NAME=field:path, NAME=resource:name (never values)", TypeStringList, RedactReference, true),
 			f(b+"envFrom", s+"envFrom[] as configMap:name or secret:name", TypeStringList, RedactReference, true),
 			f(b+"command", s+"command", TypeStringList, RedactText, false),
@@ -287,6 +288,7 @@ func buildCatalog() []*KindSpec {
 			f("type", "spec.type", TypeString, RedactStructural, true),
 			f("clusterIP", "spec.clusterIP", TypeString, RedactStructural, true),
 			f("ports", "spec.ports[] as name:port/protocol->targetPort", TypeStringList, RedactStructural, true),
+			f("nodePorts", "spec.ports[] with a nodePort as name:nodePort/protocol", TypeStringList, RedactStructural, true),
 			f("hasSelector", "spec.selector is non-empty", TypeBool, RedactStructural, true),
 			f("selector", "spec.selector as a canonical selector", TypeString, RedactText, false),
 			f("sessionAffinity", "spec.sessionAffinity", TypeString, RedactStructural, true),
@@ -513,13 +515,19 @@ func RenderFieldCatalog() string {
 		fmt.Fprintf(&b, "- `%s`\n", l)
 	}
 	b.WriteString("\nAnnotations (`kubernetes.annotationAllowlist`): Helm release name and namespace by default; Secret annotations are always omitted.\n\n")
-	b.WriteString("Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references. Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret data and stringData keys are retained with constant redacted values before caching or export; Helm release payloads are never decoded.\n\n")
+	b.WriteString("Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references; Gateway API HTTPRoute and TLSRoute additionally export their parent, backend, and hostname references (below). Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret data and stringData keys are retained with constant redacted values before caching or export; Helm release payloads are never decoded.\n\n")
 	b.WriteString("## Scopes\n\nScope keys are `<kind>|<namespace>`, with an empty namespace for cluster-wide collection. Permission loss and collection failure set the scope unavailable; they never delete resources. Scope removal deletes with reason scope removed.\n\n")
 	b.WriteString("## Edges\n\n|Type|From|To|Attributes|\n|---|---|---|---|\n")
 	for _, e := range edgeDocs {
 		fmt.Fprintf(&b, "|`%s`|%s|%s|%s|\n", e[0], e[1], e[2], e[3])
 	}
 	b.WriteString("\nAn edge exists only while both endpoints are in state.\n")
+	b.WriteString("\n## Gateway API routes\n\n`gateway.networking.k8s.io/HTTPRoute` and `gateway.networking.k8s.io/TLSRoute`, when their CRDs are discovered, export these fields on top of the custom-resource projection; matches, filters, and every other spec field are omitted before caching.\n\n|Field|Source|Type|Redaction|Default|\n|---|---|---|---|---|\n")
+	for _, fd := range extensionFields() {
+		if contains(routeFieldPaths, fd.Path) {
+			fmt.Fprintf(&b, "|`%s`|%s|%s|%s|yes|\n", fd.Path, fd.Source, fd.Type, fd.Redaction)
+		}
+	}
 	for _, s := range catalog {
 		scope := "cluster"
 		if s.Namespaced {

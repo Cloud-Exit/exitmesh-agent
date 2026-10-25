@@ -38,6 +38,7 @@ const (
 	ToolFindingSave = "finding.save"
 	ToolEvidence    = "evidence.query"
 	ToolObject      = "object.get"
+	ToolImageSBOM   = "image.sbom.get"
 )
 
 // Audit outcomes.
@@ -68,6 +69,8 @@ type Options struct {
 	Redactor    *redact.Redactor
 	// Objects serves object.get; the tool is advertised only when set.
 	Objects ObjectSource
+	// ImageInventory advertises image.sbom.get, answered by node agents through Nodes.
+	ImageInventory bool
 }
 
 // ObjectSource reads one live Kubernetes object with Secret, ConfigMap, and environment values already redacted; nil means it does not exist.
@@ -115,6 +118,8 @@ type toolDef struct {
 	desc   string
 	schema json.RawMessage
 	run    func(ctx context.Context, c *call) (*Result, error)
+	// direct tools validate their own arguments and return their own result shape.
+	direct func(ctx context.Context, raw json.RawMessage, rec *AuditRecord) (any, error)
 }
 
 // call is one validated request in flight.
@@ -135,6 +140,9 @@ func NewService(o Options) (*Service, error) {
 	case RoleHost:
 		if o.Local == nil {
 			return nil, errors.New("investigate: host role needs a local executor")
+		}
+		if o.ImageInventory {
+			return nil, errors.New("investigate: image inventory is served by the coordinator only")
 		}
 	default:
 		return nil, fmt.Errorf("investigate: unknown role %q", o.Role)
@@ -160,17 +168,20 @@ func NewService(o Options) (*Service, error) {
 	}
 	slices.Sort(s.names)
 	s.tools = map[string]toolDef{
-		ToolState:       {stateDesc, stateSchema, s.stateQuery},
-		ToolGraph:       {graphDesc, graphSchema, s.graphQuery},
-		ToolPromQL:      {promqlDesc, promqlSchema, s.promqlQuery},
-		ToolLogQL:       {logqlDesc, logqlSchema, s.logqlQuery},
-		ToolLogsQL:      {logsqlDesc, logsqlSchema, s.logsqlQuery},
-		ToolLookback:    {lookbackDesc, lookbackSchema, s.lookbackQuery},
-		ToolFindingSave: {findingDesc, findingSchema, s.findingSave},
-		ToolEvidence:    {evidenceDesc, evidenceSchema, s.evidenceQuery},
+		ToolState:       {desc: stateDesc, schema: stateSchema, run: s.stateQuery},
+		ToolGraph:       {desc: graphDesc, schema: graphSchema, run: s.graphQuery},
+		ToolPromQL:      {desc: promqlDesc, schema: promqlSchema, run: s.promqlQuery},
+		ToolLogQL:       {desc: logqlDesc, schema: logqlSchema, run: s.logqlQuery},
+		ToolLogsQL:      {desc: logsqlDesc, schema: logsqlSchema, run: s.logsqlQuery},
+		ToolLookback:    {desc: lookbackDesc, schema: lookbackSchema, run: s.lookbackQuery},
+		ToolFindingSave: {desc: findingDesc, schema: findingSchema, run: s.findingSave},
+		ToolEvidence:    {desc: evidenceDesc, schema: evidenceSchema, run: s.evidenceQuery},
 	}
 	if o.Objects != nil {
-		s.tools[ToolObject] = toolDef{objectDesc, objectSchema, s.objectGet}
+		s.tools[ToolObject] = toolDef{desc: objectDesc, schema: objectSchema, run: s.objectGet}
+	}
+	if o.ImageInventory {
+		s.tools[ToolImageSBOM] = toolDef{desc: imageDesc, schema: imageSchema, direct: s.imageSBOM}
 	}
 	return s, nil
 }
@@ -189,7 +200,16 @@ func (s *Service) Tools() []client.Tool {
 func (s *Service) Call(ctx context.Context, name string, args json.RawMessage) (any, error) {
 	begin := s.o.Clock()
 	rec := AuditRecord{Tool: name, Time: begin}
-	res, err := s.call(ctx, name, args, &rec)
+	var out any
+	var err error
+	if def, ok := s.tools[name]; ok && def.direct != nil {
+		out, err = s.callDirect(ctx, def, args, &rec)
+	} else {
+		var res *Result
+		if res, err = s.call(ctx, name, args, &rec); err == nil {
+			rec.Truncated, rec.Limitations, out = res.Truncated, len(res.Limitations), res
+		}
+	}
 	rec.DurationMs = s.o.Clock().Sub(begin).Milliseconds()
 	switch {
 	case err != nil:
@@ -199,10 +219,8 @@ func (s *Service) Call(ctx context.Context, name string, args json.RawMessage) (
 			rec.Outcome = OutcomeRejected
 		}
 	default:
-		rec.Truncated = res.Truncated
-		rec.Limitations = len(res.Limitations)
 		rec.Outcome = OutcomeOK
-		if len(res.Limitations) > 0 {
+		if rec.Limitations > 0 {
 			rec.Outcome = OutcomeLimited
 		}
 	}
@@ -212,7 +230,21 @@ func (s *Service) Call(ctx context.Context, name string, args json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
-	return res, nil
+	return out, nil
+}
+
+// callDirect bounds a direct tool by the shared concurrency limit.
+func (s *Service) callDirect(ctx context.Context, def toolDef, args json.RawMessage, rec *AuditRecord) (any, error) {
+	if len(args) == 0 {
+		args = json.RawMessage("{}")
+	}
+	select {
+	case s.sem <- struct{}{}:
+		defer func() { <-s.sem }()
+	case <-ctx.Done():
+		return nil, errorf(ClassBusy, "investigation concurrency limit %d reached", cap(s.sem))
+	}
+	return def.direct(ctx, args, rec)
 }
 
 func (s *Service) call(ctx context.Context, name string, args json.RawMessage, rec *AuditRecord) (*Result, error) {

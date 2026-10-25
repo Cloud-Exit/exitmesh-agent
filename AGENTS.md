@@ -22,6 +22,7 @@ The open source ExitMesh Telemetry Agent: a Go codebase producing one binary, `e
 |`internal/findings`|Finding episodes, deduplication, lifecycle summary.|
 |`internal/telemetry`|Scrape loop, TSDB, log tailing, evidence ring, metric facts.|
 |`internal/investigate`|Live and lookback queries, AST scope injection, adapters, LogQL to LogsQL translation.|
+|`internal/imagesbom`|Image package inventories from the containerd content store with the approved osv-scalibr extractors, bounded build, per-digest cache.|
 |`internal/hostfacts`|Host state collectors, availability catalog, host metrics, journal reader.|
 |`internal/coordinator`, `internal/node`, `internal/host`|Role wiring.|
 |`internal/nodeapi`|Node agent to coordinator HTTPS API, wire types, offline ServiceAccount token validation.|

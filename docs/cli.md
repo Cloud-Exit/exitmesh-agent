@@ -77,7 +77,7 @@ exitmesh-agent investigate --config <file> --tool <name> [--args <json>|@<file>]
 |Flag|Required|Meaning|
 |---|---|---|
 |`--config`|yes|Agent configuration file.|
-|`--tool`|yes|Tool name: `state.query`, `graph.query`, `promql.query`, `logql.query`, `logsql.query`, `lookback.query`, `evidence.query`, `object.get`, or `finding.save`.|
+|`--tool`|yes|Tool name: `state.query`, `graph.query`, `promql.query`, `logql.query`, `logsql.query`, `lookback.query`, `evidence.query`, `object.get`, `image.sbom.get`, or `finding.save`.|
 |`--args`|no|Tool arguments as a JSON object, or `@path` to read them from a file. Default `{}`.|
 
 Runs one investigation locally through the running agent (PRD A9), with the same parsing, scope injection, limits, and audit as an investigation over the tunnel, and prints the result as indented JSON. Nothing is retained. The call times out after `investigation.timeout` plus 30 seconds.

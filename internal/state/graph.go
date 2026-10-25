@@ -32,7 +32,8 @@ var edgeDocs = [][4]string{
 	{EdgeSelects, "Service", "Pod (spec.selector within the namespace)", "`ports`: sorted port names, or port/protocol when unnamed"},
 	{EdgeMounts, "Pod", "PersistentVolumeClaim (volumes, ephemeral claims)", "none"},
 	{EdgeBinds, "PersistentVolumeClaim", "PersistentVolume (spec.volumeName)", "none"},
-	{EdgeRoutes, "networking.k8s.io/Ingress", "Service (backends)", "`ports`: sorted backend ports"},
+	{EdgeRoutes, "networking.k8s.io/Ingress, gateway.networking.k8s.io/HTTPRoute, or gateway.networking.k8s.io/TLSRoute", "Service (Ingress backends, route spec.rules[].backendRefs)", "`ports`: sorted backend ports"},
+	{EdgeRoutes, "gateway.networking.k8s.io/Gateway", "HTTPRoute or TLSRoute naming it in spec.parentRefs", "none"},
 	{EdgeTargets, "networking.k8s.io/NetworkPolicy", "Pod (spec.podSelector within the namespace)", "none"},
 	{EdgeScales, "autoscaling/HorizontalPodAutoscaler", "scale target (spec.scaleTargetRef)", "none"},
 	{EdgeGuards, "policy/PodDisruptionBudget", "Pod (spec.selector within the namespace)", "none"},
@@ -73,6 +74,7 @@ type graph struct {
 	claimUsers      index
 	volumeUsers     index
 	routeUsers      index
+	gatewayRoutes   index
 	scaleUsers      index
 	secretUsers     index
 	secretProducers index
@@ -82,7 +84,7 @@ func newGraph() *graph {
 	return &graph{
 		entries: map[string]*entry{}, byName: map[objKey]string{},
 		children: index{}, podsByNode: index{}, podsByNS: index{}, podsByLabel: index{}, selectors: index{},
-		claimUsers: index{}, volumeUsers: index{}, routeUsers: index{}, scaleUsers: index{}, secretUsers: index{}, secretProducers: index{},
+		claimUsers: index{}, volumeUsers: index{}, routeUsers: index{}, gatewayRoutes: index{}, scaleUsers: index{}, secretUsers: index{}, secretProducers: index{},
 	}
 }
 
@@ -143,6 +145,13 @@ func (g *graph) index(e *entry) {
 		if e.target != nil {
 			g.scaleUsers.add(key3(e.target.kind, e.target.ns, e.target.name), uid)
 		}
+	case KindHTTPRoute, KindTLSRoute:
+		for k := range e.routeTo {
+			g.routeUsers.add(key2(k.ns, k.name), uid)
+		}
+		for _, p := range e.parents {
+			g.gatewayRoutes.add(key2(p.ns, p.name), uid)
+		}
 	}
 }
 
@@ -175,6 +184,12 @@ func (g *graph) unindex(e *entry) {
 	}
 	if e.target != nil {
 		g.scaleUsers.del(key3(e.target.kind, e.target.ns, e.target.name), uid)
+	}
+	for k := range e.routeTo {
+		g.routeUsers.del(key2(k.ns, k.name), uid)
+	}
+	for _, p := range e.parents {
+		g.gatewayRoutes.del(key2(p.ns, p.name), uid)
 	}
 }
 
@@ -229,8 +244,12 @@ func attrs(m map[string]any) map[string]any {
 	return m
 }
 
-func (g *graph) routeAttrs(ing *entry, svc string) map[string]any {
-	ports := ing.backends[svc]
+// routeAttrs returns the ports an Ingress or Gateway API route sends to Service ns/svc.
+func (g *graph) routeAttrs(src *entry, ns, svc string) map[string]any {
+	ports := src.backends[svc]
+	if src.routeTo != nil {
+		ports = src.routeTo[objKey{KindService, ns, svc}]
+	}
 	if len(ports) == 0 {
 		return map[string]any{}
 	}
@@ -324,7 +343,7 @@ func (g *graph) incident(uid string) map[protocol.EdgeKey]map[string]any {
 		if e.res.Kind == KindService {
 			for i := range g.routeUsers[key2(ns, name)] {
 				if ing := g.entries[i]; ing != nil {
-					out[protocol.EdgeKey{From: i, Type: EdgeRoutes, To: uid}] = g.routeAttrs(ing, name)
+					out[protocol.EdgeKey{From: i, Type: EdgeRoutes, To: uid}] = g.routeAttrs(ing, ns, name)
 				}
 			}
 		}
@@ -346,7 +365,24 @@ func (g *graph) incident(uid string) map[protocol.EdgeKey]map[string]any {
 	case KindIngress:
 		for svc := range e.backends {
 			if s, ok := g.byName[objKey{KindService, ns, svc}]; ok {
-				out[protocol.EdgeKey{From: uid, Type: EdgeRoutes, To: s}] = g.routeAttrs(e, svc)
+				out[protocol.EdgeKey{From: uid, Type: EdgeRoutes, To: s}] = g.routeAttrs(e, ns, svc)
+			}
+		}
+	case KindHTTPRoute, KindTLSRoute:
+		for k := range e.routeTo {
+			if s, ok := g.byName[k]; ok {
+				out[protocol.EdgeKey{From: uid, Type: EdgeRoutes, To: s}] = g.routeAttrs(e, k.ns, k.name)
+			}
+		}
+		for _, p := range e.parents {
+			if gw, ok := g.byName[p]; ok {
+				out[protocol.EdgeKey{From: gw, Type: EdgeRoutes, To: uid}] = map[string]any{}
+			}
+		}
+	case KindGateway:
+		for r := range g.gatewayRoutes[key2(ns, name)] {
+			if g.entries[r] != nil {
+				out[protocol.EdgeKey{From: uid, Type: EdgeRoutes, To: r}] = map[string]any{}
 			}
 		}
 	case KindHPA:

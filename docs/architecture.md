@@ -164,7 +164,7 @@ HTTPS on the coordinator ClusterIP Service, port 8443, TLS from the chart, beare
 |`GET /v1/node/tasks`|Long-poll for investigation and aggregation tasks.|
 |`POST /v1/node/tasks/{id}`|Task result.|
 
-Task kinds: `promql_query`, `logql_query`, `log_read`, `evidence_read`. Bundle payloads forward the control plane's key manifest chain unchanged so node agents verify bundles against the workspace's trust roots themselves.
+Task kinds: `promql_query`, `logql_query`, `log_read`, `evidence_read`, `image_sbom` (payload `{"digest"}`, answered with the `image.sbom.get` result shape). Bundle payloads forward the control plane's key manifest chain unchanged so node agents verify bundles against the workspace's trust roots themselves.
 
 Every submission for a node other than the token's authenticated node is rejected and audited.
 
@@ -183,6 +183,21 @@ Registrations also carry the node agent's process identity (`RegisterRequest.Pro
 Node agents apply the administrator's namespace scope (`kubernetes.scope: namespaces` with `kubernetes.namespaces`, and `kubernetes.excludeNamespaces`) before any stream is read: the pod watch tracks only in-scope pods (one `spec.nodeName` watch per namespace in the namespaces profile), the tailer filter rejects out-of-scope streams, and `logql_query` and `log_read` tasks get the scope ANDed into every stream selector before the executor opens a file, so aggregates never count out-of-scope lines. `evidence_read` results are filtered by namespace as well.
 
 New CBOR keys are optional and unknown keys are ignored, so node agents and the coordinator can differ by one release in either direction.
+
+## Image inventory
+
+`internal/imagesbom` builds the package inventory of each image digest that an in-scope pod on the node runs (container status `imageID`), with the osv-scalibr extractors for dpkg, apk, rpm, Go binaries, npm `package.json`, Python wheel and egg metadata, and Java archives. Only those extractor packages are imported, never the scalibr root or plugin list, so no other plugin is linked.
+
+- **Source.** The containerd content store (`imageInventory.contentStore`), read-only, by `blobs/sha256/<hex>`. An index resolves to the linux manifest of the node's architecture (exact variant preferred); a config digest resolves to the manifest that references it. Manifest, config, and layer digests are verified. Layers are gzip, zstd, or plain tar, detected by their magic bytes. Image layers that containerd discarded after unpacking make the image unavailable; a missing subset makes the result truncated.
+- **Staging.** Layers are applied bottom to top with whiteouts and opaque directories. Only files an extractor asks for (plus `os-release`) are written, under `<stateDir>/sbom/work`, which is emptied after every build; executables the Go extractor asks for are kept only when they are ELF files carrying Go build information. Hardlinked content counts against the staging bound until its last retained link is removed. A metadata hardlink whose target was not staged makes the inventory incomplete. Symlinks are never created on disk; an `os-release` symlink is resolved inside the image.
+- **Bounds.** Uncompressed layer bytes (`maxLayerBytes`, default 4 GiB), layer entries (`maxFiles`, 500000), staged bytes (`maxStagedBytes`, 128 MiB), packages (`maxPackages`, 20000), wall time (`timeout`, 10m), and nested Java archives read into memory (64 MiB per archive). Layer verification, including trailing tar padding, shares the byte and time bounds. Reaching a bound or failing to parse package metadata returns `ready` with `truncated: true` and a reason; packages extracted successfully are retained, and a partial list is never reported as complete.
+- **Scheduling.** One build at a time per node. Digests observed in the pod watch are built in the background after a settle delay, with a pause between builds; a digest asked for through `image_sbom` goes first. Successful builds are remembered while a digest remains observed, independently of cache eviction, so a full cache cannot trigger repeated background builds or starve other digests. A request can rebuild an evicted inventory. A failed build is reported `unavailable` with its reason for an hour before it is retried.
+- **Cache.** Ready results are cached per digest under `<stateDir>/sbom/cache`, bounded by `cacheEntries` (256) and `cacheBytes` (64 MiB) and evicted least recently used; the cache survives restarts. Staged files and the cache count toward `node.diskCap`.
+- **Redaction.** Results hold package metadata and file paths only, never file contents. Every string passes `internal/redact` before it is cached, logged, or returned; scalibr's own log output goes to the agent's redacting log handler at debug level.
+
+The coordinator answers `image.sbom.get` by asking the connected node agents whose pods run the digest according to current state (every connected node agent when no pod in state runs it), and returns the first complete `ready` result, else a truncated one, else `pending` when any node is building it, else `unavailable` with a reason.
+
+The response respects the effective investigation `max_lines` (package count) and `max_bytes` (the encoded JSON result). Results retain a package prefix and report truncation when limited; labels or a long reason can also be shortened by omission when necessary. A byte bound too small for the required result fields is rejected. Node task replies are additionally bounded below the node API request ceiling. Response limits do not change the cached inventory.
 
 ## internal/admin
 
@@ -217,7 +232,7 @@ func NewExecutor(o ExecOptions) *Executor // node agents and hosts: PromQL over 
 func (e *Executor) Execute(ctx context.Context, t nodeapi.Task) nodeapi.TaskResult
 ```
 
-Tools: `state.query`, `object.get` (the live object of one in-scope resource, redacted; coordinator only), `graph.query`, `promql.query`, `logql.query`, `logsql.query`, `lookback.query`, `evidence.query` (non-destructive reads of node evidence rings through node task kind `evidence_read`), `finding.save`. Every query is parsed with its language's parser, scope matchers are injected at the AST, and it is re-serialized (PRD I2). Results carry source, window, limits, truncation, limitations, and the query hash; nothing is retained.
+Tools: `state.query`, `object.get` (the live object of one in-scope resource, redacted; coordinator only), `graph.query`, `promql.query`, `logql.query`, `logsql.query`, `lookback.query`, `evidence.query` (non-destructive reads of node evidence rings through node task kind `evidence_read`), `image.sbom.get` (the package inventory of one running image digest through node task kind `image_sbom`; coordinator only, see Image inventory), `finding.save`. Every query is parsed with its language's parser, scope matchers are injected at the AST, and it is re-serialized (PRD I2). Results carry source, window, limits, truncation, limitations, and the query hash; nothing is retained.
 
 ## Roles
 

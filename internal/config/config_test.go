@@ -85,3 +85,28 @@ func TestCustomDiscoveryConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestImageInventoryConfig(t *testing.T) {
+	base := "role: node\ncoordinator:\n  serviceURL: https://c:8443\n" + trust
+	c, err := Parse([]byte(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ii := c.ImageInventory
+	if !ii.Active() || ii.ContentStore != "/var/lib/containerd/io.containerd.content.v1.content" || ii.MaxLayerBytes != 4<<30 || ii.MaxFiles != 500_000 ||
+		ii.MaxStagedBytes != 128<<20 || ii.MaxPackages != 20_000 || ii.Timeout.D() != 10*time.Minute || ii.CacheEntries != 256 || ii.CacheBytes != 64<<20 {
+		t.Fatalf("defaults %+v", ii)
+	}
+	c, err = Parse([]byte(base + "imageInventory:\n  enabled: false\n  contentStore: /var/lib/rancher/k3s/agent/containerd/io.containerd.content.v1.content\n  maxLayerBytes: 1Gi\n  timeout: 1m\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ImageInventory.Active() || c.ImageInventory.ContentStore != "/var/lib/rancher/k3s/agent/containerd/io.containerd.content.v1.content" || c.ImageInventory.MaxLayerBytes != 1<<30 || c.ImageInventory.Timeout.D() != time.Minute {
+		t.Fatalf("settings %+v", c.ImageInventory)
+	}
+	for _, setting := range []string{"contentStore: relative/path", "maxFiles: -1", "maxPackages: -2", "cacheEntries: -1"} {
+		if _, err := Parse([]byte(base + "imageInventory:\n  " + setting + "\n")); err == nil || !strings.Contains(err.Error(), "imageInventory") {
+			t.Fatalf("invalid setting accepted: %s (%v)", setting, err)
+		}
+	}
+}

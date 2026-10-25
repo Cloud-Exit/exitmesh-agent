@@ -86,23 +86,24 @@ func (d Duration) D() time.Duration { return time.Duration(d) }
 
 // Config is the full agent configuration.
 type Config struct {
-	Role                string        `yaml:"role"`
-	Endpoint            string        `yaml:"endpoint"`
-	EndpointCAFile      string        `yaml:"endpointCAFile"`
-	EnrollmentTokenFile string        `yaml:"enrollmentTokenFile"`
-	StateDir            string        `yaml:"stateDir"`
-	Capabilities        []string      `yaml:"capabilities"`
-	Kubernetes          Kubernetes    `yaml:"kubernetes"`
-	Coordinator         Coordinator   `yaml:"coordinator"`
-	Spool               Spool         `yaml:"spool"`
-	Node                Node          `yaml:"node"`
-	Host                Host          `yaml:"host"`
-	Lookback            []Lookback    `yaml:"lookback"`
-	AirGap              AirGap        `yaml:"airgap"`
-	Trust               Trust         `yaml:"trust"`
-	Policy              Policy        `yaml:"policy"`
-	Investigation       Investigation `yaml:"investigation"`
-	Logging             Logging       `yaml:"logging"`
+	Role                string         `yaml:"role"`
+	Endpoint            string         `yaml:"endpoint"`
+	EndpointCAFile      string         `yaml:"endpointCAFile"`
+	EnrollmentTokenFile string         `yaml:"enrollmentTokenFile"`
+	StateDir            string         `yaml:"stateDir"`
+	Capabilities        []string       `yaml:"capabilities"`
+	Kubernetes          Kubernetes     `yaml:"kubernetes"`
+	Coordinator         Coordinator    `yaml:"coordinator"`
+	Spool               Spool          `yaml:"spool"`
+	Node                Node           `yaml:"node"`
+	Host                Host           `yaml:"host"`
+	Lookback            []Lookback     `yaml:"lookback"`
+	AirGap              AirGap         `yaml:"airgap"`
+	Trust               Trust          `yaml:"trust"`
+	Policy              Policy         `yaml:"policy"`
+	Investigation       Investigation  `yaml:"investigation"`
+	ImageInventory      ImageInventory `yaml:"imageInventory"`
+	Logging             Logging        `yaml:"logging"`
 }
 
 // Kubernetes configures collection scope (PRD A3, 7.2).
@@ -230,6 +231,21 @@ type Investigation struct {
 	MaxWindow      Duration `yaml:"maxWindow"`
 }
 
+// ImageInventory configures package inventories of running images read from the containerd content store.
+type ImageInventory struct {
+	Enabled        *bool    `yaml:"enabled"`
+	ContentStore   string   `yaml:"contentStore"`
+	MaxLayerBytes  Bytes    `yaml:"maxLayerBytes"`
+	MaxFiles       int      `yaml:"maxFiles"`
+	MaxStagedBytes Bytes    `yaml:"maxStagedBytes"`
+	MaxPackages    int      `yaml:"maxPackages"`
+	Timeout        Duration `yaml:"timeout"`
+	CacheEntries   int      `yaml:"cacheEntries"`
+	CacheBytes     Bytes    `yaml:"cacheBytes"`
+}
+
+func (i ImageInventory) Active() bool { return i.Enabled == nil || *i.Enabled }
+
 // Logging configures diagnostics.
 type Logging struct {
 	Level  string `yaml:"level"`
@@ -339,6 +355,14 @@ func (c *Config) ApplyDefaults() {
 	setI(&c.Investigation.MaxSeries, 1_000)
 	setI(&c.Investigation.MaxSamples, 500_000)
 	setD(&c.Investigation.MaxWindow, 6*time.Hour)
+	setS(&c.ImageInventory.ContentStore, "/var/lib/containerd/io.containerd.content.v1.content")
+	setB(&c.ImageInventory.MaxLayerBytes, 4<<30)
+	setI(&c.ImageInventory.MaxFiles, 500_000)
+	setB(&c.ImageInventory.MaxStagedBytes, 128<<20)
+	setI(&c.ImageInventory.MaxPackages, 20_000)
+	setD(&c.ImageInventory.Timeout, 10*time.Minute)
+	setI(&c.ImageInventory.CacheEntries, 256)
+	setB(&c.ImageInventory.CacheBytes, 64<<20)
 	setS(&c.Logging.Level, "info")
 	setS(&c.Logging.Format, "json")
 }
@@ -407,6 +431,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Host.SpoolReserve+c.Host.TSDBMax > c.Host.DiskCap {
 		errs = append(errs, "host.spoolReserve + host.tsdbMax exceeds host.diskCap")
+	}
+	if ii := c.ImageInventory; !path.IsAbs(ii.ContentStore) || ii.MaxFiles < 0 || ii.MaxPackages < 0 || ii.CacheEntries < 0 || ii.Timeout < 0 {
+		errs = append(errs, "imageInventory.contentStore must be an absolute path and its limits must not be negative")
 	}
 	switch c.Node.KubeletTLS {
 	case "verify", "skip":

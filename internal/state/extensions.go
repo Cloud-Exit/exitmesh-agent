@@ -43,6 +43,18 @@ func helmFields() []Field {
 	}
 }
 
+// Gateway API kinds whose references are projected (custom resources discovered from CRDs).
+const (
+	gatewayGroup  = "gateway.networking.k8s.io"
+	KindGateway   = gatewayGroup + "/Gateway"
+	KindHTTPRoute = gatewayGroup + "/HTTPRoute"
+	KindTLSRoute  = gatewayGroup + "/TLSRoute"
+)
+
+func isGatewayRoute(kind string) bool { return kind == KindHTTPRoute || kind == KindTLSRoute }
+
+var routeFieldPaths = []string{"parentRefs", "backends", "hostnames"}
+
 func extensionFields() []Field {
 	return concat(workloadMeta(), conditionFields("status.conditions", nil), []Field{
 		f("apiVersion", "apiVersion", TypeString, RedactStructural, true),
@@ -51,6 +63,9 @@ func extensionFields() []Field {
 		f("targetSecret", "ExternalSecret spec.target.name (defaults to metadata.name)", TypeString, RedactReference, true),
 		f("secretStore.name", "ExternalSecret spec.secretStoreRef.name", TypeString, RedactReference, true),
 		f("secretStore.kind", "ExternalSecret spec.secretStoreRef.kind", TypeString, RedactReference, true),
+		f("parentRefs", "HTTPRoute and TLSRoute spec.parentRefs[] as Kind[.group]:namespace/name[#sectionName] (Kind defaults to Gateway, namespace to the route's)", TypeStringList, RedactReference, true),
+		f("backends", "HTTPRoute and TLSRoute spec.rules[].backendRefs[] as service:port, namespace/service:port in another namespace, or Kind.group:namespace/name for other kinds", TypeStringList, RedactReference, true),
+		f("hostnames", "HTTPRoute and TLSRoute spec.hostnames", TypeStringList, RedactStructural, true),
 		f("crd.group", "CustomResourceDefinition spec.group", TypeString, RedactStructural, true),
 		f("crd.kind", "CustomResourceDefinition spec.names.kind", TypeString, RedactStructural, true),
 		f("crd.plural", "CustomResourceDefinition spec.names.plural", TypeString, RedactStructural, true),
@@ -107,7 +122,7 @@ func stringAt(u *unstructured.Unstructured, p ...string) string {
 	return s
 }
 
-func (n *Normalizer) extension(em *emitter, obj *unstructured.Unstructured) {
+func (n *Normalizer) extension(em *emitter, obj *unstructured.Unstructured, e *entry) {
 	em.put("apiVersion", obj.GetAPIVersion())
 	em.put("projectionVersion", int64(1))
 	em.put("generation", obj.GetGeneration())
@@ -139,6 +154,9 @@ func (n *Normalizer) extension(em *emitter, obj *unstructured.Unstructured) {
 		em.put("targetSecret", target)
 		em.put("secretStore.name", stringAt(obj, "spec", "secretStoreRef", "name"))
 		em.put("secretStore.kind", stringAt(obj, "spec", "secretStoreRef", "kind"))
+	}
+	if isGatewayRoute(KindOf(obj)) {
+		gatewayRoute(em, obj, e)
 	}
 	if KindOf(obj) == KindCRD {
 		for key, path := range map[string][]string{"crd.group": {"spec", "group"}, "crd.kind": {"spec", "names", "kind"}, "crd.plural": {"spec", "names", "plural"}, "crd.scope": {"spec", "scope"}} {
@@ -229,6 +247,9 @@ func (n *Normalizer) stripExtension(kind string, u *unstructured.Unstructured) {
 		if kind == "external-secrets.io/ExternalSecret" {
 			paths = [][]string{{"spec", "target", "name"}, {"spec", "secretStoreRef", "name"}, {"spec", "secretStoreRef", "kind"}}
 		}
+		if isGatewayRoute(kind) {
+			stripGatewayRoute(u.Object, out)
+		}
 		for _, p := range paths {
 			if s := stringAt(u, p...); s != "" {
 				_ = unstructured.SetNestedField(out, s, p...)
@@ -252,9 +273,128 @@ func (n *Normalizer) stripExtension(kind string, u *unstructured.Unstructured) {
 func crdFields() []Field {
 	var out []Field
 	for _, fd := range extensionFields() {
-		if fd.Path != "targetSecret" && !strings.HasPrefix(fd.Path, "secretStore.") {
+		if fd.Path != "targetSecret" && !strings.HasPrefix(fd.Path, "secretStore.") && !contains(routeFieldPaths, fd.Path) {
 			out = append(out, fd)
 		}
 	}
 	return out
+}
+
+var (
+	refKeys     = []string{"group", "kind", "namespace", "name", "sectionName", "port"}
+	backendKeys = []string{"group", "kind", "namespace", "name", "port"}
+)
+
+// stripGatewayRoute keeps only parent references, hostnames, and backend references; filters can carry header values.
+func stripGatewayRoute(src, out map[string]any) {
+	spec := map[string]any{}
+	keep := func(m map[string]any, keys []string) map[string]any {
+		r := map[string]any{}
+		for _, k := range keys {
+			if v, ok := m[k]; ok {
+				r[k] = v
+			}
+		}
+		return r
+	}
+	var parents []any
+	eachMap(nestedList(src, "spec", "parentRefs"), func(m map[string]any) { parents = append(parents, keep(m, refKeys)) })
+	if parents != nil {
+		spec["parentRefs"] = parents
+	}
+	if hosts := nestedList(src, "spec", "hostnames"); hosts != nil {
+		spec["hostnames"] = hosts
+	}
+	var rules []any
+	eachMap(nestedList(src, "spec", "rules"), func(r map[string]any) {
+		var refs []any
+		eachMap(nestedList(r, "backendRefs"), func(m map[string]any) { refs = append(refs, keep(m, backendKeys)) })
+		rules = append(rules, map[string]any{"backendRefs": refs})
+	})
+	if rules != nil {
+		spec["rules"] = rules
+	}
+	out["spec"] = spec
+}
+
+func refPort(v any) string {
+	switch p := v.(type) {
+	case int64:
+		return strconv.FormatInt(p, 10)
+	case float64:
+		return strconv.FormatInt(int64(p), 10)
+	}
+	return ""
+}
+
+// refKind renders a reference kind, omitting the core group and the group of the defaulted kind.
+func refKind(group, kind, defGroup string) string {
+	if group == defGroup || group == "" {
+		return kind
+	}
+	return kind + "." + group
+}
+
+// gatewayRoute projects parent and backend references and records them for routes edges.
+func gatewayRoute(em *emitter, obj *unstructured.Unstructured, e *entry) {
+	ns := obj.GetNamespace()
+	var parents, backends []string
+	eachMap(nestedList(obj.Object, "spec", "parentRefs"), func(m map[string]any) {
+		group, kind, name, pns, section := refString(m, "group", gatewayGroup), refString(m, "kind", "Gateway"), refString(m, "name", ""), refString(m, "namespace", ns), refString(m, "sectionName", "")
+		if name == "" {
+			return
+		}
+		p := refKind(group, kind, gatewayGroup) + ":" + pns + "/" + name
+		if section != "" {
+			p += "#" + section
+		}
+		parents = append(parents, p)
+		if ProtocolKind(group, kind) == KindGateway {
+			e.parents = append(e.parents, objKey{KindGateway, pns, name})
+		}
+	})
+	e.routeTo = map[objKey][]string{}
+	eachMap(nestedList(obj.Object, "spec", "rules"), func(r map[string]any) {
+		eachMap(nestedList(r, "backendRefs"), func(m map[string]any) {
+			group, kind, name, bns, port := refString(m, "group", ""), refString(m, "kind", "Service"), refString(m, "name", ""), refString(m, "namespace", ns), refPort(m["port"])
+			if name == "" {
+				return
+			}
+			if group != "" || kind != "Service" {
+				backends = append(backends, refKind(group, kind, "")+":"+bns+"/"+name)
+				return
+			}
+			b := name
+			if bns != ns {
+				b = bns + "/" + name
+			}
+			if port != "" {
+				b += ":" + port
+			}
+			backends = append(backends, b)
+			k := objKey{KindService, bns, name}
+			if port != "" {
+				e.routeTo[k] = sortedUnique(append(e.routeTo[k], port))
+			} else if e.routeTo[k] == nil {
+				e.routeTo[k] = []string{}
+			}
+		})
+	})
+	var hosts []string
+	for _, h := range nestedList(obj.Object, "spec", "hostnames") {
+		if s, ok := h.(string); ok {
+			hosts = append(hosts, s)
+		}
+	}
+	em.put("parentRefs", sortedUnique(parents))
+	em.put("backends", sortedUnique(backends))
+	em.put("hostnames", sortedUnique(hosts))
+}
+
+func refString(m map[string]any, key, def string) string {
+	v, ok := m[key].(string)
+	if !ok || (v == "" && key != "group") {
+		return def
+	}
+	return v
 }

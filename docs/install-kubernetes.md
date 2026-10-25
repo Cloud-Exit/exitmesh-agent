@@ -91,10 +91,23 @@ This is the summary shown at onboarding and printed by the chart after install.
 |---|---|---|
 |`/var/lib/exitmesh`|read-write, `DirectoryOrCreate`, mode 0700, owned by UID 65532|Node queue, local TSDB, log offsets, alert state. The only host write. Capped at `node.diskCap` (1 GiB) by the agent because kubelet eviction does not see hostPath usage. Removed on uninstall.|
 |`/var/log/pods`|read-only|Log rules and investigation (logs capability).|
+|`imageInventory.contentStore` (default `/var/lib/containerd/io.containerd.content.v1.content`)|read-only, mounted only while `imageInventory.enabled`|Package inventories of running images for `image.sbom.get`. Staged metadata files and the cache live under `/var/lib/exitmesh/sbom`.|
 
 **Container security.** Node agents run as UID 65532 holding only `CAP_DAC_READ_SEARCH` (to read root-owned log files), with a read-only root filesystem, `allowPrivilegeEscalation: false`, seccomp `RuntimeDefault`, never `privileged`, and no host network, PID, or IPC. Container runtimes never grant an added capability to a non-root container process, so the container starts as UID 0 with `CAP_DAC_READ_SEARCH`, `CAP_SETGID`, and `CAP_SETUID`, and the agent's first action is `--run-as 65532:65532`: it switches to that UID and GID, keeps `CAP_DAC_READ_SEARCH` as its only (ambient) capability, and re-executes itself before reading configuration. Each node agent reports its UID and effective capabilities on registration, and the connector shows them. A short init container runs as root with only `CAP_CHOWN` to set the ownership and mode of `/var/lib/exitmesh`. The coordinator meets the `restricted` profile. `node.runAsRootFallback=true` skips the switch and runs the node agent as UID 0 with `CAP_DAC_READ_SEARCH` alone, for environments that forbid `CAP_SETUID`; it is flagged on the connector.
 
-**Export preview.** Sent to ExitMesh: normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. On demand through `object.get`: one live object per call, redacted. Never sent: raw logs, raw metric samples, Secret values, ConfigMap values, environment values.
+**Export preview.** Sent to ExitMesh: normalized state facts and deltas, the change graph, per-resource metric facts summarized per interval, findings, and capped redacted evidence. On demand through `object.get`: one live object per call, redacted. On demand through `image.sbom.get`: the package inventory of one running image, package metadata only. Never sent: raw logs, raw metric samples, Secret values, ConfigMap values, environment values.
+
+## Image inventory
+
+Node agents build package inventories of the images their pods run from the node's containerd content store, read-only (docs/architecture.md, Image inventory). The chart mounts `imageInventory.contentStore` while `imageInventory.enabled` (default `true`). Set the path for your distribution:
+
+|Distribution|`imageInventory.contentStore`|
+|---|---|
+|containerd (kubeadm, EKS, GKE, AKS, kind)|`/var/lib/containerd/io.containerd.content.v1.content` (default)|
+|k3s|`/var/lib/rancher/k3s/agent/containerd/io.containerd.content.v1.content`|
+|RKE2|`/var/lib/rancher/rke2/agent/containerd/io.containerd.content.v1.content`|
+
+The hostPath has no type check, so a node whose runtime keeps no content at the path still starts; its node agent reports image inventories as unavailable with the reason. Runtimes other than containerd, and containerd configured with `discard_unpacked_layers`, keep no readable layers; set `imageInventory.enabled=false` there.
 
 ## Node to coordinator traffic
 

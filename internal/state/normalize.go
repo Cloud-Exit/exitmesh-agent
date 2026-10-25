@@ -138,6 +138,9 @@ type entry struct {
 	volumeName string
 	backends   map[string][]string
 	target     *objKey
+	// routeTo maps the Services a Gateway API route sends traffic to onto their ports; parents are its Gateways.
+	routeTo map[objKey][]string
+	parents []objKey
 }
 
 type emitter struct {
@@ -262,7 +265,7 @@ func (n *Normalizer) normalize(obj *unstructured.Unstructured) (*entry, error) {
 	case KindPDB:
 		err = n.pdb(em, obj, e)
 	default:
-		n.extension(em, obj)
+		n.extension(em, obj, e)
 	}
 	if err == nil {
 		err = em.err
@@ -473,11 +476,19 @@ func (n *Normalizer) podSpec(em *emitter, spec *corev1.PodSpec, podName string) 
 			em.set(p+"image", b+"image", c.Image)
 			em.resources(p+"requests.<resource>", b+"requests.", c.Resources.Requests)
 			em.resources(p+"limits.<resource>", b+"limits.", c.Resources.Limits)
-			var ports []string
+			var ports, hostPorts []string
 			for _, pt := range c.Ports {
 				ports = append(ports, portString(pt.Name, pt.ContainerPort, pt.Protocol))
+				if pt.HostPort != 0 {
+					hp := portString(pt.Name, pt.HostPort, pt.Protocol) + "->" + strconv.Itoa(int(pt.ContainerPort))
+					if pt.HostIP != "" {
+						hp = pt.HostIP + ":" + hp
+					}
+					hostPorts = append(hostPorts, hp)
+				}
 			}
 			em.set(p+"ports", b+"ports", sortedUnique(ports))
+			em.set(p+"hostPorts", b+"hostPorts", sortedUnique(hostPorts))
 			var refs []string
 			for _, ev := range c.Env {
 				vf := ev.ValueFrom
@@ -761,9 +772,12 @@ func (n *Normalizer) service(em *emitter, obj *unstructured.Unstructured, e *ent
 	}
 	em.put("type", string(s.Spec.Type))
 	em.put("clusterIP", s.Spec.ClusterIP)
-	var ports, names []string
+	var ports, names, nodePorts []string
 	for _, p := range s.Spec.Ports {
 		ports = append(ports, portString(p.Name, p.Port, p.Protocol)+"->"+p.TargetPort.String())
+		if p.NodePort != 0 {
+			nodePorts = append(nodePorts, portString(p.Name, p.NodePort, p.Protocol))
+		}
 		if p.Name != "" {
 			names = append(names, p.Name)
 		} else {
@@ -771,6 +785,7 @@ func (n *Normalizer) service(em *emitter, obj *unstructured.Unstructured, e *ent
 		}
 	}
 	em.put("ports", sortedUnique(ports))
+	em.put("nodePorts", sortedUnique(nodePorts))
 	em.put("hasSelector", len(s.Spec.Selector) > 0)
 	if len(s.Spec.Selector) > 0 {
 		if sel, err := klabels.ValidatedSelectorFromSet(s.Spec.Selector); err == nil {

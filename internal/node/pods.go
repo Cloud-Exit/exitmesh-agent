@@ -246,6 +246,9 @@ func (a *Agent) refreshKube() {
 		u.SetKind("Pod")
 		us = append(us, u)
 	}
+	if a.images != nil && a.pods.synced() {
+		a.images.Observe(podDigests(pods))
+	}
 	if a.pods.synced() {
 		series, err := state.PodSeriesFromPods(a.norm, us, now.UnixMilli())
 		if err != nil {
