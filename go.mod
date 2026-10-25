@@ -27,7 +27,7 @@ require (
 	github.com/prometheus/prometheus v0.315.0
 	github.com/ulikunitz/xz v0.5.15
 	go.etcd.io/bbolt v1.5.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.37.1
