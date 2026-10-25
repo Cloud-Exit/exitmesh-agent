@@ -98,6 +98,8 @@ func (s *extractorSet) extract(ctx context.Context, root string, files []keptFil
 				reason = "the build reached its time bound before every file was read"
 			case errors.Is(err, filesystem.ErrExtractorMemoryLimitExceeded):
 				reason = fmt.Sprintf("a Java archive with its nested archives exceeds the %d byte bound", s.nestedArchiveBytes)
+			case err != nil:
+				reason = cmp.Or(reason, "some package metadata could not be read")
 			}
 			for _, p := range pkgs {
 				if seen[p] {

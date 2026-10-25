@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -284,17 +285,33 @@ func (c contentStore) openLayer(l descriptor) (*layerReader, error) {
 func (l *layerReader) Read(p []byte) (int, error) { return l.r.Read(p) }
 
 // verify drains the compressed stream and checks the layer digest.
-func (l *layerReader) verify() error {
-	if _, err := io.Copy(io.Discard, l.r); err != nil {
+func (l *layerReader) verify(ctx context.Context, uncompressed io.Reader) error {
+	if _, err := io.Copy(io.Discard, uncompressed); err != nil {
 		return err
 	}
-	if _, err := io.Copy(io.Discard, l.raw); err != nil {
+	if _, err := io.Copy(io.Discard, contextReader{ctx: ctx, r: l.raw}); err != nil {
 		return err
 	}
 	if got := "sha256:" + hex.EncodeToString(l.h.Sum(nil)); got != l.want {
 		return fmt.Errorf("layer %s does not match its digest", l.want)
 	}
 	return nil
+}
+
+type contextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if r.ctx.Err() != nil {
+		return 0, &errStop{"the build reached its time bound before every layer was read"}
+	}
+	n, err := r.r.Read(p)
+	if r.ctx.Err() != nil {
+		return n, &errStop{"the build reached its time bound before every layer was read"}
+	}
+	return n, err
 }
 
 func (l *layerReader) Close() error {

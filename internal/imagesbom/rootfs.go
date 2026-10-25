@@ -26,8 +26,13 @@ var goBuildInfoMagic = []byte("\xff Go buildinf:")
 type keptFile struct {
 	path       string
 	layer      int
-	size       int64
+	content    *stagedContent
 	extractors []filesystem.Extractor
+}
+
+type stagedContent struct {
+	size int64
+	refs int
 }
 
 type symlink struct {
@@ -71,12 +76,20 @@ type countingReader struct {
 }
 
 func (c countingReader) Read(p []byte) (int, error) {
+	remaining := max(c.r.lim.MaxLayerBytes-c.r.readBytes, 0)
+	if int64(len(p)) > remaining {
+		p = p[:remaining+1]
+	}
 	n, err := c.n.Read(p)
 	c.r.readBytes += int64(n)
 	if c.r.readBytes > c.r.lim.MaxLayerBytes {
 		return n, &errStop{fmt.Sprintf("the image layers exceed the %d byte uncompressed bound", c.r.lim.MaxLayerBytes)}
 	}
 	return n, err
+}
+
+func (r *rootfs) reader(ctx context.Context, src io.Reader) io.Reader {
+	return countingReader{r: r, n: contextReader{ctx: ctx, r: src}}
 }
 
 func cleanName(name string) string {
@@ -89,7 +102,7 @@ func cleanName(name string) string {
 
 // apply reads one layer; an *errStop means a bound was reached and later layers are not applied.
 func (r *rootfs) apply(ctx context.Context, layer int, src io.Reader) error {
-	tr := tar.NewReader(countingReader{r: r, n: src})
+	tr := tar.NewReader(r.reader(ctx, src))
 	for {
 		if ctx.Err() != nil {
 			return &errStop{"the build reached its time bound before every layer was read"}
@@ -146,9 +159,8 @@ func (r *rootfs) apply(ctx context.Context, layer int, src io.Reader) error {
 
 // replace drops what a lower layer staged at p before a new entry takes its place; only a staged directory needs a subtree scan.
 func (r *rootfs) replace(p string) {
-	if f := r.files[p]; f != nil {
-		r.stagedBytes -= f.size
-		delete(r.files, p)
+	if r.files[p] != nil {
+		r.forget(p)
 		_ = os.Remove(r.disk(p))
 	}
 	delete(r.links, p)
@@ -157,16 +169,24 @@ func (r *rootfs) replace(p string) {
 	}
 }
 
+func (r *rootfs) forget(p string) {
+	f := r.files[p]
+	f.content.refs--
+	if f.content.refs == 0 {
+		r.stagedBytes -= f.content.size
+	}
+	delete(r.files, p)
+}
+
 // remove drops p and everything below it, as a whiteout does.
 func (r *rootfs) remove(p string) {
 	if p == "" {
 		return
 	}
 	prefix := p + "/"
-	for k, f := range r.files {
+	for k := range r.files {
 		if k == p || strings.HasPrefix(k, prefix) {
-			r.stagedBytes -= f.size
-			delete(r.files, k)
+			r.forget(k)
 		}
 	}
 	for k := range r.links {
@@ -185,8 +205,7 @@ func (r *rootfs) opaque(dir string, layer int) {
 	}
 	for k, f := range r.files {
 		if f.layer < layer && strings.HasPrefix(k, prefix) {
-			r.stagedBytes -= f.size
-			delete(r.files, k)
+			r.forget(k)
 			_ = os.Remove(r.disk(k))
 		}
 	}
@@ -248,7 +267,7 @@ func (r *rootfs) regular(ctx context.Context, layer int, name string, hdr *tar.H
 	if goOnly && !scan.isGo() {
 		return os.Remove(dst)
 	}
-	r.files[name] = &keptFile{path: name, layer: layer, size: hdr.Size, extractors: es}
+	r.files[name] = &keptFile{path: name, layer: layer, content: &stagedContent{size: hdr.Size, refs: 1}, extractors: es}
 	r.stagedBytes += hdr.Size
 	return nil
 }
@@ -281,11 +300,18 @@ func (r *rootfs) mkdirFor(name string) error {
 func (r *rootfs) hardlink(layer int, name, target string, hdr *tar.Header) {
 	t := r.files[target]
 	if t == nil {
+		if osReleasePaths[name] || len(r.ex.wanted(name, hdr.FileInfo())) > 0 {
+			r.note("a hardlink to package metadata has an unstaged target")
+		}
+		return
+	}
+	info, err := os.Stat(r.disk(target))
+	if err != nil {
+		r.note("a hardlink to package metadata could not be read")
 		return
 	}
 	es := t.extractors
 	if !osReleasePaths[name] {
-		info := hdr.FileInfo()
 		if es = r.ex.wanted(name, info); len(es) == 0 {
 			return
 		}
@@ -294,7 +320,8 @@ func (r *rootfs) hardlink(layer int, name, target string, hdr *tar.Header) {
 		r.note("a file that holds package metadata could not be staged")
 		return
 	}
-	r.files[name] = &keptFile{path: name, layer: layer, extractors: es}
+	t.content.refs++
+	r.files[name] = &keptFile{path: name, layer: layer, content: t.content, extractors: es}
 }
 
 // resolveLinks stages os-release targets under the symlink name so extractors can read the distribution.
@@ -305,7 +332,8 @@ func (r *rootfs) resolveLinks() {
 			continue
 		}
 		if os.Link(r.disk(t.path), r.disk(name)) == nil {
-			r.files[name] = &keptFile{path: name, layer: t.layer}
+			t.content.refs++
+			r.files[name] = &keptFile{path: name, layer: t.layer, content: t.content}
 		}
 	}
 }

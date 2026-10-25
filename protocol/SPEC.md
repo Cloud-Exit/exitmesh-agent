@@ -492,6 +492,8 @@ Minor revision: a Kubernetes writer with image inventory enabled also advertises
 
 `pending` means the node agent that runs the image is building the inventory; the caller asks again later. `unavailable` carries `reason`, a sentence. `labels` are the image config labels `org.opencontainers.image.source` and `org.opencontainers.image.revision`. `ecosystem` is the OSV ecosystem name, including the release for OS packages (`Debian:12`, `Ubuntu:22.04`, `Alpine:v3.20`). `truncated` is true, with a `reason`, when a build bound was reached and the package list is incomplete. `scanner` names the inventory engine and its version. The result carries package metadata only, never file contents. Readers that never call the tool are unaffected.
 
+`limits.max_lines` bounds the package count and `limits.max_bytes` bounds the encoded JSON result, including labels and the reason. Requested limits are clamped to the administrator's investigation limits. A limited response keeps a package prefix and sets `truncated` with a reason; oversized optional labels or reasons may be omitted or replaced. A byte bound that cannot hold the required result fields and a truncation reason is rejected as `invalid_request`. Extraction failures and unresolved metadata hardlinks also set `truncated` with a reason. Response truncation does not replace the cached inventory.
+
 ## 10. Export format
 
 An air-gap export file is:

@@ -102,7 +102,7 @@ func (b *builder) build(ctx context.Context, digest string) (Result, error) {
 		}
 		err = fsys.apply(ctx, i, lr)
 		if err == nil {
-			err = lr.verify()
+			err = lr.verify(ctx, fsys.reader(ctx, lr))
 		}
 		_ = lr.Close()
 		var stop *errStop

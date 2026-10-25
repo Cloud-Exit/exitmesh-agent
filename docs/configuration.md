@@ -167,6 +167,8 @@ Package inventories of running images (docs/architecture.md, Image inventory). N
 
 Reaching a build bound returns the packages found so far with `truncated: true` and a reason; it is never reported as a complete list.
 
+Image inventory replies also obey `investigation.maxLines` as a package count and `investigation.maxBytes` as the encoded JSON result size. Callers can request smaller `max_lines` and `max_bytes` through the tool's `limits`. Reply truncation does not change the cached inventory.
+
 ## logging
 
 |Key|Default|Meaning|

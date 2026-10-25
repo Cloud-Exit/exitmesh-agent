@@ -71,6 +71,10 @@ func (s *Service) imageSBOM(ctx context.Context, raw json.RawMessage, rec *Audit
 	if res.Truncated && res.Reason == "" {
 		res.Reason = "The image inventory is truncated, so the package list is incomplete."
 	}
+	res, err = imagesbom.Bound(res, lim.MaxLines, lim.MaxBytes)
+	if err != nil {
+		return nil, errorf(ClassInvalid, "%v", err)
+	}
 	rec.Truncated = res.Truncated
 	if res.Reason != "" {
 		rec.Limitations = 1

@@ -75,6 +75,11 @@ func (e imageExecutor) Execute(ctx context.Context, t nodeapi.Task) nodeapi.Task
 	if e.images != nil {
 		res = e.images.Get(req.Digest)
 	}
+	// Reserve space for the task ID and CBOR framing.
+	res, err := imagesbom.Bound(res, 0, nodeapi.MaxRequestBytes-1024)
+	if err != nil {
+		return nodeapi.TaskResult{ID: t.ID, Error: err.Error()}
+	}
 	b, err := json.Marshal(res)
 	if err != nil {
 		return nodeapi.TaskResult{ID: t.ID, Error: err.Error()}

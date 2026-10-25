@@ -48,12 +48,13 @@ type Inventory struct {
 	build func(ctx context.Context, digest string) (Result, error)
 	wake  chan struct{}
 
-	mu       sync.Mutex
-	observed bool
-	running  map[string]time.Time
-	urgent   []string
-	building string
-	failed   map[string]failure
+	mu        sync.Mutex
+	observed  bool
+	running   map[string]time.Time
+	completed map[string]bool
+	urgent    []string
+	building  string
+	failed    map[string]failure
 }
 
 // New opens the cache under o.Dir and prepares the builder.
@@ -103,7 +104,7 @@ func New(o Options) (*Inventory, error) {
 	if err := removeAll(b.work); err != nil {
 		return nil, err
 	}
-	return &Inventory{o: o, cache: c, build: b.build, wake: make(chan struct{}, 1), running: map[string]time.Time{}, failed: map[string]failure{}}, nil
+	return &Inventory{o: o, cache: c, build: b.build, wake: make(chan struct{}, 1), running: map[string]time.Time{}, completed: map[string]bool{}, failed: map[string]failure{}}, nil
 }
 
 func goVariant() string {
@@ -133,6 +134,14 @@ func (i *Inventory) Observe(digests []string) {
 			next[d] = t
 		} else {
 			next[d] = now
+		}
+		if i.cache.has(d[len("sha256:"):]) {
+			i.completed[d] = true
+		}
+	}
+	for d := range i.completed {
+		if _, ok := next[d]; !ok {
+			delete(i.completed, d)
 		}
 	}
 	i.running = next
@@ -209,7 +218,7 @@ func (i *Inventory) next() (string, bool) {
 	var pick string
 	var first time.Time
 	for d, seen := range i.running {
-		if now.Sub(seen) < i.o.Settle || i.cache.has(d[len("sha256:"):]) {
+		if now.Sub(seen) < i.o.Settle || i.completed[d] || i.cache.has(d[len("sha256:"):]) {
 			continue
 		}
 		if f, ok := i.failed[d]; ok && now.Sub(f.at) < i.o.FailureRetry {
@@ -246,6 +255,9 @@ func (i *Inventory) runOne(ctx context.Context, digest string) {
 		return
 	}
 	delete(i.failed, digest)
+	if _, ok := i.running[digest]; ok {
+		i.completed[digest] = true
+	}
 	i.o.Logger.Debug("image inventory built", "digest", digest, "packages", len(res.Packages), "truncated", res.Truncated, "duration", now.Sub(begin))
 }
 
