@@ -44,8 +44,8 @@ github.com/VictoriaMetrics/VictoriaMetrics v1.132.0 h1:7J6U3j4WvjyEez+Ibb2bAYBbM
 github.com/VictoriaMetrics/VictoriaMetrics v1.132.0/go.mod h1:NpJOi7BbuSKVHPioRwS3yhdL9irJrKMWB+GBwI7+iT8=
 github.com/VictoriaMetrics/metrics v1.40.2 h1:OVSjKcQEx6JAwGeu8/KQm9Su5qJ72TMEW4xYn5vw3Ac=
 github.com/VictoriaMetrics/metrics v1.40.2/go.mod h1:XE4uudAAIRaJE614Tl5HMrtoEU6+GDZO4QTnNSsZRuA=
-github.com/VictoriaMetrics/metricsql v0.87.4 h1:IgJuD6cEhhaC0kyDJcVtyjcIuiWX9yIMnbzH2F6MSpw=
-github.com/VictoriaMetrics/metricsql v0.87.4/go.mod h1:d4EisFO6ONP/HIGDYTAtwrejJBBeKGQYiRl095bS4QQ=
+github.com/VictoriaMetrics/metricsql v0.87.5 h1:ASS6+Emy95a/jkRGbsEV6AjkSPFhR04e1ya+CwWUpv0=
+github.com/VictoriaMetrics/metricsql v0.87.5/go.mod h1:d4EisFO6ONP/HIGDYTAtwrejJBBeKGQYiRl095bS4QQ=
 github.com/alecthomas/assert v1.0.0 h1:3XmGh/PSuLzDbK3W2gUbRXwgW5lqPkuqvRgeQ30FI5o=
 github.com/alecthomas/assert v1.0.0/go.mod h1:va/d2JC+M7F6s+80kl/R3G7FUiW6JzUO+hPhLyJ36ZY=
 github.com/alecthomas/colour v0.1.0 h1:nOE9rJm6dsZ66RGWYSFrXw461ZIt9A6+nHgL7FRrDUk=
