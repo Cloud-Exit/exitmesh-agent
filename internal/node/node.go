@@ -419,7 +419,11 @@ func (a *Agent) open() error {
 		})
 		a.budget = disk.DiskBudget(dir, capBytes, disk.Options{TSDB: a.db, TSDBDir: "tsdb", SpoolDir: "queue", SpoolReserve: queueCap})
 		if a.cfg.Node.HostMetricsEnabled() {
-			a.hostm = nodehost.New(nodehost.Options{ProcPath: a.cfg.Node.ProcPath, SysPath: a.cfg.Node.SysPath, Node: a.node})
+			fs := []string{dir}
+			if a.cfg.ImageInventory.Active() {
+				fs = append(fs, a.cfg.ImageInventory.ContentStore)
+			}
+			a.hostm = nodehost.New(nodehost.Options{ProcPath: a.cfg.Node.ProcPath, SysPath: a.cfg.Node.SysPath, Filesystems: fs, Node: a.node})
 		}
 	}
 	a.query = mergedQueryable(a.db, a.mem)

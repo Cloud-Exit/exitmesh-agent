@@ -9,8 +9,8 @@ import (
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/nodehost"
 )
 
-// hostSeriesReserve is the TSDB head headroom for node memory and per-device network series.
-const hostSeriesReserve = 2 + 3*nodehost.DefaultMaxDevices
+// hostSeriesReserve is the TSDB head headroom for node CPU, memory, filesystem, and per-device network series.
+const hostSeriesReserve = 8 + 2 + 4 + 3*nodehost.DefaultMaxDevices
 
 // hostLoop gathers node memory and network series every scrape interval.
 func (a *Agent) hostLoop(ctx context.Context) {

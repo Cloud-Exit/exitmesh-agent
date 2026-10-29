@@ -334,7 +334,21 @@ rules:
     dedup_key: node,metrics_path
     resource_labels: {kind: Node, name: node}
     summary: "The agent cannot scrape the kubelet {{ $labels.metrics_path }} endpoint on node {{ $labels.node }}"
-  - id: metric.node_memory_saturation
+  - id: metric.node_cpu_saturation
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/nodes.yaml
+    group: node-resources
+    alert: NodeCPUHigh
+    category: metric.node_cpu_saturation
+    severity: high
+    capabilities: [metrics]
+    dedup_key: node
+    resource_labels: {kind: Node, name: node}
+    summary: "Node {{ $labels.node }} uses at least 90% of its CPU"
+  - id: metric.node_memory_saturation.warning
     version: 1
     class: promql
     target: kubernetes
@@ -348,6 +362,62 @@ rules:
     dedup_key: node
     resource_labels: {kind: Node, name: node}
     summary: "Node {{ $labels.node }} uses more than 85% of its memory"
+  - id: metric.node_memory_saturation.critical
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/nodes.yaml
+    group: node-resources
+    alert: NodeMemoryCritical
+    category: metric.node_memory_saturation
+    severity: high
+    capabilities: [metrics]
+    dedup_key: node
+    resource_labels: {kind: Node, name: node}
+    summary: "Node {{ $labels.node }} has less than 5% of its memory available and is at risk of evictions"
+  - id: metric.node_filesystem_saturation
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/nodes.yaml
+    group: node-resources
+    alert: NodeFilesystemHigh
+    category: metric.node_filesystem_saturation
+    severity: medium
+    capabilities: [metrics]
+    dedup_key: node,mountpoint
+    resource_labels: {kind: Node, name: node}
+    summary: "The filesystem of {{ $labels.mountpoint }} on node {{ $labels.node }} is at least 85% full"
+  - id: metric.cpu_throttling
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: node
+    file: prometheus/containers.yaml
+    group: container-throttling
+    alert: ContainerCPUThrottled
+    category: metric.cpu_throttling
+    severity: medium
+    capabilities: [metrics]
+    dedup_key: namespace,workload_kind,workload,container
+    summary: "{{ $labels.namespace }}/{{ $labels.workload }} container {{ $labels.container }} is throttled in at least 25% of its CPU periods"
+  - id: metric.node_requests_exhausted
+    version: 1
+    class: promql
+    target: kubernetes
+    scope: cluster
+    file: prometheus/placement.yaml
+    group: node-capacity
+    alert: NodeRequestsExhausted
+    category: metric.node_requests_exhausted
+    severity: medium
+    capabilities: [metrics]
+    dedup_key: node,resource
+    resource_labels: {kind: Node, name: node}
+    budget: {max_samples: 5000000, max_complexity: 500}
+    summary: "Pods on node {{ $labels.node }} request at least 95% of its allocatable {{ $labels.resource }}; new pods will not fit"
   - id: metric.node_network_saturation
     version: 1
     class: promql

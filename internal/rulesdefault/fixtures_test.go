@@ -228,6 +228,24 @@ func cronJob(uid, name, schedule string, suspend bool, lastSuccess time.Time) *p
 	})
 }
 
+// nodeMemory reports a 64 GiB node with availGiB available while bad.
+func nodeMemory(availGiB float64) func(timeline) []engine.Series {
+	return func(tl timeline) []engine.Series {
+		return []engine.Series{
+			series(tl, gauge(64*fixtureGiB, 64*fixtureGiB), "__name__", "node_memory_MemTotal_bytes", "node", "node-a"),
+			series(tl, gauge(30*fixtureGiB, availGiB*fixtureGiB), "__name__", "node_memory_MemAvailable_bytes", "node", "node-a"),
+		}
+	}
+}
+
+// ownedPod is limitedPod owned by the ReplicaSet of Deployment web.
+func ownedPod() *corev1.Pod {
+	p := limitedPod()
+	controller := true
+	p.OwnerReferences = []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: "web-5d8f7c9b4", UID: "rs-1", Controller: &controller}}
+	return p
+}
+
 func limitedPod() *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "web-1", Namespace: "shop", UID: "pod-1"},
@@ -383,14 +401,59 @@ func promFixtures() []fixture {
 				}
 			},
 			labels: map[string]string{"node": "node-a", "metrics_path": "/metrics/cadvisor"}},
-		{id: "metric.node_memory_saturation", target: k8s, warmup: 10 * time.Minute, badFor: 20 * time.Minute,
+		{id: "metric.node_memory_saturation.warning", target: k8s, warmup: 10 * time.Minute, badFor: 20 * time.Minute, series: nodeMemory(6),
+			labels: map[string]string{"node": "node-a"}},
+		{id: "metric.node_memory_saturation.critical", target: k8s, warmup: 10 * time.Minute, badFor: 15 * time.Minute, series: nodeMemory(1),
+			labels: map[string]string{"node": "node-a"}},
+		{id: "metric.node_cpu_saturation", target: k8s, warmup: 10 * time.Minute, badFor: 20 * time.Minute,
 			series: func(tl timeline) []engine.Series {
-				return []engine.Series{
-					series(tl, gauge(64*fixtureGiB, 64*fixtureGiB), "__name__", "node_memory_MemTotal_bytes", "node", "node-a"),
-					series(tl, gauge(30*fixtureGiB, 6*fixtureGiB), "__name__", "node_memory_MemAvailable_bytes", "node", "node-a"),
+				mode := func(m string, good, bad float64) engine.Series {
+					return series(tl, counter(good, bad), "__name__", "node_cpu_seconds_total", "mode", m, "node", "node-a")
 				}
+				return []engine.Series{mode("user", 0.8, 3.7), mode("system", 0.2, 0.2), mode("idle", 3, 0.1), mode("iowait", 0, 0)}
 			},
 			labels: map[string]string{"node": "node-a"}},
+		{id: "metric.node_filesystem_saturation", target: k8s, warmup: 10 * time.Minute, badFor: 25 * time.Minute,
+			series: func(tl timeline) []engine.Series {
+				fs := func(name, mount string) []string {
+					return []string{"__name__", name, "mountpoint", mount, "node", "node-a"}
+				}
+				return []engine.Series{
+					series(tl, gauge(100*fixtureGiB, 100*fixtureGiB), fs("node_filesystem_size_bytes", "/var/lib/exitmesh")...),
+					series(tl, gauge(50*fixtureGiB, 10*fixtureGiB), fs("node_filesystem_avail_bytes", "/var/lib/exitmesh")...),
+					series(tl, gauge(500*fixtureGiB, 500*fixtureGiB), fs("node_filesystem_size_bytes", "/var/lib/containerd")...),
+					series(tl, gauge(300*fixtureGiB, 300*fixtureGiB), fs("node_filesystem_avail_bytes", "/var/lib/containerd")...),
+				}
+			},
+			labels: map[string]string{"node": "node-a", "mountpoint": "/var/lib/exitmesh"}},
+		{id: "metric.cpu_throttling", target: k8s, warmup: 15 * time.Minute, badFor: 25 * time.Minute, kube: []*corev1.Pod{ownedPod()},
+			series: func(tl timeline) []engine.Series {
+				return []engine.Series{
+					series(tl, counter(0.05, 4), cadvisor("container_cpu_cfs_throttled_periods_total", "app")...),
+					series(tl, counter(10, 10), cadvisor("container_cpu_cfs_periods_total", "app")...),
+					series(tl, counter(0.05, 0.05), cadvisor("container_cpu_cfs_throttled_periods_total", "sidecar")...),
+					series(tl, counter(10, 10), cadvisor("container_cpu_cfs_periods_total", "sidecar")...),
+				}
+			},
+			labels: map[string]string{"namespace": "shop", "workload_kind": "Deployment", "workload": "web", "container": "app"}},
+		{id: "metric.node_requests_exhausted", target: k8s, warmup: 10 * time.Minute, badFor: 25 * time.Minute,
+			series: func(tl timeline) []engine.Series {
+				request := func(pod, resource string, good, bad float64) engine.Series {
+					return series(tl, gauge(good, bad), "__name__", "kube_pod_container_resource_requests", "namespace", "shop", "pod", pod, "uid", pod,
+						"container", "app", "node", "node-a", "resource", resource)
+				}
+				phase := func(pod, p string) engine.Series {
+					return series(tl, gauge(1, 1), "__name__", "kube_pod_status_phase", "namespace", "shop", "pod", pod, "uid", pod, "phase", p)
+				}
+				return []engine.Series{
+					series(tl, gauge(4, 4), "__name__", "kube_node_status_allocatable", "node", "node-a", "resource", "cpu"),
+					series(tl, gauge(16*fixtureGiB, 16*fixtureGiB), "__name__", "kube_node_status_allocatable", "node", "node-a", "resource", "memory"),
+					request("web-1", "cpu", 1, 2.9), request("web-2", "cpu", 1, 1), request("done-1", "cpu", 3, 3),
+					request("web-1", "memory", 2*fixtureGiB, 2*fixtureGiB), request("web-2", "memory", 2*fixtureGiB, 2*fixtureGiB),
+					phase("web-1", "Running"), phase("web-2", "Pending"), phase("done-1", "Succeeded"),
+				}
+			},
+			labels: map[string]string{"node": "node-a", "resource": "cpu"}},
 		{id: "metric.node_network_saturation", target: k8s, warmup: 10 * time.Minute, badFor: 20 * time.Minute,
 			series: func(tl timeline) []engine.Series {
 				return []engine.Series{

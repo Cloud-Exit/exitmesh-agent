@@ -12,6 +12,7 @@ func TestHostMetricsReachTheTSDB(t *testing.T) {
 	dev := filepath.Join(sys, "devices", "pci0000:00", "net", "eth0")
 	for path, body := range map[string]string{
 		filepath.Join(proc, "meminfo"):               "MemTotal: 2048 kB\nMemAvailable: 512 kB\n",
+		filepath.Join(proc, "stat"):                  "cpu  100 0 50 800 10 0 0 0 0 0\n",
 		filepath.Join(dev, "statistics", "rx_bytes"): "100\n",
 		filepath.Join(dev, "statistics", "tx_bytes"): "200\n",
 		filepath.Join(dev, "speed"):                  "1000\n",
@@ -34,6 +35,9 @@ func TestHostMetricsReachTheTSDB(t *testing.T) {
 	h.waitFor("node memory series", func() bool {
 		v := h.instant(`node_memory_MemAvailable_bytes{node="` + testNode + `"}`)
 		return len(v) == 1 && v[0].F == 512*1024
+	})
+	h.waitFor("node filesystem series", func() bool {
+		return len(h.instant(`node_filesystem_avail_bytes{node="`+testNode+`"}`)) == 1
 	})
 	h.waitFor("node network series", func() bool {
 		v := h.instant(`node_network_speed_bytes{node="` + testNode + `", device="eth0"}`)

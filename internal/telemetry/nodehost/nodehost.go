@@ -1,4 +1,4 @@
-// Package nodehost reads the node's memory and physical network interface counters for the node agent, with node_exporter series names.
+// Package nodehost reads the node's CPU, memory, filesystems, and physical network interface counters for the node agent, with node_exporter series names.
 package nodehost
 
 import (
@@ -23,12 +23,14 @@ type Options struct {
 	// ProcPath holds meminfo; a container's /proc reports the node's memory.
 	ProcPath string
 	// SysPath is the node's sysfs; it must be the host mount, since a pod's own /sys lists only the pod's interfaces.
-	SysPath    string
-	Node       string
-	MaxDevices int
+	SysPath string
+	// Filesystems are host paths mounted into the agent; each distinct filesystem among them is reported once, labelled with the first path.
+	Filesystems []string
+	Node        string
+	MaxDevices  int
 }
 
-// Collector gathers node_memory_* and node_network_* series.
+// Collector gathers node_cpu_*, node_memory_*, node_filesystem_*, and node_network_* series.
 type Collector struct {
 	o Options
 }
@@ -68,6 +70,15 @@ func (c *Collector) Gather(emit func(l labels.Labels, v float64)) (Stats, error)
 		emit(c.labels("node_memory_"+k+"_bytes"), v)
 		st.Series++
 	}
+	cpu, err := readCPU(filepath.Join(c.o.ProcPath, "stat"))
+	if err != nil {
+		return st, err
+	}
+	for i, mode := range cpuModes {
+		emit(c.labels("node_cpu_seconds_total", "mode", mode), cpu[i])
+		st.Series++
+	}
+	st.Series += c.gatherFilesystems(emit)
 	if c.o.SysPath == "" {
 		st.NetworkError = "no host sysfs path configured"
 		return st, nil
@@ -121,6 +132,39 @@ func (c *Collector) devices() ([]string, error) {
 		out = out[:c.o.MaxDevices]
 	}
 	return out, nil
+}
+
+// cpuModes are the /proc/stat cpu line columns in order.
+var cpuModes = []string{"user", "nice", "system", "idle", "iowait", "irq", "softirq", "steal"}
+
+// userHZ is the fixed tick rate of /proc/stat on Linux.
+const userHZ = 100
+
+// readCPU returns the seconds per mode summed over every CPU, from the aggregate cpu line.
+func readCPU(path string) ([]float64, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("nodehost: %w", err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] != "cpu" {
+			continue
+		}
+		if len(fields) < len(cpuModes)+1 {
+			return nil, fmt.Errorf("nodehost: cpu line has %d columns, want %d", len(fields)-1, len(cpuModes))
+		}
+		out := make([]float64, len(cpuModes))
+		for i := range cpuModes {
+			v, err := strconv.ParseUint(fields[i+1], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("nodehost: cpu %s: %w", cpuModes[i], err)
+			}
+			out[i] = float64(v) / userHZ
+		}
+		return out, nil
+	}
+	return nil, errors.New("nodehost: stat has no cpu line")
 }
 
 func readMeminfo(path string) (map[string]float64, error) {
