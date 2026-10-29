@@ -173,6 +173,13 @@ Validation is all or nothing, with one exception for engine compatibility (PRD U
 - A bundle whose `engine_version` is above the agent's engine version loads the rules within the agent's engine and reports the others as unsupported.
 - Any other error (manifest fields, a rule's metadata, durations, expressions, binding, archive structure) rejects the whole bundle, and the agent keeps its last known good bundle.
 
+Engine versions:
+
+|Version|Adds|
+|---|---|
+|1|The rule classes, grammar, and functions of this document.|
+|2|The `cronPrevious` CEL function for state rules (`docs/state-rules.md`).|
+
 Every rule gets one verdict: active, disabled, unsupported with a reason, or rejected with a reason.
 
 Checks applied to supported rules:

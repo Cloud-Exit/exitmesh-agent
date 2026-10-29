@@ -3,6 +3,7 @@ package rulesdefault
 import (
 	"context"
 	"maps"
+	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/timestamp"
+	"github.com/prometheus/prometheus/model/value"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
@@ -100,6 +102,23 @@ func seriesOf(tl timeline, fn valueFn, lset labels.Labels) engine.Series {
 	return s
 }
 
+// presence is a series with value 1 only while present reports true, ending each presence with a staleness marker.
+func presence(tl timeline, present func(t time.Duration, w window) bool, kv ...string) engine.Series {
+	s := engine.Series{Labels: labels.FromStrings(kv...)}
+	was := false
+	for d := time.Duration(0); d <= tl.end; d += sampleStep {
+		now := present(d, tl.w)
+		switch {
+		case now:
+			s.Samples = append(s.Samples, engine.Sample{T: timestamp.FromTime(t0.Add(d)), F: 1})
+		case was:
+			s.Samples = append(s.Samples, engine.Sample{T: timestamp.FromTime(t0.Add(d)), F: math.Float64frombits(value.StaleNaN)})
+		}
+		was = now
+	}
+	return s
+}
+
 // kubeSeries synthesizes the node-scoped kube_* series of pods through the real normalizer and synthesis.
 func kubeSeries(t *testing.T, tl timeline, node string, pods ...*corev1.Pod) []engine.Series {
 	t.Helper()
@@ -181,7 +200,7 @@ func drive(t *testing.T, f fixture, b *bundle.Bundle, meta bundle.RuleMeta, tl t
 	switch {
 	case f.target == bundle.TargetHost:
 		opts.Role = engine.RoleHost
-	case meta.Class == bundle.ClassState:
+	case meta.Class == bundle.ClassState || meta.Scope == bundle.ScopeCluster:
 		opts.Role = engine.RoleCoordinator
 	default:
 		opts.Role = engine.RoleNode

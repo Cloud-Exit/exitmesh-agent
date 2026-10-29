@@ -364,7 +364,7 @@ func TestHostPaths(t *testing.T) {
 					if h.Type == nil || *h.Type != corev1.HostPathDirectoryOrCreate {
 						t.Errorf("%s: /var/lib/exitmesh must be DirectoryOrCreate", vs.name)
 					}
-				case "/var/log/pods", defaultContentStore:
+				case "/var/log/pods", defaultContentStore, "/sys":
 					if ds.Name != nodeDS {
 						t.Errorf("%s: %s mounts %s", vs.name, ds.Name, h.Path)
 					}
@@ -400,8 +400,22 @@ func TestHostPaths(t *testing.T) {
 		paths = append(paths, h.Path)
 	}
 	slices.Sort(paths)
-	if !reflect.DeepEqual(paths, []string{defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}) {
+	if !reflect.DeepEqual(paths, []string{"/sys", defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}) {
 		t.Fatalf("node agent hostPaths = %v", paths)
+	}
+	for _, args := range [][]string{{"--set", "node.hostMetrics=false"}, {"--set", "capabilities.metrics=false"}} {
+		m := render(t, append(args, baseArgs...)...)
+		for _, h := range hostPaths(daemonSet(t, m, nodeDS).Spec.Template.Spec) {
+			if h.Path == "/sys" {
+				t.Fatalf("%v: /sys mounted", args)
+			}
+		}
+		if _, node := agentConfigs(t, m); node.Node.HostMetricsEnabled() {
+			t.Fatalf("%v: host metrics still enabled in the agent config", args)
+		}
+	}
+	if _, node := agentConfigs(t, render(t, baseArgs...)); !node.Node.HostMetricsEnabled() || node.Node.SysPath != "/host/sys" {
+		t.Fatalf("host metrics config %+v", node.Node)
 	}
 }
 

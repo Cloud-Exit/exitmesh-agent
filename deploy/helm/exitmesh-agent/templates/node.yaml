@@ -129,6 +129,11 @@ spec:
               mountPath: {{ $v.imageInventory.contentStore }}
               readOnly: true
             {{- end }}
+            {{- if and $v.capabilities.metrics $v.node.hostMetrics }}
+            - name: host-sys
+              mountPath: /host/sys
+              readOnly: true
+            {{- end }}
             - name: config
               mountPath: /etc/exitmesh/config
               readOnly: true
@@ -147,6 +152,12 @@ spec:
         - name: pod-logs
           hostPath:
             path: /var/log/pods
+            type: Directory
+        {{- end }}
+        {{- if and $v.capabilities.metrics $v.node.hostMetrics }}
+        - name: host-sys
+          hostPath:
+            path: /sys
             type: Directory
         {{- end }}
         {{- if $v.imageInventory.enabled }}

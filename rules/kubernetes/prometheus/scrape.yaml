@@ -8,3 +8,10 @@ groups:
         for: 10m
         annotations:
           summary: "Scrape target {{ $labels.instance }} ({{ $labels.job }}) exposes a sudden surge of series"
+      - alert: KubeletScrapeDown
+        expr: |
+          up{job="kubelet"} == 0
+        for: 5m
+        keep_firing_for: 2m
+        annotations:
+          summary: "The agent cannot scrape the kubelet {{ $labels.metrics_path }} endpoint on {{ $labels.node }}"

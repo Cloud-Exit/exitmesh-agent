@@ -190,7 +190,23 @@ func newCELEnv(h *graphHolder) (*cel.Env, error) {
 			cel.BinaryBinding(func(r, t ref.Val) ref.Val { return h.related(r, t, false) }))),
 		cel.Function("field", cel.Overload("field_resource_string_dyn", []*cel.Type{res, cel.StringType, cel.DynType}, cel.DynType,
 			cel.FunctionBinding(fieldVal))),
+		cel.Function("cronPrevious", cel.Overload("cron_previous_string_string_int", []*cel.Type{cel.StringType, cel.StringType, cel.IntType}, cel.IntType,
+			cel.FunctionBinding(cronPreviousVal))),
 	)
+}
+
+func cronPreviousVal(args ...ref.Val) ref.Val {
+	schedule, ok1 := args[0].Value().(string)
+	zone, ok2 := args[1].Value().(string)
+	at, ok3 := args[2].Value().(int64)
+	if !ok1 || !ok2 || !ok3 {
+		return types.NewErr("cronPrevious: want (string, string, int)")
+	}
+	prev, err := cronPreviousMillis(schedule, zone, at)
+	if err != nil {
+		return types.NewErr("%s", err.Error())
+	}
+	return types.Int(prev)
 }
 
 // rewriteIn renames in(r, t) calls, leaving the membership operator and string literals untouched.

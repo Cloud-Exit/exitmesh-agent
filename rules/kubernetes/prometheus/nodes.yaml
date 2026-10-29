@@ -1,0 +1,17 @@
+groups:
+  - name: node-resources
+    rules:
+      - alert: NodeMemoryHigh
+        expr: |
+          1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes > 0.85
+        for: 10m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Node {{ $labels.node }} uses more than 85% of its memory"
+      - alert: NodeNetworkReceiveHigh
+        expr: |
+          rate(node_network_receive_bytes_total[5m]) / (node_network_speed_bytes > 0) > 0.5
+        for: 5m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Node {{ $labels.node }} receives on {{ $labels.device }} at more than half its link speed"

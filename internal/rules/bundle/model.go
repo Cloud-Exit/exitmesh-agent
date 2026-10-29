@@ -5,7 +5,7 @@ package bundle
 import "time"
 
 // EngineVersion is the rule engine version implemented by this agent (PRD U1, U4).
-const EngineVersion = 1
+const EngineVersion = 2
 
 // Rule classes (PRD R3).
 const (

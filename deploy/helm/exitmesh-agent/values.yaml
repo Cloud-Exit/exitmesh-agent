@@ -170,6 +170,8 @@ node:
   # verify or skip kubelet serving certificate verification.
   kubeletTLS: verify
   kubeletPort: 10250
+  # Node memory from the agent's /proc and physical network devices from the node's /sys, mounted read-only at /host/sys (metrics capability).
+  hostMetrics: true
   nodeSelector: {}
   # Run on every node, including tainted control plane nodes.
   tolerations:

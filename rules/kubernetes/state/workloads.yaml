@@ -1,0 +1,48 @@
+- id: manifest.node_not_ready
+  version: 1
+  target: kubernetes
+  kinds: [Node]
+  expr: >-
+    field(r, "conditions.Ready.status", "Unknown") != "True"
+  for: 2m
+  keep_firing_for: 2m
+  labels:
+    status: '=string(field(r, "conditions.Ready.status", "Unknown"))'
+    reason: '=string(field(r, "conditions.Ready.reason", "NotReported"))'
+- id: manifest.workload_unavailable.deployment
+  version: 1
+  target: kubernetes
+  kinds: [apps/Deployment]
+  expr: >-
+    field(r, "replicas", 1) > 0 &&
+    double(field(r, "availableReplicas", 0)) < 0.8 * double(field(r, "replicas", 1))
+  for: 3m
+  keep_firing_for: 2m
+  labels:
+    available: '=string(field(r, "availableReplicas", 0))'
+    desired: '=string(field(r, "replicas", 1))'
+- id: manifest.workload_unavailable.statefulset
+  version: 1
+  target: kubernetes
+  kinds: [apps/StatefulSet]
+  expr: >-
+    field(r, "replicas", 1) > 0 &&
+    double(field(r, "readyReplicas", 0)) < 0.8 * double(field(r, "replicas", 1))
+  for: 3m
+  keep_firing_for: 2m
+  labels:
+    ready: '=string(field(r, "readyReplicas", 0))'
+    desired: '=string(field(r, "replicas", 1))'
+- id: manifest.cronjob_stale
+  version: 1
+  target: kubernetes
+  kinds: [batch/CronJob]
+  expr: >-
+    !field(r, "suspend", false) &&
+    field(r, "lastSuccessfulTime", field(r, "created", 0)) <
+    cronPrevious(field(r, "schedule", ""), field(r, "timeZone", ""),
+    cronPrevious(field(r, "schedule", ""), field(r, "timeZone", ""), int(now) * 1000 - 600000) - 1)
+  for: 5m
+  keep_firing_for: 0s
+  labels:
+    last_success: '=field(r, "lastSuccessfulTime", 0) == 0 ? "never" : string(timestamp(int(field(r, "lastSuccessfulTime", 0)) / 1000))'
