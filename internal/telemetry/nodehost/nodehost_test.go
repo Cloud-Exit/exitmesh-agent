@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -47,7 +48,7 @@ func gather(t *testing.T, c *Collector) (map[string]float64, Stats) {
 		if l.Get("node") != "node-a" {
 			t.Fatalf("series %s lacks the node label", l)
 		}
-		got[l.Get(labels.MetricName)+"/"+l.Get("device")] = v
+		got[l.Get(model.MetricNameLabel)+"/"+l.Get("device")] = v
 	})
 	if err != nil {
 		t.Fatal(err)

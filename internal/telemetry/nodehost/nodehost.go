@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 )
 
@@ -96,7 +97,7 @@ func (c *Collector) Gather(emit func(l labels.Labels, v float64)) (Stats, error)
 }
 
 func (c *Collector) labels(name string, kv ...string) labels.Labels {
-	all := append([]string{labels.MetricName, name, "node", c.o.Node}, kv...)
+	all := append([]string{model.MetricNameLabel, name, "node", c.o.Node}, kv...)
 	return labels.FromStrings(all...)
 }
 

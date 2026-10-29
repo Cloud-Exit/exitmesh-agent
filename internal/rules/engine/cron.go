@@ -123,8 +123,8 @@ func cronParseField(text string, f cronField) (uint64, bool, error) {
 			step = n
 		}
 		lo, hi := f.min, f.max
-		switch {
-		case rangePart == "*" || rangePart == "?":
+		switch rangePart {
+		case "*", "?":
 			star = star || !hasStep
 		default:
 			a, b, isRange := strings.Cut(rangePart, "-")
