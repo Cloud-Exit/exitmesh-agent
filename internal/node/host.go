@@ -20,7 +20,7 @@ func (a *Agent) hostLoop(ctx context.Context) {
 	for {
 		errText, netErr := a.gatherHost()
 		if errText != lastErr && errText != "" {
-			a.log.Warn("node memory unavailable", "err", errText)
+			a.log.Warn("node host metrics not gathered", "err", errText)
 		}
 		if netErr != lastNetErr && netErr != "" {
 			a.log.Warn("node network devices unavailable", "path", a.cfg.Node.SysPath, "reason", netErr)
@@ -34,16 +34,25 @@ func (a *Agent) hostLoop(ctx context.Context) {
 	}
 }
 
-// gatherHost appends one gather; it returns the gather error and the network reason as text, empty when absent.
+// gatherHost appends one gather unless disk pressure paused ingestion; it returns the gather error and the network reason as text.
 func (a *Agent) gatherHost() (string, string) {
+	if a.gate.paused.Load() {
+		return "", ""
+	}
 	ts := a.clock().UnixMilli()
 	app := a.gate.Appender(context.Background())
+	var appendErr error
 	st, err := a.hostm.Gather(func(l labels.Labels, v float64) {
-		_, _ = app.Append(0, l, ts, v)
+		if _, err := app.Append(0, l, ts, v); err != nil && appendErr == nil {
+			appendErr = err
+		}
 	})
+	if err == nil {
+		err = appendErr
+	}
 	if err != nil {
 		_ = app.Rollback()
-		return err.Error(), ""
+		return err.Error(), st.NetworkError
 	}
 	if err := app.Commit(); err != nil {
 		return err.Error(), st.NetworkError
