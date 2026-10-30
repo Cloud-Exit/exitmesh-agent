@@ -24,7 +24,7 @@ type Options struct {
 	ProcPath string
 	// SysPath is the node's sysfs; it must be the host mount, since a pod's own /sys lists only the pod's interfaces.
 	SysPath string
-	// Filesystems are host paths mounted into the agent; each distinct filesystem among them is reported once, labelled with the first path.
+	// Filesystems are host paths mounted into the agent; each distinct filesystem among them is reported once, labeled with the first path.
 	Filesystems []string
 	Node        string
 	MaxDevices  int
