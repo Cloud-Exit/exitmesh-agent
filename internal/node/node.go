@@ -36,6 +36,7 @@ import (
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/disk"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/evidence"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/logs"
+	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/nodehost"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/scrape"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/tsdb"
 )
@@ -136,6 +137,7 @@ type Agent struct {
 	query    storage.Queryable
 	prom     *promql.Engine
 	scraper  *scrape.Manager
+	hostm    *nodehost.Collector
 	tailer   *logs.Tailer
 	ring     *evidence.Ring
 	verifier *bundle.Verifier
@@ -351,6 +353,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		goLoop(&wg, a.factsLoop)
 		goLoop(&wg, a.diskLoop)
 	}
+	if a.hostm != nil {
+		goLoop(&wg, a.hostLoop)
+	}
 	if a.tailer != nil {
 		a.tailerRan = true
 		goLoop(&tailWG, func(c context.Context) {
@@ -403,7 +408,7 @@ func (a *Agent) open() error {
 	if a.caps[config.CapMetrics] {
 		if a.db, err = tsdb.Open(filepath.Join(dir, "tsdb"), tsdb.Options{
 			MaxBytes: capBytes / 2, BlockDuration: a.t.TSDBBlock, WALSegmentBytes: a.t.TSDBWALBytes, Logger: a.log.With("component", "tsdb"),
-			MaxSeries: a.cfg.Node.MaxSeries + 3*a.cfg.Node.MaxTargets,
+			MaxSeries: a.cfg.Node.MaxSeries + 3*a.cfg.Node.MaxTargets + hostSeriesReserve,
 		}); err != nil {
 			return fmt.Errorf("node: tsdb: %w", err)
 		}
@@ -413,6 +418,13 @@ func (a *Agent) open() error {
 			Budgets: scrape.Budgets{MaxTargets: a.cfg.Node.MaxTargets, MaxSeries: a.cfg.Node.MaxSeries, MaxSamplesPerSecond: a.cfg.Node.MaxSamplesRate},
 		})
 		a.budget = disk.DiskBudget(dir, capBytes, disk.Options{TSDB: a.db, TSDBDir: "tsdb", SpoolDir: "queue", SpoolReserve: queueCap})
+		if a.cfg.Node.HostMetricsEnabled() {
+			fs := []string{dir}
+			if a.cfg.ImageInventory.Active() {
+				fs = append(fs, a.cfg.ImageInventory.ContentStore)
+			}
+			a.hostm = nodehost.New(nodehost.Options{ProcPath: a.cfg.Node.ProcPath, SysPath: a.cfg.Node.SysPath, Filesystems: fs, Node: a.node})
+		}
 	}
 	a.query = mergedQueryable(a.db, a.mem)
 	if a.norm, err = state.NewNormalizer(state.OptionsFromConfig(a.cfg.Kubernetes, a.red)); err != nil {

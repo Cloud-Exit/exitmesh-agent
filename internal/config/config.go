@@ -161,7 +161,14 @@ type Node struct {
 	MaxSamplesRate int      `yaml:"maxSamplesPerSecond"`
 	KubeletTLS     string   `yaml:"kubeletTLS"`
 	KubeletPort    int      `yaml:"kubeletPort"`
+	// HostMetrics gathers node memory from ProcPath and physical network devices from SysPath (default true).
+	HostMetrics *bool  `yaml:"hostMetrics"`
+	ProcPath    string `yaml:"procPath"`
+	SysPath     string `yaml:"sysPath"`
 }
+
+// HostMetricsEnabled reports whether the node agent gathers node memory and network series.
+func (n Node) HostMetricsEnabled() bool { return n.HostMetrics == nil || *n.HostMetrics }
 
 // Host configures host mode (PRD 7.10).
 type Host struct {
@@ -331,6 +338,8 @@ func (c *Config) ApplyDefaults() {
 	setI(&c.Node.MaxSamplesRate, 20_000)
 	setS(&c.Node.KubeletTLS, "verify")
 	setI(&c.Node.KubeletPort, 10250)
+	setS(&c.Node.ProcPath, "/proc")
+	setS(&c.Node.SysPath, "/host/sys")
 	setB(&c.Host.DiskCap, 2<<30)
 	setB(&c.Host.SpoolReserve, 1<<30)
 	setB(&c.Host.TSDBMax, 768<<20)

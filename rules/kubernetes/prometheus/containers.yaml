@@ -49,6 +49,30 @@ groups:
           severity: critical
         annotations:
           summary: "Container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} is near its memory limit"
+  - name: container-throttling
+    rules:
+      - alert: ContainerCPUThrottled
+        expr: |
+          max by (namespace, workload_kind, workload, container) (
+            label_replace(
+              label_replace(
+                label_replace(
+                  label_replace(
+                    label_join(
+                      sum by (namespace, pod, container) (rate(container_cpu_cfs_throttled_periods_total{container!="", container!="POD"}[10m]))
+                        / (sum by (namespace, pod, container) (rate(container_cpu_cfs_periods_total{container!="", container!="POD"}[10m])) > 0)
+                        * on (namespace, pod) group_left (owner_kind, owner_name)
+                        max by (namespace, pod, owner_kind, owner_name) (kube_pod_owner{owner_is_controller="true"}),
+                      "owner", ":", "owner_kind", "owner_name"),
+                    "workload", "$1", "owner", "[^:]*:(.+)"),
+                  "workload", "$1", "owner", "ReplicaSet:(.+)-[a-z0-9]{5,10}"),
+                "workload_kind", "$1", "owner", "([^:]*):.*"),
+              "workload_kind", "Deployment", "owner", "ReplicaSet:.+-[a-z0-9]{5,10}")
+          ) >= 0.25
+        for: 10m
+        keep_firing_for: 5m
+        annotations:
+          summary: "{{ $labels.namespace }}/{{ $labels.workload }} container {{ $labels.container }} is CPU throttled"
   - name: container-trends
     rules:
       - alert: ContainerMemoryGrowthChange

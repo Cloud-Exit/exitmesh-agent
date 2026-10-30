@@ -1,0 +1,39 @@
+groups:
+  - name: request-rates
+    rules:
+      - alert: RequestRateCollapse
+        expr: |
+          sum by (namespace, pod) (rate(http_requests_total[5m]))
+            / (sum by (namespace, pod) (rate(http_requests_total[1h] offset 5m)) > 1)
+            < 0.1
+          and on (namespace, pod) max by (namespace, pod) (up{job="kubernetes-pods"}) == 1
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          source: http_requests_total
+        annotations:
+          summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} serves less than 10% of its request rate from the hour before"
+      - alert: RequestRateCollapse
+        expr: |
+          sum by (namespace, pod) (rate(http_server_request_duration_seconds_count[5m]))
+            / (sum by (namespace, pod) (rate(http_server_request_duration_seconds_count[1h] offset 5m)) > 1)
+            < 0.1
+          and on (namespace, pod) max by (namespace, pod) (up{job="kubernetes-pods"}) == 1
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          source: http_server_request_duration_seconds_count
+        annotations:
+          summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} serves less than 10% of its request rate from the hour before"
+      - alert: RequestRateCollapse
+        expr: |
+          sum by (namespace, pod) (rate(grpc_server_handled_total[5m]))
+            / (sum by (namespace, pod) (rate(grpc_server_handled_total[1h] offset 5m)) > 1)
+            < 0.1
+          and on (namespace, pod) max by (namespace, pod) (up{job="kubernetes-pods"}) == 1
+        for: 5m
+        keep_firing_for: 5m
+        labels:
+          source: grpc_server_handled_total
+        annotations:
+          summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} serves less than 10% of its request rate from the hour before"

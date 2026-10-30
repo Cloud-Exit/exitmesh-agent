@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -152,9 +153,10 @@ func TestValidateManifestErrors(t *testing.T) {
 }
 
 func TestValidateEngineCompatibility(t *testing.T) {
-	man := replaceIn(fixtureManifest, "engine_version: 1", "engine_version: 2")
-	man = replaceIn(man, "    budget:\n", "    min_engine: 2\n    budget:\n")
-	man += "  - id: future-trace\n    version: 1\n    class: trace\n    target: kubernetes\n    min_engine: 2\n"
+	future := fmt.Sprint(EngineVersion + 1)
+	man := replaceIn(fixtureManifest, "engine_version: 1", "engine_version: "+future)
+	man = replaceIn(man, "    budget:\n", "    min_engine: "+future+"\n    budget:\n")
+	man += "  - id: future-trace\n    version: 1\n    class: trace\n    target: kubernetes\n    min_engine: " + future + "\n"
 	called := false
 	b := parseFiles(t, withFile(fixtureFiles(), "bundle.yaml", man))
 	res, err := Validate(b, Validators{PromQL: func(AlertRule) error { called = true; return errors.New("newer grammar") }}, Policy{})

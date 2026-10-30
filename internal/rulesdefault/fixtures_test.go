@@ -159,6 +159,52 @@ func stateFixtures() []fixture {
 			labels: map[string]string{"name": "node-a", "pressure": "MemoryPressure,PIDPressure"},
 		},
 		{
+			id: "manifest.node_not_ready", target: k8s,
+			bad: st(
+				res("n1", "Node", "", "node-a", map[string]any{"conditions.Ready.status": "False", "conditions.Ready.reason": "KubeletNotReady"}),
+				res("n2", "Node", "", "node-b", map[string]any{"conditions.Ready.status": "True", "conditions.Ready.reason": "KubeletReady"}),
+			),
+			good: st(
+				res("n1", "Node", "", "node-a", map[string]any{"conditions.Ready.status": "True", "conditions.Ready.reason": "KubeletReady"}),
+				res("n2", "Node", "", "node-b", map[string]any{"conditions.Ready.status": "True", "conditions.Ready.reason": "KubeletReady"}),
+			),
+			labels: map[string]string{"kind": "Node", "name": "node-a", "status": "False", "reason": "KubeletNotReady"},
+		},
+		{
+			id: "manifest.workload_unavailable.deployment", target: k8s,
+			bad: st(
+				res("d1", "apps/Deployment", "shop", "web", map[string]any{"replicas": int64(4), "availableReplicas": int64(2)}),
+				res("d2", "apps/Deployment", "shop", "api", map[string]any{"replicas": int64(10), "availableReplicas": int64(9)}),
+				res("d3", "apps/Deployment", "shop", "idle", map[string]any{"replicas": int64(0)}),
+			),
+			good: st(
+				res("d1", "apps/Deployment", "shop", "web", map[string]any{"replicas": int64(4), "availableReplicas": int64(4)}),
+				res("d2", "apps/Deployment", "shop", "api", map[string]any{"replicas": int64(10), "availableReplicas": int64(9)}),
+				res("d3", "apps/Deployment", "shop", "idle", map[string]any{"replicas": int64(0)}),
+			),
+			labels: map[string]string{"kind": "apps/Deployment", "name": "web", "available": "2", "desired": "4"},
+		},
+		{
+			id: "manifest.workload_unavailable.statefulset", target: k8s,
+			bad:    st(res("s1", "apps/StatefulSet", "data", "nats", map[string]any{"replicas": int64(3), "readyReplicas": int64(1), "availableReplicas": int64(1)})),
+			good:   st(res("s1", "apps/StatefulSet", "data", "nats", map[string]any{"replicas": int64(3), "readyReplicas": int64(3), "availableReplicas": int64(3)})),
+			labels: map[string]string{"kind": "apps/StatefulSet", "name": "nats", "ready": "1", "desired": "3"},
+		},
+		{
+			id: "manifest.cronjob_stale", target: k8s,
+			bad: st(
+				cronJob("c1", "backup", "@daily", false, t0.AddDate(0, 0, -3)),
+				cronJob("c2", "paused", "@daily", true, t0.AddDate(0, 0, -30)),
+				cronJob("c3", "monitor", "*/5 * * * *", false, t0.Add(time.Hour)),
+			),
+			good: st(
+				cronJob("c1", "backup", "@daily", false, t0),
+				cronJob("c2", "paused", "@daily", true, t0.AddDate(0, 0, -30)),
+				cronJob("c3", "monitor", "*/5 * * * *", false, t0.Add(time.Hour)),
+			),
+			labels: map[string]string{"kind": "batch/CronJob", "name": "backup", "last_success": "2026-08-29T00:00:00Z"},
+		},
+		{
 			id: "host.systemd_unit_failed", target: host,
 			bad: st(
 				res("host:unit:backup.service", "host/Unit", "", "backup.service", map[string]any{"load_state": "loaded", "active_state": "failed", "sub_state": "failed"}),
@@ -171,6 +217,33 @@ func stateFixtures() []fixture {
 			labels: map[string]string{"kind": "host/Unit", "name": "backup.service", "sub_state": "failed"},
 		},
 	}
+}
+
+// cronJob is a CronJob created long before t0 whose last successful run was at lastSuccess.
+func cronJob(uid, name, schedule string, suspend bool, lastSuccess time.Time) *protocol.Resource {
+	return res(uid, "batch/CronJob", "ops", name, map[string]any{
+		"schedule": schedule, "suspend": suspend, "active": int64(0),
+		"created":            t0.AddDate(0, -2, 0).UnixMilli(),
+		"lastSuccessfulTime": lastSuccess.UnixMilli(),
+	})
+}
+
+// nodeMemory reports a 64 GiB node with availGiB available while bad.
+func nodeMemory(availGiB float64) func(timeline) []engine.Series {
+	return func(tl timeline) []engine.Series {
+		return []engine.Series{
+			series(tl, gauge(64*fixtureGiB, 64*fixtureGiB), "__name__", "node_memory_MemTotal_bytes", "node", "node-a"),
+			series(tl, gauge(30*fixtureGiB, availGiB*fixtureGiB), "__name__", "node_memory_MemAvailable_bytes", "node", "node-a"),
+		}
+	}
+}
+
+// ownedPod is limitedPod owned by the ReplicaSet of Deployment web.
+func ownedPod() *corev1.Pod {
+	p := limitedPod()
+	controller := true
+	p.OwnerReferences = []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: "web-5d8f7c9b4", UID: "rs-1", Controller: &controller}}
+	return p
 }
 
 func limitedPod() *corev1.Pod {
@@ -311,6 +384,91 @@ func promFixtures() []fixture {
 				}
 			},
 			labels: map[string]string{"namespace": "shop", "persistentvolumeclaim": "data"}},
+		{id: "metric.volume_saturation.warning", target: k8s, warmup: 10 * time.Minute, badFor: 30 * time.Minute,
+			series: func(tl timeline) []engine.Series {
+				return []engine.Series{
+					series(tl, gauge(5*fixtureGiB, 8.5*fixtureGiB), volume("kubelet_volume_stats_used_bytes")...),
+					series(tl, gauge(10*fixtureGiB, 10*fixtureGiB), volume("kubelet_volume_stats_capacity_bytes")...),
+				}
+			},
+			labels: map[string]string{"namespace": "shop", "persistentvolumeclaim": "data"}},
+		{id: "metric.scrape_down.kubelet", target: k8s, warmup: 10 * time.Minute, badFor: 15 * time.Minute,
+			series: func(tl timeline) []engine.Series {
+				return []engine.Series{
+					series(tl, gauge(1, 0), "__name__", "up", "job", "kubelet", "metrics_path", "/metrics/cadvisor", "node", "node-a", "instance", "10.0.0.1:10250"),
+					series(tl, gauge(1, 1), "__name__", "up", "job", "kubelet", "metrics_path", "/metrics", "node", "node-a", "instance", "10.0.0.1:10250"),
+					series(tl, gauge(1, 1), "__name__", "up", "job", "kubernetes-pods", "namespace", "shop", "pod", "web-1", "node", "node-a", "instance", "10.1.0.5:8080"),
+				}
+			},
+			labels: map[string]string{"node": "node-a", "metrics_path": "/metrics/cadvisor"}},
+		{id: "metric.node_memory_saturation.warning", target: k8s, warmup: 10 * time.Minute, badFor: 20 * time.Minute, series: nodeMemory(6),
+			labels: map[string]string{"node": "node-a"}},
+		{id: "metric.node_memory_saturation.critical", target: k8s, warmup: 10 * time.Minute, badFor: 15 * time.Minute, series: nodeMemory(1),
+			labels: map[string]string{"node": "node-a"}},
+		{id: "metric.node_cpu_saturation", target: k8s, warmup: 10 * time.Minute, badFor: 20 * time.Minute,
+			series: func(tl timeline) []engine.Series {
+				mode := func(m string, good, bad float64) engine.Series {
+					return series(tl, counter(good, bad), "__name__", "node_cpu_seconds_total", "mode", m, "node", "node-a")
+				}
+				return []engine.Series{mode("user", 0.8, 3.7), mode("system", 0.2, 0.2), mode("idle", 3, 0.1), mode("iowait", 0, 0)}
+			},
+			labels: map[string]string{"node": "node-a"}},
+		{id: "metric.node_filesystem_saturation", target: k8s, warmup: 10 * time.Minute, badFor: 25 * time.Minute,
+			series: func(tl timeline) []engine.Series {
+				fs := func(name, mount string) []string {
+					return []string{"__name__", name, "mountpoint", mount, "node", "node-a"}
+				}
+				return []engine.Series{
+					series(tl, gauge(100*fixtureGiB, 100*fixtureGiB), fs("node_filesystem_size_bytes", "/var/lib/exitmesh")...),
+					series(tl, gauge(50*fixtureGiB, 10*fixtureGiB), fs("node_filesystem_avail_bytes", "/var/lib/exitmesh")...),
+					series(tl, gauge(500*fixtureGiB, 500*fixtureGiB), fs("node_filesystem_size_bytes", "/var/lib/containerd")...),
+					series(tl, gauge(300*fixtureGiB, 300*fixtureGiB), fs("node_filesystem_avail_bytes", "/var/lib/containerd")...),
+				}
+			},
+			labels: map[string]string{"node": "node-a", "mountpoint": "/var/lib/exitmesh"}},
+		{id: "metric.cpu_throttling", target: k8s, warmup: 15 * time.Minute, badFor: 25 * time.Minute, kube: []*corev1.Pod{ownedPod()},
+			series: func(tl timeline) []engine.Series {
+				return []engine.Series{
+					series(tl, counter(0.05, 4), cadvisor("container_cpu_cfs_throttled_periods_total", "app")...),
+					series(tl, counter(10, 10), cadvisor("container_cpu_cfs_periods_total", "app")...),
+					series(tl, counter(0.05, 0.05), cadvisor("container_cpu_cfs_throttled_periods_total", "sidecar")...),
+					series(tl, counter(10, 10), cadvisor("container_cpu_cfs_periods_total", "sidecar")...),
+				}
+			},
+			labels: map[string]string{"namespace": "shop", "workload_kind": "Deployment", "workload": "web", "container": "app"}},
+		{id: "metric.node_requests_exhausted", target: k8s, warmup: 10 * time.Minute, badFor: 25 * time.Minute,
+			series: func(tl timeline) []engine.Series {
+				request := func(pod, resource string, good, bad float64) engine.Series {
+					return series(tl, gauge(good, bad), "__name__", "kube_pod_container_resource_requests", "namespace", "shop", "pod", pod, "uid", pod,
+						"container", "app", "node", "node-a", "resource", resource)
+				}
+				phase := func(pod, p string) engine.Series {
+					return series(tl, gauge(1, 1), "__name__", "kube_pod_status_phase", "namespace", "shop", "pod", pod, "uid", pod, "phase", p)
+				}
+				return []engine.Series{
+					series(tl, gauge(4, 4), "__name__", "kube_node_status_allocatable", "node", "node-a", "resource", "cpu"),
+					series(tl, gauge(16*fixtureGiB, 16*fixtureGiB), "__name__", "kube_node_status_allocatable", "node", "node-a", "resource", "memory"),
+					request("web-1", "cpu", 1, 2.9), request("web-2", "cpu", 1, 1), request("done-1", "cpu", 3, 3),
+					request("web-1", "memory", 2*fixtureGiB, 2*fixtureGiB), request("web-2", "memory", 2*fixtureGiB, 2*fixtureGiB),
+					phase("web-1", "Running"), phase("web-2", "Pending"), phase("done-1", "Succeeded"),
+				}
+			},
+			labels: map[string]string{"node": "node-a", "resource": "cpu"}},
+		{id: "metric.node_network_saturation", target: k8s, warmup: 10 * time.Minute, badFor: 20 * time.Minute,
+			series: func(tl timeline) []engine.Series {
+				return []engine.Series{
+					series(tl, counter(1.2e8, 9e8), "__name__", "node_network_receive_bytes_total", "device", "enp193s0f0np0", "node", "node-a"),
+					series(tl, gauge(1.25e9, 1.25e9), "__name__", "node_network_speed_bytes", "device", "enp193s0f0np0", "node", "node-a"),
+					series(tl, counter(1.2e8, 1.2e8), "__name__", "node_network_receive_bytes_total", "device", "enp193s0f1np1", "node", "node-a"),
+					series(tl, gauge(1.25e9, 1.25e9), "__name__", "node_network_speed_bytes", "device", "enp193s0f1np1", "node", "node-a"),
+				}
+			},
+			labels: map[string]string{"node": "node-a", "device": "enp193s0f0np0"}},
+		requestCollapse("metric.request_rate_collapse.http", "http_requests_total"),
+		requestCollapse("metric.request_rate_collapse.http_server", "http_server_request_duration_seconds_count"),
+		requestCollapse("metric.request_rate_collapse.grpc", "grpc_server_handled_total"),
+		replicaStacking("metric.replica_stacking.deployment", "ReplicaSet", "web-5d8f7c9b4", "deployment", "web"),
+		replicaStacking("metric.replica_stacking.statefulset", "StatefulSet", "db", "statefulset", "db"),
 		{id: "host.filesystem_almost_full.high", target: host, warmup: 10 * time.Minute, badFor: 30 * time.Minute, series: fsFull(7 * fixtureGiB),
 			labels: map[string]string{"mountpoint": "/", "severity": "high"}},
 		{id: "host.filesystem_almost_full.critical", target: host, warmup: 10 * time.Minute, badFor: 20 * time.Minute, series: fsFull(1 * fixtureGiB),
@@ -357,6 +515,55 @@ func promFixtures() []fixture {
 				return []engine.Series{series(tl, gauge(0.001, 0.2), "__name__", "node_timex_offset_seconds")}
 			}},
 	}
+}
+
+// requestCollapse drops one pod's request rate from 50 to 1 per second while a second pod keeps serving.
+func requestCollapse(id, metric string) fixture {
+	pod := func(name, ip string) []string {
+		return []string{"job", "kubernetes-pods", "namespace", "shop", "pod", name, "container", "app", "node", "node-a", "instance", ip + ":8080"}
+	}
+	return fixture{id: id, target: k8s, warmup: 70 * time.Minute, badFor: 15 * time.Minute,
+		series: func(tl timeline) []engine.Series {
+			return []engine.Series{
+				series(tl, counter(50, 1), append([]string{"__name__", metric}, pod("web-1", "10.1.0.5")...)...),
+				series(tl, counter(40, 40), append([]string{"__name__", metric}, pod("web-2", "10.1.0.6")...)...),
+				series(tl, gauge(1, 1), append([]string{"__name__", "up"}, pod("web-1", "10.1.0.5")...)...),
+				series(tl, gauge(1, 1), append([]string{"__name__", "up"}, pod("web-2", "10.1.0.6")...)...),
+			}
+		},
+		labels: map[string]string{"namespace": "shop", "pod": "web-1"}}
+}
+
+// replicaStacking runs six pods of one workload on three schedulable nodes, four of them on node-a while bad.
+func replicaStacking(id, ownerKind, ownerName, label, workload string) fixture {
+	return fixture{id: id, target: k8s, warmup: 10 * time.Minute, badFor: 45 * time.Minute,
+		series: func(tl timeline) []engine.Series {
+			var out []engine.Series
+			for i, node := range []string{"node-a", "node-b", "node-c"} {
+				out = append(out, series(tl, gauge(0, 0), "__name__", "kube_node_spec_unschedulable", "node", node))
+				for _, p := range []int{2 * i, 2*i + 1} {
+					name := fmt.Sprintf("%s-%d", workload, p)
+					badNode := node
+					if p == 2 || p == 3 {
+						badNode = "node-a"
+					}
+					info := func(n string) []string {
+						return []string{"__name__", "kube_pod_info", "namespace", "shop", "pod", name, "uid", name, "node", n, "created_by_kind", ownerKind, "created_by_name", ownerName}
+					}
+					if badNode == node {
+						out = append(out, series(tl, gauge(1, 1), info(node)...))
+					} else {
+						out = append(out,
+							presence(tl, func(t time.Duration, w window) bool { return !w.active(t) }, info(node)...),
+							presence(tl, func(t time.Duration, w window) bool { return w.active(t) }, info(badNode)...),
+						)
+					}
+					out = append(out, series(tl, gauge(1, 1), "__name__", "kube_pod_status_phase", "namespace", "shop", "pod", name, "uid", name, "phase", "Running"))
+				}
+			}
+			return out
+		},
+		labels: map[string]string{"namespace": "shop", label: workload}}
 }
 
 var workload = map[string]string{

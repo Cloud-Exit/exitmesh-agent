@@ -24,6 +24,7 @@ import (
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/host"
 	"github.com/cloud-exit/exitmesh-agent/internal/node"
+	"github.com/cloud-exit/exitmesh-agent/internal/rules/bundle"
 	"github.com/cloud-exit/exitmesh-agent/internal/spool"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
@@ -49,7 +50,7 @@ func TestUsageVersionAndFlags(t *testing.T) {
 	version, commit = "1.2.3", "abc123"
 	defer func() { version, commit = "dev", "none" }()
 	code, o, _ := runArgs(t, ctx, "version")
-	for _, want := range []string{"exitmesh-agent 1.2.3", "commit: abc123", "protocol: 1", "schema: 1", "engine: 1"} {
+	for _, want := range []string{"exitmesh-agent 1.2.3", "commit: abc123", "protocol: 1", "schema: 1", fmt.Sprintf("engine: %d", bundle.EngineVersion)} {
 		if code != 0 || !strings.Contains(o, want) {
 			t.Fatalf("version output %q lacks %q", o, want)
 		}

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -117,7 +118,7 @@ func TestPolicyDisabledUnsupportedAndCapabilities(t *testing.T) {
 	want := map[string][2]string{
 		"dis":      {StateDisabled, ""},
 		"meta-dis": {StateDisabled, ""},
-		"newer":    {StateUnsupported, "requires engine version 2"},
+		"newer":    {StateUnsupported, fmt.Sprintf("requires engine version %d", bundle.EngineVersion+1)},
 		"flagged":  {StateUnsupported, "construct this agent lacks"},
 		"logs":     {StateUnsupported, "capability logs is unavailable"},
 		"inv":      {StateUnsupported, "capability inventory is unavailable"},

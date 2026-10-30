@@ -281,8 +281,8 @@ func buildCatalog() []*KindSpec {
 				f("suspend", "spec.suspend", TypeBool, RedactStructural, true),
 				f("concurrencyPolicy", "spec.concurrencyPolicy", TypeString, RedactStructural, true),
 				f("active", "len(status.active)", TypeInt, RedactStructural, true),
-				f("lastScheduleTime", "status.lastScheduleTime", TypeTimestamp, RedactStructural, false),
-				f("lastSuccessfulTime", "status.lastSuccessfulTime", TypeTimestamp, RedactStructural, false),
+				f("lastScheduleTime", "status.lastScheduleTime", TypeTimestamp, RedactStructural, true),
+				f("lastSuccessfulTime", "status.lastSuccessfulTime", TypeTimestamp, RedactStructural, true),
 			}, podSpecFields("spec.jobTemplate.spec.template.spec", false))},
 		{Kind: KindService, GVR: core("services"), APIKind: "Service", Namespaced: true, Fields: []Field{
 			f("type", "spec.type", TypeString, RedactStructural, true),

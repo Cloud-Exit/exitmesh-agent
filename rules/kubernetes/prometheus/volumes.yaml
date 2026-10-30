@@ -8,6 +8,13 @@ groups:
         keep_firing_for: 5m
         annotations:
           summary: "Volume {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is almost full"
+      - alert: PersistentVolumeUsageHigh
+        expr: |
+          kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes >= 0.8 < 0.9
+        for: 15m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Volume {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is over 80% full"
       - alert: PersistentVolumeFillingUp
         expr: |
           kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.4

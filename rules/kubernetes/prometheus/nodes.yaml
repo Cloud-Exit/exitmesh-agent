@@ -1,0 +1,40 @@
+groups:
+  - name: node-resources
+    rules:
+      - alert: NodeCPUHigh
+        expr: |
+          1 - sum by (node) (rate(node_cpu_seconds_total{mode=~"idle|iowait"}[5m]))
+            / sum by (node) (rate(node_cpu_seconds_total[5m]))
+            >= 0.9
+        for: 10m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Node {{ $labels.node }} uses at least 90% of its CPU"
+      - alert: NodeMemoryHigh
+        expr: |
+          1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes > 0.85 < 0.95
+        for: 10m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Node {{ $labels.node }} uses more than 85% of its memory"
+      - alert: NodeMemoryCritical
+        expr: |
+          1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes >= 0.95
+        for: 5m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Node {{ $labels.node }} has less than 5% of its memory available"
+      - alert: NodeFilesystemHigh
+        expr: |
+          1 - node_filesystem_avail_bytes / node_filesystem_size_bytes >= 0.85
+        for: 15m
+        keep_firing_for: 5m
+        annotations:
+          summary: "The filesystem of {{ $labels.mountpoint }} on node {{ $labels.node }} is at least 85% full"
+      - alert: NodeNetworkReceiveHigh
+        expr: |
+          rate(node_network_receive_bytes_total[5m]) / (node_network_speed_bytes > 0) > 0.5
+        for: 5m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Node {{ $labels.node }} receives on {{ $labels.device }} at more than half its link speed"

@@ -59,7 +59,7 @@ release-snapshot:
 	eval "$$($(GO) run ./internal/deploytest/releaseinfo | sed 's/^/export /')" && $(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) release --snapshot --clean --skip=sign,sbom,publish
 
 release-check:
-	EXITMESH_PROTOCOL_VERSION=1 EXITMESH_SCHEMA_VERSION=1 EXITMESH_ENGINE_VERSION=1 $(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) check
+	EXITMESH_PROTOCOL_VERSION=1 EXITMESH_SCHEMA_VERSION=1 EXITMESH_ENGINE_VERSION=2 $(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) check
 
 packages: release-snapshot
 

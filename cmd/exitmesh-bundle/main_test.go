@@ -11,7 +11,7 @@ import (
 )
 
 const manifestYAML = `version: "2026.09.2"
-engine_version: 2
+engine_version: 3
 schema_version: 1
 target_type: host
 created_at: 2026-09-01T00:00:00Z
@@ -35,7 +35,7 @@ rules:
     file: prometheus/host.yaml
     group: host
     alert: FutureAlert
-    min_engine: 2
+    min_engine: 3
     category: capacity
     severity: low
     capabilities: [metrics]

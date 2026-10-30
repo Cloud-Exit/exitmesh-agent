@@ -70,6 +70,9 @@ Coordinator spool on the PVC (hosts use `host.spoolReserve`).
 |`node.maxSamplesPerSecond`|`20000`|Ingest budget per node.|
 |`node.kubeletTLS`|`verify`|`verify` or `skip` verification of the kubelet serving certificate.|
 |`node.kubeletPort`|`10250`|Kubelet port on the node address (`NODE_IP`).|
+|`node.hostMetrics`|`true`|Gather `node_cpu_seconds_total` per mode summed over every CPU (no `cpu` label), `node_memory_MemTotal_bytes`, and `node_memory_MemAvailable_bytes` from `node.procPath`; `node_filesystem_size_bytes` and `node_filesystem_avail_bytes` of the filesystems behind `/var/lib/exitmesh` and the image inventory content store (label `mountpoint`); and `node_network_receive_bytes_total`, `node_network_transmit_bytes_total`, and `node_network_speed_bytes` of the physical network devices (at most 64) from `node.sysPath`, every scrape interval, labelled with `node` (metrics capability).|
+|`node.procPath`|`/proc`|Holds `meminfo` and `stat`. A container's own `/proc/meminfo` and `/proc/stat` report the node's memory and CPU.|
+|`node.sysPath`|`/host/sys`|The node's sysfs. A pod's own `/sys` lists only the pod's interfaces, so the chart mounts the node's `/sys` read-only here; without it node network series are skipped and a warning is logged.|
 
 ## host
 

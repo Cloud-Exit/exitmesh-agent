@@ -1,0 +1,65 @@
+groups:
+  - name: node-capacity
+    rules:
+      - alert: NodeRequestsExhausted
+        expr: |
+          sum by (node, resource) (
+            kube_pod_container_resource_requests{resource=~"cpu|memory"}
+            and on (namespace, pod) (kube_pod_status_phase{phase=~"Pending|Running"} == 1)
+          )
+          / on (node, resource) max by (node, resource) (kube_node_status_allocatable{resource=~"cpu|memory"} > 0)
+          >= 0.95
+        for: 15m
+        keep_firing_for: 5m
+        annotations:
+          summary: "Pods on node {{ $labels.node }} request {{ $value }} of its allocatable {{ $labels.resource }}"
+  - name: workload-placement
+    rules:
+      - alert: DeploymentReplicasStacked
+        expr: |
+          max by (namespace, deployment) (
+            count by (namespace, deployment, node) (
+              label_replace(kube_pod_info{created_by_kind="ReplicaSet"}, "deployment", "$1", "created_by_name", "(.+)-[a-z0-9]{5,10}")
+              and on (namespace, pod) (kube_pod_status_phase{phase="Running"} == 1)
+            )
+          )
+          >= 2 * ceil(
+            count by (namespace, deployment) (
+              label_replace(kube_pod_info{created_by_kind="ReplicaSet"}, "deployment", "$1", "created_by_name", "(.+)-[a-z0-9]{5,10}")
+              and on (namespace, pod) (kube_pod_status_phase{phase="Running"} == 1)
+            )
+            / scalar(count(kube_node_spec_unschedulable == 0))
+          )
+          and on (namespace, deployment)
+          count by (namespace, deployment) (
+            label_replace(kube_pod_info{created_by_kind="ReplicaSet"}, "deployment", "$1", "created_by_name", "(.+)-[a-z0-9]{5,10}")
+            and on (namespace, pod) (kube_pod_status_phase{phase="Running"} == 1)
+          ) >= 4
+        for: 30m
+        keep_firing_for: 10m
+        annotations:
+          summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has {{ $value }} pods on one node"
+      - alert: StatefulSetReplicasStacked
+        expr: |
+          max by (namespace, statefulset) (
+            count by (namespace, statefulset, node) (
+              label_replace(kube_pod_info{created_by_kind="StatefulSet"}, "statefulset", "$1", "created_by_name", "(.+)")
+              and on (namespace, pod) (kube_pod_status_phase{phase="Running"} == 1)
+            )
+          )
+          >= 2 * ceil(
+            count by (namespace, statefulset) (
+              label_replace(kube_pod_info{created_by_kind="StatefulSet"}, "statefulset", "$1", "created_by_name", "(.+)")
+              and on (namespace, pod) (kube_pod_status_phase{phase="Running"} == 1)
+            )
+            / scalar(count(kube_node_spec_unschedulable == 0))
+          )
+          and on (namespace, statefulset)
+          count by (namespace, statefulset) (
+            label_replace(kube_pod_info{created_by_kind="StatefulSet"}, "statefulset", "$1", "created_by_name", "(.+)")
+            and on (namespace, pod) (kube_pod_status_phase{phase="Running"} == 1)
+          ) >= 4
+        for: 30m
+        keep_firing_for: 10m
+        annotations:
+          summary: "StatefulSet {{ $labels.namespace }}/{{ $labels.statefulset }} has {{ $value }} pods on one node"

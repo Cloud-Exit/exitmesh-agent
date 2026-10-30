@@ -28,10 +28,11 @@ The rule is evaluated against every resource whose kind is listed in `kinds`. A 
 |`field(r, path, default)`|`dyn`|The field at `path`: an exact key in `r.fields` first, then a dotted path through nested maps; `default` when absent or when the path crosses a non-map value.|
 |`out(r, edgeType)`|`list(map(string, dyn))`|Resources that `r` has an outgoing edge of `edgeType` to, ordered by UID.|
 |`in(r, edgeType)`|`list(map(string, dyn))`|Resources with an edge of `edgeType` to `r`, ordered by UID.|
+|`cronPrevious(schedule, timeZone, atMillis)`|`int`|Engine version 2. The latest time at or before `atMillis` (Unix milliseconds) that the five-field cron `schedule` fires, in Unix milliseconds. Accepts what CronJobs accept: names, ranges, steps, lists, `@hourly` style descriptors, `@every <duration>`, and a `CRON_TZ=` or `TZ=` prefix. `timeZone` is an IANA zone name, empty for UTC. An invalid schedule, or one that fires nowhere within five years, is an evaluation error. Rules that call it set `min_engine: 2`.|
 
 Edge types and field names come from the field catalog (`docs/field-catalog.md`); `scheduled_on` below is illustrative. Related resources have the same shape as `r`, plus `edge`, the edge attributes. Edges to resources absent from state are skipped. `in` is a CEL keyword, so calls spelled `in(r, t)` are rewritten to an internal function name before compilation; the membership operator (`x in list`) and string literals are left untouched.
 
-The standard CEL library is available with macros (`has`, `all`, `exists`, `exists_one`, `map`, `filter`), cross-type numeric comparisons (fields may be int, uint, or double), and the `strings` and `math` extensions. Timestamps and durations use `timestamp("...")`, `duration("...")`, and arithmetic with `now`.
+The standard CEL library is available with macros (`has`, `all`, `exists`, `exists_one`, `map`, `filter`), cross-type numeric comparisons (fields may be int, uint, or double), and the `strings` and `math` extensions. Timestamps and durations use `timestamp("...")`, `duration("...")`, and arithmetic with `now`. Timestamp fields of the catalog are Unix milliseconds; compare them with `int(now) * 1000`.
 
 ## Budgets
 

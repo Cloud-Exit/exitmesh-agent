@@ -110,6 +110,9 @@ data:
       maxSamplesPerSecond: {{ int $v.node.maxSamplesPerSecond }}
       kubeletTLS: {{ $v.node.kubeletTLS | quote }}
       kubeletPort: {{ int $v.node.kubeletPort }}
+      hostMetrics: {{ and $v.capabilities.metrics $v.node.hostMetrics }}
+      procPath: /proc
+      sysPath: /host/sys
     imageInventory:
       enabled: {{ $v.imageInventory.enabled }}
       contentStore: {{ $v.imageInventory.contentStore | quote }}

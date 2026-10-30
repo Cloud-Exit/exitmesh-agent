@@ -523,8 +523,8 @@ API: `batch/v1` `cronjobs`, namespaced.
 |`suspend`|spec.suspend|bool|structural|yes|
 |`concurrencyPolicy`|spec.concurrencyPolicy|string|structural|yes|
 |`active`|len(status.active)|int|structural|yes|
-|`lastScheduleTime`|status.lastScheduleTime|timestamp|structural|no|
-|`lastSuccessfulTime`|status.lastSuccessfulTime|timestamp|structural|no|
+|`lastScheduleTime`|status.lastScheduleTime|timestamp|structural|yes|
+|`lastSuccessfulTime`|status.lastSuccessfulTime|timestamp|structural|yes|
 |`containers.<container>.image`|spec.jobTemplate.spec.template.spec.containers[].image|string|structural|yes|
 |`containers.<container>.requests.<resource>`|spec.jobTemplate.spec.template.spec.containers[].resources.requests (cpu in cores, others in base units)|quantity|structural|yes|
 |`containers.<container>.limits.<resource>`|spec.jobTemplate.spec.template.spec.containers[].resources.limits (cpu in cores, others in base units)|quantity|structural|yes|
