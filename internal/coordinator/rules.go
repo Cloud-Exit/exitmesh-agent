@@ -218,6 +218,7 @@ func (c *Coordinator) housekeep() {
 		}
 	}
 	c.maybeAnchor()
+	c.prunePackageSets()
 	if st := c.stateView(); st != nil {
 		names := map[string]bool{}
 		for _, r := range st.Resources {

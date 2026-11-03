@@ -189,7 +189,14 @@ Package: libc6
 Status: install ok installed
 Multi-Arch: same
 Architecture: amd64
+Source: glibc
 Version: 2.36-9+deb12u4
+
+Package: libbrotli1
+Status: install ok installed
+Architecture: amd64
+Source: brotli (1.1.0-2)
+Version: 1.1.0-2+b2
 
 Package: oldthing
 Status: deinstall ok config-files

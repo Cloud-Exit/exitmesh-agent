@@ -24,10 +24,12 @@ var DefaultRPMPaths = []string{
 	"/var/lib/rpm/Packages", "/usr/lib/sysimage/rpm/Packages",
 }
 
-// Package is one installed package with the systemd unit files it owns.
+// Package is one installed package with its source package and the systemd unit files it owns.
 type Package struct {
 	Manager, Name, Version, Arch, State string
-	UnitFiles                           []string
+	// Source and SourceVersion name the source package distribution advisories are keyed by.
+	Source, SourceVersion string
+	UnitFiles             []string
 }
 
 func stampOf(paths ...string) (string, error) {
@@ -99,7 +101,8 @@ func ParseDpkgStatus(b []byte) []Package {
 			state = st[2]
 		}
 		if state != "" && state != "not-installed" && state != "config-files" {
-			out = append(out, Package{Manager: "dpkg", Name: cur["Package"], Version: cur["Version"], Arch: cur["Architecture"], State: state})
+			src, srcVer := dpkgSource(cur["Source"], cur["Package"], cur["Version"])
+			out = append(out, Package{Manager: "dpkg", Name: cur["Package"], Version: cur["Version"], Arch: cur["Architecture"], State: state, Source: src, SourceVersion: srcVer})
 		}
 		cur = nil
 	}
@@ -127,12 +130,58 @@ func ParseDpkgStatus(b []byte) []Package {
 	return out
 }
 
+// dpkgSource reads a Source field ("name" or "name (version)"); an absent one means the binary name and version.
+func dpkgSource(field, name, version string) (string, string) {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return name, version
+	}
+	src, rest, ok := strings.Cut(field, " ")
+	if !ok {
+		return src, version
+	}
+	rest = strings.TrimSpace(rest)
+	if strings.HasPrefix(rest, "(") && strings.HasSuffix(rest, ")") {
+		if v := strings.TrimSpace(rest[1 : len(rest)-1]); v != "" {
+			return src, v
+		}
+	}
+	return src, version
+}
+
+// rpmSource splits a SOURCERPM name (name-version-release.src.rpm) into the source name and its epoch-qualified version.
+func rpmSource(srpm, name, version string) (string, string) {
+	base, ok := strings.CutSuffix(srpm, ".rpm")
+	if ok {
+		if i := strings.LastIndexByte(base, '.'); i > 0 {
+			base = base[:i]
+		}
+	}
+	r := strings.LastIndexByte(base, '-')
+	if !ok || r <= 0 {
+		return name, version
+	}
+	v := strings.LastIndexByte(base[:r], '-')
+	if v <= 0 {
+		return name, version
+	}
+	ver := base[v+1:]
+	if e, _, has := strings.Cut(version, ":"); has {
+		ver = e + ":" + ver
+	}
+	return base[:v], ver
+}
+
 // ParseAPKInstalled parses the apk installed database.
 func ParseAPKInstalled(b []byte) []Package {
 	var out []Package
 	var cur *Package
 	flush := func() {
 		if cur != nil && cur.Name != "" {
+			if cur.Source == "" {
+				cur.Source = cur.Name
+			}
+			cur.SourceVersion = cur.Version
 			out = append(out, *cur)
 		}
 		cur = nil
@@ -158,6 +207,8 @@ func ParseAPKInstalled(b []byte) []Package {
 			cur.Version = line[2:]
 		case 'A':
 			cur.Arch = line[2:]
+		case 'o':
+			cur.Source = line[2:]
 		}
 	}
 	flush()
@@ -252,6 +303,7 @@ func ReadRPM(path string) ([]Package, error) {
 			v = strconv.Itoa(*p.Epoch) + ":" + v
 		}
 		pkg := Package{Manager: "rpm", Name: p.Name, Version: v, Arch: p.Arch, State: "installed"}
+		pkg.Source, pkg.SourceVersion = rpmSource(p.SourceRpm, p.Name, v)
 		files, err := p.InstalledFileNames()
 		if err != nil {
 			return nil, err
@@ -311,10 +363,8 @@ func (c *Collector) readAPK() ([]Package, error) {
 	return pkgs, nil
 }
 
-func (c *Collector) collectPackages(s *Snapshot, units *unitSet) {
-	withUnits := units.ok && len(units.byName) > 0
-	var all []Package
-	found := 0
+// readPackages reads every package database present, keeping the last good list of a database that fails.
+func (c *Collector) readPackages(withUnits bool) (all []Package, st Status, found int, listReason string) {
 	var t tally
 	lastGood := func(key string) {
 		if cp, ok := c.pkgs.dbs["last:"+key]; ok {
@@ -356,12 +406,17 @@ func (c *Collector) collectPackages(s *Snapshot, units *unitSet) {
 		t.bad(reasonFor(err))
 		lastGood("apk")
 	}
+	return all, t.status(), found, listReason
+}
+
+func (c *Collector) collectPackages(s *Snapshot, units *unitSet) {
+	withUnits := units.ok && len(units.byName) > 0
+	all, st, found, listReason := c.readPackages(withUnits)
 	if found == 0 {
 		s.unavailable(FactPackages, ReasonSourceAbsent)
 		s.unavailable(EdgeIDPackageUnit, ReasonDependency)
 		return
 	}
-	st := t.status()
 	s.set(FactPackages, st.State, st.Reason)
 	groups := map[string]int{}
 	for _, p := range all {
@@ -383,6 +438,12 @@ func (c *Collector) collectPackages(s *Snapshot, units *unitSet) {
 		fields := map[string]any{"manager": p.Manager, "name": clean(p.Name), "version": clean(p.Version), "state": p.State}
 		if p.Arch != "" {
 			fields["arch"] = clean(p.Arch)
+		}
+		if p.Source != "" {
+			fields["source"] = clean(p.Source)
+		}
+		if p.SourceVersion != "" {
+			fields["source_version"] = clean(p.SourceVersion)
 		}
 		s.add(u, KindPackage, p.Name, fields)
 		for _, f := range p.UnitFiles {

@@ -272,7 +272,7 @@ func TestRegisterAndSubmit(t *testing.T) {
 	})
 	items := testItems(t, "node-1")
 	acked, err := c.Submit(ctx, "q1", items)
-	if err != nil || acked != 5 {
+	if err != nil || acked != 6 {
 		t.Fatalf("acked = %d, err = %v", acked, err)
 	}
 	e.backend.locked(func() {

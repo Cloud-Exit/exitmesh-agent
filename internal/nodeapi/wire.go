@@ -4,6 +4,7 @@ package nodeapi
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"reflect"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
 
+	"github.com/cloud-exit/exitmesh-agent/internal/hostfacts"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/engine"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/metricfacts"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
@@ -43,6 +45,7 @@ const (
 	KindFinding     ItemKind = "finding"
 	KindMetricFacts ItemKind = "metric_facts"
 	KindSeries      ItemKind = "series"
+	KindPackages    ItemKind = "packages"
 )
 
 // TaskKind is the type of a coordinator task.
@@ -167,11 +170,62 @@ type Part struct {
 
 // Item is one node queue entry.
 type Item struct {
-	Seq     uint64             `cbor:"1,keyasint"`
-	Kind    ItemKind           `cbor:"2,keyasint"`
-	Finding []byte             `cbor:"3,keyasint,omitempty"`
-	Facts   []metricfacts.Fact `cbor:"4,keyasint,omitempty"`
-	Part    *Part              `cbor:"5,keyasint,omitempty"`
+	Seq       uint64             `cbor:"1,keyasint"`
+	Kind      ItemKind           `cbor:"2,keyasint"`
+	Finding   []byte             `cbor:"3,keyasint,omitempty"`
+	Facts     []metricfacts.Fact `cbor:"4,keyasint,omitempty"`
+	Part      *Part              `cbor:"5,keyasint,omitempty"`
+	Inventory *Inventory         `cbor:"6,keyasint,omitempty"`
+}
+
+// Inventory is the node's distribution release and installed packages, replacing the previous one.
+type Inventory struct {
+	State    uint64             `cbor:"1,keyasint,omitempty"`
+	Reason   string             `cbor:"2,keyasint,omitempty"`
+	OS       map[string]string  `cbor:"3,keyasint,omitempty"`
+	Packages []InventoryPackage `cbor:"4,keyasint,omitempty"`
+}
+
+// InventoryPackage is one installed package.
+type InventoryPackage struct {
+	Manager       string `cbor:"1,keyasint"`
+	Name          string `cbor:"2,keyasint"`
+	Version       string `cbor:"3,keyasint"`
+	Arch          string `cbor:"4,keyasint,omitempty"`
+	State         string `cbor:"5,keyasint,omitempty"`
+	Source        string `cbor:"6,keyasint,omitempty"`
+	SourceVersion string `cbor:"7,keyasint,omitempty"`
+}
+
+// InventoryFrom converts a collected inventory for the wire.
+func InventoryFrom(inv hostfacts.Inventory) Inventory {
+	out := Inventory{State: uint64(inv.State), Reason: inv.Reason}
+	if len(inv.OS) > 0 {
+		out.OS = maps.Clone(inv.OS)
+	}
+	for _, p := range inv.Packages {
+		out.Packages = append(out.Packages, InventoryPackage{Manager: p.Manager, Name: p.Name, Version: p.Version, Arch: p.Arch, State: p.State, Source: p.Source, SourceVersion: p.SourceVersion})
+	}
+	return out
+}
+
+// Facts converts the wire inventory back, in canonical package order.
+func (w Inventory) Facts() hostfacts.Inventory {
+	inv := hostfacts.Inventory{State: protocol.ScopeState(w.State), Reason: w.Reason, OS: maps.Clone(w.OS)}
+	if inv.OS == nil {
+		inv.OS = map[string]string{}
+	}
+	for _, p := range w.Packages {
+		inv.Packages = append(inv.Packages, hostfacts.Package{Manager: p.Manager, Name: p.Name, Version: p.Version, Arch: p.Arch, State: p.State, Source: p.Source, SourceVersion: p.SourceVersion})
+	}
+	return inv
+}
+
+func (w Inventory) validate() error {
+	if len(w.Reason) > MaxRuleReason || !w.Facts().Valid() {
+		return invalid("package inventory is malformed or exceeds its bounds")
+	}
+	return nil
 }
 
 // SubmitRequest is the body of POST /v1/node/records.
@@ -429,7 +483,7 @@ func (it Item) claims() ([]string, error) {
 	var nodes []string
 	switch it.Kind {
 	case KindFinding:
-		if len(it.Facts) != 0 || it.Part != nil {
+		if len(it.Facts) != 0 || it.Part != nil || it.Inventory != nil {
 			return nil, invalid("finding item %d carries other payloads", it.Seq)
 		}
 		f, err := protocol.DecodeFinding(it.Finding)
@@ -440,7 +494,7 @@ func (it Item) claims() ([]string, error) {
 			nodes = append(nodes, f.Node)
 		}
 	case KindMetricFacts:
-		if len(it.Finding) != 0 || it.Part != nil || len(it.Facts) == 0 {
+		if len(it.Finding) != 0 || it.Part != nil || it.Inventory != nil || len(it.Facts) == 0 {
 			return nil, invalid("metric facts item %d is malformed", it.Seq)
 		}
 		for _, f := range it.Facts {
@@ -455,7 +509,7 @@ func (it Item) claims() ([]string, error) {
 			}
 		}
 	case KindSeries:
-		if len(it.Finding) != 0 || len(it.Facts) != 0 || it.Part == nil {
+		if len(it.Finding) != 0 || len(it.Facts) != 0 || it.Inventory != nil || it.Part == nil {
 			return nil, invalid("series item %d is malformed", it.Seq)
 		}
 		if err := it.Part.validate(); err != nil {
@@ -465,6 +519,13 @@ func (it Item) claims() ([]string, error) {
 			if n, ok := s.Labels[engine.LabelNode]; ok {
 				nodes = append(nodes, n)
 			}
+		}
+	case KindPackages:
+		if len(it.Finding) != 0 || len(it.Facts) != 0 || it.Part != nil || it.Inventory == nil {
+			return nil, invalid("packages item %d is malformed", it.Seq)
+		}
+		if err := it.Inventory.validate(); err != nil {
+			return nil, err
 		}
 	default:
 		return nil, invalid("item %d kind %q", it.Seq, it.Kind)
