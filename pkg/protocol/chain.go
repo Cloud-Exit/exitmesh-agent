@@ -79,18 +79,27 @@ func NewReplayer(targetID string, epoch EpochID, writer WriterID) *Replayer {
 
 // NewReplayerAt starts from a retained anchor checkpoint whose predecessor chain hash is prev.
 func NewReplayerAt(anchor *Record, prev Hash) (*Replayer, error) {
+	return newReplayerAt(anchor, prev, map[uint64]Hash{})
+}
+
+// NewHeadReplayerAt is NewReplayerAt without per-record state hashes, which cost a full-state hash each.
+func NewHeadReplayerAt(anchor *Record, prev Hash) (*Replayer, error) {
+	return newReplayerAt(anchor, prev, nil)
+}
+
+func newReplayerAt(anchor *Record, prev Hash, states map[uint64]Hash) (*Replayer, error) {
 	if anchor.Type != TypeCheckpoint {
 		return nil, fmt.Errorf("%w: replay must start at a checkpoint", ErrInvalidChain)
 	}
 	c := &Chain{TargetID: anchor.TargetID, Epoch: anchor.Epoch, Writer: anchor.Writer, Head: anchor.Parent, HeadHash: prev, LastCheckpoint: anchor.Parent}
-	p := &Replayer{chain: c, state: NewState(), states: map[uint64]Hash{}}
+	p := &Replayer{chain: c, state: NewState(), states: states}
 	p.state = StateFromCheckpoint(anchor.Checkpoint)
 	h, err := c.Append(anchor)
 	if err != nil {
 		return nil, err
 	}
 	_ = h
-	p.states[anchor.Seq] = p.state.Hash()
+	p.recordStateHash(anchor.Seq)
 	return p, nil
 }
 
@@ -125,14 +134,23 @@ func (p *Replayer) Apply(r *Record) (Hash, error) {
 	if err != nil {
 		return h, err
 	}
-	p.states[r.Seq] = p.state.Hash()
+	p.recordStateHash(r.Seq)
 	return h, nil
+}
+
+func (p *Replayer) recordStateHash(seq uint64) {
+	if p.states != nil {
+		p.states[seq] = p.state.Hash()
+	}
 }
 
 // StateHashAt returns the state hash at a replayed sequence, or ErrUnavailable for range interiors.
 func (p *Replayer) StateHashAt(seq uint64) (Hash, error) {
 	if IsUnavailable(p.Unavailable, seq) {
 		return Hash{}, fmt.Errorf("%w: sequence %d is inside a coalesced range", ErrUnavailable, seq)
+	}
+	if p.states == nil {
+		return Hash{}, fmt.Errorf("sequence %d: a head replayer keeps no state hashes", seq)
 	}
 	h, ok := p.states[seq]
 	if !ok {
