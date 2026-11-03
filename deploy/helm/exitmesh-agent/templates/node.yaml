@@ -134,6 +134,16 @@ spec:
               mountPath: /host/sys
               readOnly: true
             {{- end }}
+            {{- if (include "exitmesh.packagesEnabled" .) }}
+            {{- range (include "exitmesh.packageDatabasePaths" . | fromJsonArray) }}
+            - name: {{ .name }}
+              mountPath: /host{{ .path }}
+              readOnly: true
+            {{- end }}
+            - name: os-release
+              mountPath: /host/usr/lib/os-release
+              readOnly: true
+            {{- end }}
             - name: config
               mountPath: /etc/exitmesh/config
               readOnly: true
@@ -165,6 +175,18 @@ spec:
         - name: content-store
           hostPath:
             path: {{ $v.imageInventory.contentStore }}
+        {{- end }}
+        {{- if (include "exitmesh.packagesEnabled" .) }}
+        {{- range (include "exitmesh.packageDatabasePaths" . | fromJsonArray) }}
+        - name: {{ .name }}
+          hostPath:
+            path: {{ .path }}
+            type: Directory
+        {{- end }}
+        - name: os-release
+          hostPath:
+            path: {{ $v.packages.osRelease }}
+            type: File
         {{- end }}
         - name: config
           configMap:

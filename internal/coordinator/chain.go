@@ -327,7 +327,7 @@ func (c *Coordinator) setHead(st *protocol.State) {
 	c.kube.dirty()
 }
 
-// carryOver keeps what a fresh relist cannot see: metric facts and resources of scopes that are not complete.
+// carryOver keeps what a fresh relist cannot see: metric facts, node package sets, and resources of scopes that are not complete.
 func carryOver(rec, observed *protocol.State) *protocol.State {
 	out := observed.Clone()
 	incomplete := func(kind, ns string) bool {
@@ -364,6 +364,7 @@ func carryOver(rec, observed *protocol.State) *protocol.State {
 			}
 		}
 	}
+	carryPackageSets(rec, out)
 	return out
 }
 

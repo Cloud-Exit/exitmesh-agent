@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -364,9 +365,13 @@ func TestHostPaths(t *testing.T) {
 					if h.Type == nil || *h.Type != corev1.HostPathDirectoryOrCreate {
 						t.Errorf("%s: /var/lib/exitmesh must be DirectoryOrCreate", vs.name)
 					}
-				case "/var/log/pods", defaultContentStore, "/sys":
+				case "/var/log/pods", defaultContentStore, "/sys", "/var/lib/dpkg", "/var/lib/rpm", "/lib/apk/db", "/usr/lib/os-release":
 					if ds.Name != nodeDS {
 						t.Errorf("%s: %s mounts %s", vs.name, ds.Name, h.Path)
+					}
+					if want, ok := map[string]corev1.HostPathType{"/var/lib/dpkg": corev1.HostPathDirectory, "/var/lib/rpm": corev1.HostPathDirectory,
+						"/lib/apk/db": corev1.HostPathDirectory, "/usr/lib/os-release": corev1.HostPathFile}[h.Path]; ok && (h.Type == nil || *h.Type != want) {
+						t.Errorf("%s: %s must be %s so a missing path is never created on the node", vs.name, h.Path, want)
 					}
 					for _, c := range append(spec.InitContainers, spec.Containers...) {
 						for _, vm := range c.VolumeMounts {
@@ -394,14 +399,28 @@ func TestHostPaths(t *testing.T) {
 			t.Fatal("/var/log/pods mounted without the logs capability")
 		}
 	}
-	on := daemonSet(t, render(t, baseArgs...), nodeDS)
-	paths := []string{}
-	for _, h := range hostPaths(on.Spec.Template.Spec) {
-		paths = append(paths, h.Path)
+	nodePaths := func(args ...string) []string {
+		ds := daemonSet(t, render(t, append(args, baseArgs...)...), nodeDS)
+		paths := []string{}
+		for _, h := range hostPaths(ds.Spec.Template.Spec) {
+			paths = append(paths, h.Path)
+		}
+		slices.Sort(paths)
+		return paths
 	}
-	slices.Sort(paths)
-	if !reflect.DeepEqual(paths, []string{"/sys", defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}) {
-		t.Fatalf("node agent hostPaths = %v", paths)
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{nil, []string{"/sys", "/usr/lib/os-release", defaultContentStore, "/var/lib/dpkg", "/var/lib/exitmesh", "/var/log/pods"}},
+		{[]string{"--set", "capabilities.packages=false"}, []string{"/sys", defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}},
+		{[]string{"--set", "capabilities.inventory=false"}, []string{"/sys", defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}},
+		{[]string{"--set-json", `packages.databases=["rpm","apk"]`, "--set", "packages.osRelease=/etc/os-release"}, []string{"/etc/os-release", "/lib/apk/db", "/sys", defaultContentStore, "/var/lib/exitmesh", "/var/lib/rpm", "/var/log/pods"}},
+	} {
+		slices.Sort(c.want)
+		if got := nodePaths(c.args...); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%v: node agent hostPaths = %v, want %v", c.args, got, c.want)
+		}
 	}
 	for _, args := range [][]string{{"--set", "node.hostMetrics=false"}, {"--set", "capabilities.metrics=false"}} {
 		m := render(t, append(args, baseArgs...)...)
@@ -475,6 +494,24 @@ func TestImageInventoryContentStoreMount(t *testing.T) {
 		t.Fatal("image inventory still enabled in the agent config")
 	}
 	schemaFails(t, "contentStore", append([]string{"--set", "imageInventory.contentStore=relative/path"}, baseArgs...)...)
+}
+
+func TestPackagesCapabilityConfig(t *testing.T) {
+	coord, node := agentConfigs(t, render(t, append([]string{"--set", "packages.interval=15m"}, baseArgs...)...))
+	for _, cfg := range []*config.Config{coord, node} {
+		if !slices.Contains(cfg.Capabilities, config.CapPackages) {
+			t.Errorf("%s: capabilities %v lack packages", cfg.Role, cfg.Capabilities)
+		}
+	}
+	if node.Node.HostRoot != "/host" || node.Node.PackagesInterval.D() != 15*time.Minute {
+		t.Errorf("node config hostRoot %q packagesInterval %v", node.Node.HostRoot, node.Node.PackagesInterval.D())
+	}
+	_, off := agentConfigs(t, render(t, append([]string{"--set", "capabilities.inventory=false"}, baseArgs...)...))
+	if slices.Contains(off.Capabilities, config.CapPackages) {
+		t.Errorf("packages enabled without inventory: %v", off.Capabilities)
+	}
+	renderFails(t, "packages", append([]string{"--set-json", `packages.databases=["zypper"]`}, baseArgs...)...)
+	renderFails(t, "packages", append([]string{"--set-json", `packages.databases=[]`}, baseArgs...)...)
 }
 
 var restrictedVolumeTypes = func(v corev1.Volume) bool {

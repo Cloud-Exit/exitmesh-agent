@@ -73,6 +73,8 @@ Coordinator spool on the PVC (hosts use `host.spoolReserve`).
 |`node.hostMetrics`|`true`|Gather `node_cpu_seconds_total` per mode summed over every CPU (no `cpu` label), `node_memory_MemTotal_bytes`, and `node_memory_MemAvailable_bytes` from `node.procPath`; `node_filesystem_size_bytes` and `node_filesystem_avail_bytes` of the filesystems behind `/var/lib/exitmesh` and the image inventory content store (label `mountpoint`); and `node_network_receive_bytes_total`, `node_network_transmit_bytes_total`, and `node_network_speed_bytes` of the physical network devices (at most 64) from `node.sysPath`, every scrape interval, labelled with `node` (metrics capability).|
 |`node.procPath`|`/proc`|Holds `meminfo` and `stat`. A container's own `/proc/meminfo` and `/proc/stat` report the node's memory and CPU.|
 |`node.sysPath`|`/host/sys`|The node's sysfs. A pod's own `/sys` lists only the pod's interfaces, so the chart mounts the node's `/sys` read-only here; without it node network series are skipped and a warning is logged.|
+|`node.hostRoot`|`/host`|Where the node's package databases and os-release are mounted read-only (packages capability).|
+|`node.packagesInterval`|`10m`|How often the package databases are checked; at least `1m`. Unchanged databases are not re-parsed.|
 
 ## host
 
@@ -199,7 +201,11 @@ Image inventory replies also obey `investigation.maxLines` as a package count an
 |`namespaces.node`, `namespaces.coordinator`|`exitmesh-node`, `exitmesh`|Namespace names; must differ.|
 |`namespaces.skipLookupValidation`|`false`|Acknowledge pre-created namespaces when rendering without cluster access.|
 |`namespaces.extraLabels`|empty|Extra labels on created namespaces.|
-|`capabilities.inventory`, `.metrics`, `.logs`|`true`|Capabilities; at least one must be enabled.|
+|`capabilities.inventory`, `.metrics`, `.logs`|`true`|Capabilities; at least one of these must be enabled.|
+|`capabilities.packages`|`true`|Node package inventory for vulnerability matching in ExitMesh (see `docs/host-facts.md`). Effective only with `capabilities.inventory`, which provides the Node resources inventories attach to.|
+|`packages.databases`|`[dpkg]`|Package databases mounted read-only from every node: `dpkg` (`/var/lib/dpkg`), `rpm` (`/var/lib/rpm`), `apk` (`/lib/apk/db`). The mounts use hostPath type `Directory`, so a missing path is never created on the node; every listed database must exist on every node the DaemonSet runs on, or the node agent pod stays in `ContainerCreating`.|
+|`packages.osRelease`|`/usr/lib/os-release`|os-release file mounted read-only (hostPath type `File`); a symlink is resolved on the node.|
+|`packages.interval`|`10m`|Rendered to `node.packagesInterval`.|
 |`kubernetes.*`|see above|Rendered to the `kubernetes` section of both roles. `kubernetes.clusterDomain` (`cluster.local`) is used for certificate names only.|
 |`rbac.create`|`true`|Render RBAC.|
 |`rbac.clusterReads`|`true`|Cluster-scoped gets (`nodes`, `persistentvolumes`, `nodes/metrics`).|

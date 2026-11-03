@@ -42,6 +42,8 @@ type NodeStatus struct {
 	PartVersions map[string]string `json:"part_versions,omitempty"`
 	// FactsDropped counts pod metric facts not applied because the observed pod no longer exists on the node.
 	FactsDropped uint64 `json:"facts_dropped,omitempty"`
+	// InventoriesDropped counts package inventories not applied because the node was not in the cluster state.
+	InventoriesDropped uint64 `json:"inventories_dropped,omitempty"`
 	// Rules are the node's latest rule states other than plain active ones, most severe first, at most maxNodeRuleDetail.
 	Rules []NodeRule `json:"rules,omitempty"`
 	// RuleStates counts the node's rules per state.
@@ -317,8 +319,13 @@ func (b nodeBackend) Submit(_ context.Context, node, queue string, items []nodea
 	key := cursorKey(node, queue)
 	cur := c.sp.Cursor(key)
 	stale := c.staleCursors(node, queue)
-	var acked uint64
+	var acked, lastInventory uint64
 	var parts []nodeapi.Item
+	for _, it := range items {
+		if it.Kind == nodeapi.KindPackages {
+			lastInventory = it.Seq
+		}
+	}
 	err := c.do(func(t *txn) error {
 		for _, k := range stale {
 			t.tx.DeleteCursor(k)
@@ -360,6 +367,22 @@ func (b nodeBackend) Submit(_ context.Context, node, queue string, items []nodea
 				}
 			case nodeapi.KindSeries:
 				parts = append(parts, it)
+			case nodeapi.KindPackages:
+				// Each inventory replaces the previous one and the head only moves at commit, so only the batch's last applies.
+				if it.Seq != lastInventory {
+					continue
+				}
+				ops, ok := packageOps(c.headState(), node, it.Inventory)
+				if !ok {
+					t.after = append(t.after, func() { c.nodes.touch(node, func(n *NodeStatus) { n.InventoriesDropped++ }) })
+					continue
+				}
+				if len(ops) > 0 {
+					if err := t.delta(ops, 0, nil, spool.WithCursor(key, it.Seq)); err != nil {
+						return err
+					}
+					cur = it.Seq
+				}
 			}
 		}
 		return nil

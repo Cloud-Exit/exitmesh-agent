@@ -113,6 +113,10 @@ data:
       hostMetrics: {{ and $v.capabilities.metrics $v.node.hostMetrics }}
       procPath: /proc
       sysPath: /host/sys
+      {{- if (include "exitmesh.packagesEnabled" .) }}
+      hostRoot: /host
+      packagesInterval: {{ $v.packages.interval | quote }}
+      {{- end }}
     imageInventory:
       enabled: {{ $v.imageInventory.enabled }}
       contentStore: {{ $v.imageInventory.contentStore | quote }}

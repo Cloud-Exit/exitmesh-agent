@@ -158,7 +158,7 @@ HTTPS on the coordinator ClusterIP Service, port 8443, TLS from the chart, beare
 |Method and path|Purpose|
 |---|---|
 |`POST /v1/node/register`|Node name, agent version, bundle version, capabilities, coverage, rule states, process identity.|
-|`POST /v1/node/records`|CBOR batch of node queue items (findings, metric facts, pre-aggregated series) with node sequences and the queue identity; acknowledged after fsync to the coordinator spool.|
+|`POST /v1/node/records`|CBOR batch of node queue items (findings, metric facts, pre-aggregated series, package inventories) with node sequences and the queue identity; acknowledged after fsync to the coordinator spool.|
 |`GET /v1/node/bundle?have=`|Long-poll for the target bundle.|
 |`GET /v1/node/kube?since=`|Long-poll for `kube_node_*` and non-pod `kube_*` series for this node.|
 |`GET /v1/node/tasks`|Long-poll for investigation and aggregation tasks.|
@@ -175,6 +175,8 @@ Submissions carry the node queue identity (`SubmitRequest.Queue`, CBOR key 3). T
 Node agents retry every submission failure with backoff, rereading the token file on each attempt, and keep the queue intact: authentication (401), authorization (403), and transport failures never drop items. Only a request refused as malformed (400, or 413 for an oversized batch) is resent item by item, and only an item refused on its own is dropped and counted as rejected.
 
 Pod metric facts carry the pod UID the node observed in its pod watch when it computed them (`Fact.UID`). The coordinator applies a fact only to the pod with that UID on the submitting node and drops facts whose pod no longer exists, counting them in `facts_dropped` of the node's health entry, so facts delayed across a pod recreation never reach the replacement. Facts from agents without UIDs resolve by namespace and name and apply only while exactly one live pod of the node has that name; during a rolling upgrade such a fact queued for a pod that was recreated can still reach its replacement, which is the previous behavior.
+
+A package inventory item (`Item.Inventory`, CBOR key 6) replaces the node's previous inventory. The coordinator applies only the last inventory of a submission, because its chain head moves at commit, and turns it into `host/PackageSet` resources shared by nodes with identical content and `installed_on` edges to the node (`docs/host-facts.md`). An inventory for a node absent from the chain head is acknowledged and counted in `inventories_dropped` of the node's health entry; node agents resend an unchanged inventory every 6 hours. Housekeeping removes edges to nodes that left the cluster state and deletes package sets no node links to, and relists carry package sets over like metric facts.
 
 Registrations carry the node's rule states (`RegisterRequest.Rules`, CBOR key 8, at most 1024, reasons redacted and at most 512 bytes): rule ID, version, state, reason, last evaluation, and budget-limited and evidence-limited flags. The coordinator keeps the latest per node; coordinator health lists, per node, the rules that are not plainly active (at most 64, most severe first) with counts per state, and `node_rules` rolls the states of covered nodes up per rule version (at most 2048 entries).
 

@@ -47,6 +47,17 @@ capabilities:
   inventory: true
   metrics: true
   logs: true
+  # Node package inventory (os-release and installed packages) for vulnerability matching in ExitMesh. Needs inventory.
+  packages: true
+
+packages:
+  # Package databases mounted read-only from every node: dpkg (/var/lib/dpkg), rpm (/var/lib/rpm), apk (/lib/apk/db).
+  # Each listed database must exist on every node the DaemonSet runs on, or the node agent pod cannot start.
+  databases: [dpkg]
+  # os-release file mounted read-only; a symlink is resolved on the node.
+  osRelease: /usr/lib/os-release
+  # How often node agents re-read the package databases (unchanged databases are not re-parsed).
+  interval: 10m
 
 kubernetes:
   # cluster, or namespaces for the namespace-scoped profile (Roles and RoleBindings per namespace).

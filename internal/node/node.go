@@ -24,6 +24,7 @@ import (
 
 	"github.com/cloud-exit/exitmesh-agent/internal/config"
 	"github.com/cloud-exit/exitmesh-agent/internal/findings"
+	"github.com/cloud-exit/exitmesh-agent/internal/hostfacts"
 	"github.com/cloud-exit/exitmesh-agent/internal/imagesbom"
 	"github.com/cloud-exit/exitmesh-agent/internal/kv"
 	"github.com/cloud-exit/exitmesh-agent/internal/nodeapi"
@@ -59,6 +60,10 @@ type Timing struct {
 	TSDBWALBytes  int           // TSDB WAL segment size (default tsdb.DefaultWALSegmentBytes)
 	LogPoll       time.Duration // default logs.DefaultPollInterval
 	LogCheckpoint time.Duration // default logs.DefaultCheckpointInterval
+	// Packages is the package inventory interval (default cfg.Node.PackagesInterval).
+	Packages time.Duration
+	// PackagesRefresh resends an unchanged inventory so a coordinator that dropped it converges (default 6h).
+	PackagesRefresh time.Duration
 }
 
 // Deps injects the external dependencies of an Agent.
@@ -159,6 +164,7 @@ type Agent struct {
 	deliv   delivery
 	kube    kubeState
 	facts   factState
+	inv     inventoryState
 	cov     coverageState
 	logsSet logState
 	events  []engine.AlertEvent
@@ -214,6 +220,9 @@ func New(cfg *config.Config, d Deps) (*Agent, error) {
 	}
 	if len(roots.Keys) == 0 {
 		return nil, bundle.ErrNoRoots
+	}
+	if d.Timing.Packages <= 0 {
+		d.Timing.Packages = cfg.Node.PackagesInterval.D()
 	}
 	a := &Agent{cfg: cfg, deps: d, t: withDefaults(d.Timing), log: log, clock: d.Clock, node: cfg.Node.Name, red: red, roots: roots, caps: map[string]bool{},
 		scope: newNSScope(cfg.Kubernetes)}
@@ -274,6 +283,8 @@ func withDefaults(t Timing) Timing {
 	def(&t.TSDBBlock, tsdb.DefaultBlockDuration)
 	def(&t.LogPoll, logs.DefaultPollInterval)
 	def(&t.LogCheckpoint, logs.DefaultCheckpointInterval)
+	def(&t.Packages, 10*time.Minute)
+	def(&t.PackagesRefresh, 6*time.Hour)
 	if t.TSDBWALBytes <= 0 {
 		t.TSDBWALBytes = tsdb.DefaultWALSegmentBytes
 	}
@@ -349,6 +360,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.images != nil {
 		goLoop(&wg, a.images.Run)
 	}
+	if a.packagesEnabled() {
+		goLoop(&wg, a.packagesLoop)
+	}
 	if a.db != nil {
 		goLoop(&wg, a.factsLoop)
 		goLoop(&wg, a.diskLoop)
@@ -389,7 +403,7 @@ func (a *Agent) open() error {
 		return fmt.Errorf("node: meta store: %w", err)
 	}
 	a.stores = map[string]kv.Store{}
-	for _, b := range []string{bucketAlerts, bucketOffsets, bucketBundle, bucketTrust, bucketFindings, bucketFacts} {
+	for _, b := range []string{bucketAlerts, bucketOffsets, bucketBundle, bucketTrust, bucketFindings, bucketFacts, bucketInventory} {
 		s, err := kv.NewBolt(a.meta, b)
 		if err != nil {
 			return fmt.Errorf("node: meta bucket %s: %w", b, err)
@@ -462,6 +476,11 @@ func (a *Agent) open() error {
 	}
 	if err := a.facts.load(a.stores[bucketFacts]); err != nil {
 		return err
+	}
+	if a.packagesEnabled() {
+		if err := a.inv.load(a.stores[bucketInventory], hostfacts.NewCollector(hostCollectorOptions(a.cfg.Node.HostRoot))); err != nil {
+			return err
+		}
 	}
 	a.exec = a.deps.Executor
 	if a.exec == nil {

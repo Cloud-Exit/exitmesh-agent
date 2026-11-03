@@ -23,6 +23,8 @@ const (
 	KindTimer       = "host/Timer"
 	KindPackage     = "host/Package"
 	KindProcess     = "host/Process"
+	// KindPackageSet is a Kubernetes node package inventory, shared by every node with identical content.
+	KindPackageSet = "host/PackageSet"
 )
 
 // Edge types.
@@ -35,6 +37,8 @@ const (
 	EdgeProcess      = "process"
 	EdgeUnit         = "unit"
 	EdgeTriggers     = "triggers"
+	// EdgeInstalledOn links a host/PackageSet to each Kubernetes Node that reported it.
+	EdgeInstalledOn = "installed_on"
 )
 
 // Reason codes carried in scope statuses and socket fields.
@@ -48,6 +52,7 @@ const (
 	ReasonDependency      = "dependency_unavailable"
 	ReasonProcessVanished = "process_vanished"
 	ReasonCapacityDenied  = "capacity_permission_denied"
+	ReasonLimitExceeded   = "limit_exceeded"
 )
 
 // Status is the availability of one cataloged fact or edge in one collection.

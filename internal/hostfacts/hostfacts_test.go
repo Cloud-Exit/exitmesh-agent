@@ -216,6 +216,15 @@ func TestCollectDebianFixture(t *testing.T) {
 	if _, ok := s.Resources[uid(KindPackage, "dpkg", "oldthing", "all")]; ok {
 		t.Fatal("config-files package collected")
 	}
+	if f, ok := s.Resources[uid(KindPackage, "dpkg", "libc6", "amd64")]; !ok || f.Fields["source"] != "glibc" || f.Fields["source_version"] != "2.36-9+deb12u4" {
+		t.Fatalf("libc6 source fields %v", f)
+	}
+	if f, ok := s.Resources[uid(KindPackage, "dpkg", "libbrotli1", "amd64")]; !ok || f.Fields["source"] != "brotli" || f.Fields["source_version"] != "1.1.0-2" || f.Fields["version"] != "1.1.0-2+b2" {
+		t.Fatalf("libbrotli1 source fields %v", f)
+	}
+	if f := s.Resources[nginxPkg].Fields; f["source"] != "nginx" || f["source_version"] != "1.22.1-9" {
+		t.Fatalf("nginx source defaults %v", f)
+	}
 	if _, ok := s.Resources[uid(KindPackage, "dpkg", "libc6", "amd64")]; !ok {
 		t.Fatal("multi-arch package missing")
 	}

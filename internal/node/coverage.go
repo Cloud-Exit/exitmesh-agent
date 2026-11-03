@@ -137,10 +137,13 @@ func (a *Agent) coverageReport() map[string]string {
 	if a.fresh && warm {
 		warmValue += ": " + reasonReimaged
 	}
-	for _, c := range []string{capMetrics, capLogs} {
+	for _, c := range []string{capMetrics, capLogs, config.CapPackages} {
 		if !a.caps[c] {
 			out[c] = "unavailable: capability disabled"
 		}
+	}
+	if a.packagesEnabled() {
+		out[config.CapPackages] = a.inv.coverage()
 	}
 	if a.caps[capMetrics] {
 		limited := a.metricsLimited()

@@ -75,8 +75,8 @@ var Catalog = []Entry{
 		Source: "D-Bus `org.freedesktop.systemd1.Manager.ListUnits`; `Unit` properties `FragmentPath`, `UnitFileState`; `Service` property `MainPID`", Permission: "system bus connection; read-only property queries are allowed to unprivileged clients by the systemd bus policy", NonRoot: "available where systemd runs"},
 	{ID: FactTimers, Kind: KindTimer, Whole: true, Fields: []string{"description", "load_state", "active_state", "sub_state", "unit_file_state", "fragment_path", "scheduled", "last_trigger_day"},
 		Source: "D-Bus `Timer` properties `Unit`, `NextElapseUSecRealtime` (reported only as `scheduled`), `LastTriggerUSec` (bucketed to the UTC day)", Permission: "system bus connection", NonRoot: "available where systemd runs"},
-	{ID: FactPackages, Kind: KindPackage, Whole: true, Fields: []string{"manager", "name", "version", "arch", "state"},
-		Source: "dpkg `/var/lib/dpkg/status`; rpm database (`rpmdb.sqlite`, `Packages.db`, or Berkeley DB `Packages`) via go-rpmdb; apk `/lib/apk/db/installed`", Permission: "world-readable package databases", NonRoot: "available"},
+	{ID: FactPackages, Kind: KindPackage, Whole: true, Fields: []string{"manager", "name", "version", "arch", "state", "source", "source_version"},
+		Source: "dpkg `/var/lib/dpkg/status` (`source` from the `Source` field, else the package itself); rpm database (`rpmdb.sqlite`, `Packages.db`, or Berkeley DB `Packages`) via go-rpmdb (`source` from `SOURCERPM`); apk `/lib/apk/db/installed` (`source` from the origin `o:`)", Permission: "world-readable package databases", NonRoot: "available"},
 	{ID: FactProcesses, Kind: KindProcess, Whole: true, Fields: []string{"pid", "comm", "uid", "cmdline"},
 		Source: "`/proc/<pid>/stat`, `/proc/<pid>/status`; `cmdline` only for allowlisted comm names, redacted. Only unit main processes and socket owners are collected", Permission: "world-readable procfs files (hidden when procfs is mounted with `hidepid`)", NonRoot: "available unless `hidepid` is set"},
 
@@ -109,6 +109,7 @@ var Reasons = [][2]string{
 	{ReasonDependency, "The edge depends on a fact that is unavailable in this collection."},
 	{ReasonProcessVanished, "The process exited between listing and reading."},
 	{ReasonCapacityDenied, "`statfs(2)` on the mount point was denied; the filesystem is reported without capacity."},
+	{ReasonLimitExceeded, "A Kubernetes node's package inventory holds more than 16384 packages; the first 16384 in canonical order are reported."},
 }
 
 func entry(id string) Entry {

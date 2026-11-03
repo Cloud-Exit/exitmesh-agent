@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
 
+	"github.com/cloud-exit/exitmesh-agent/internal/hostfacts"
 	"github.com/cloud-exit/exitmesh-agent/internal/rules/engine"
 	"github.com/cloud-exit/exitmesh-agent/internal/telemetry/metricfacts"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
@@ -55,7 +57,15 @@ func testItems(t *testing.T, node string) []Item {
 			{Node: node, Fields: map[string]any{metricfacts.NodeMemPressure: true}},
 		}},
 		{Seq: 5, Kind: KindSeries, Part: testPart(node)},
+		{Seq: 6, Kind: KindPackages, Inventory: testInventory()},
 	}
+}
+
+func testInventory() *Inventory {
+	return &Inventory{State: uint64(protocol.ScopePartial), Reason: "read_failed", OS: map[string]string{"id": "ubuntu", "version_id": "24.04"}, Packages: []InventoryPackage{
+		{Manager: "dpkg", Name: "libbrotli1", Version: "1.1.0-2build2", Arch: "amd64", State: "installed", Source: "brotli", SourceVersion: "1.1.0-2build2"},
+		{Manager: "apk", Name: "musl", Version: "1.2.5-r0"},
+	}}
 }
 
 func roundTrip[T any](t *testing.T, in T) T {
@@ -100,6 +110,8 @@ func TestCBORRoundTrip(t *testing.T) {
 	check(t, TaskResult{ID: "t-1", Payload: []byte("result")})
 	check(t, TaskResult{ID: "t-2", Error: "deadline exceeded"})
 	check(t, *testPart("node-1"))
+	check(t, *testInventory())
+	check(t, Inventory{})
 
 	items := roundTrip(t, SubmitRequest{Node: "node-1", Items: testItems(t, "node-1")}).Items
 	f, err := protocol.DecodeFinding(items[0].Finding)
@@ -108,6 +120,24 @@ func TestCBORRoundTrip(t *testing.T) {
 	}
 	if b, _ := protocol.EncodeFinding(f); !bytes.Equal(b, encodedFinding(t, "node-1")) || f.Node != "node-1" || f.Summary != "crash looping" {
 		t.Fatalf("finding did not survive the round trip: %+v", f)
+	}
+}
+
+func TestInventoryConversion(t *testing.T) {
+	w := testInventory()
+	inv := w.Facts()
+	if inv.State != protocol.ScopePartial || inv.Reason != "read_failed" || inv.OS["id"] != "ubuntu" || len(inv.Packages) != 2 || inv.Packages[0].Source != "brotli" {
+		t.Fatalf("facts %+v", inv)
+	}
+	if back := InventoryFrom(inv); !reflect.DeepEqual(&back, w) {
+		t.Fatalf("round trip %+v", back)
+	}
+	if (Inventory{}).Facts().OS == nil {
+		t.Fatal("nil os map")
+	}
+	nodes, err := Item{Seq: 1, Kind: KindPackages, Inventory: w}.claims()
+	if err != nil || len(nodes) != 0 {
+		t.Fatalf("packages claims %v %v", nodes, err)
 	}
 }
 
@@ -171,6 +201,16 @@ func TestMarshalValidates(t *testing.T) {
 		"fact NaN":                Item{Seq: 1, Kind: KindMetricFacts, Facts: []metricfacts.Fact{{Node: node, Fields: map[string]any{"x": math.NaN()}}}},
 		"series without part":     Item{Seq: 1, Kind: KindSeries},
 		"series with finding":     Item{Seq: 1, Kind: KindSeries, Part: testPart(node), Finding: []byte{1}},
+		"series with inventory":   Item{Seq: 1, Kind: KindSeries, Part: testPart(node), Inventory: testInventory()},
+		"facts with inventory":    Item{Seq: 1, Kind: KindMetricFacts, Facts: []metricfacts.Fact{fact}, Inventory: testInventory()},
+		"finding with inventory":  Item{Seq: 1, Kind: KindFinding, Finding: encodedFinding(t, node), Inventory: testInventory()},
+		"packages without body":   Item{Seq: 1, Kind: KindPackages},
+		"packages with facts":     Item{Seq: 1, Kind: KindPackages, Inventory: testInventory(), Facts: []metricfacts.Fact{fact}},
+		"packages bad state":      Item{Seq: 1, Kind: KindPackages, Inventory: &Inventory{State: 3}},
+		"packages long reason":    Item{Seq: 1, Kind: KindPackages, Inventory: &Inventory{Reason: strings.Repeat("r", MaxRuleReason+1)}},
+		"package without name":    Item{Seq: 1, Kind: KindPackages, Inventory: &Inventory{Packages: []InventoryPackage{{Manager: "dpkg", Version: "1"}}}},
+		"package long version":    Item{Seq: 1, Kind: KindPackages, Inventory: &Inventory{Packages: []InventoryPackage{{Manager: "dpkg", Name: "a", Version: strings.Repeat("1", 257)}}}},
+		"packages over count":     Item{Seq: 1, Kind: KindPackages, Inventory: &Inventory{Packages: slices.Repeat([]InventoryPackage{{Manager: "dpkg", Name: "a", Version: "1"}}, hostfacts.MaxInventoryPackages+1)}},
 		"part without rule":       Part{},
 		"part infinite":           Part{RuleID: "r", Samples: []Sample{{Value: math.Inf(1)}}},
 		"part empty label":        Part{RuleID: "r", Samples: []Sample{{Labels: map[string]string{"": "x"}}}},

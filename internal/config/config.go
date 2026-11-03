@@ -27,6 +27,7 @@ const (
 	CapInventory = "inventory"
 	CapMetrics   = "metrics"
 	CapLogs      = "logs"
+	CapPackages  = "packages"
 )
 
 // Lookback source types (PRD I6a, I6b).
@@ -165,6 +166,9 @@ type Node struct {
 	HostMetrics *bool  `yaml:"hostMetrics"`
 	ProcPath    string `yaml:"procPath"`
 	SysPath     string `yaml:"sysPath"`
+	// HostRoot is where the host's package databases and os-release are mounted read-only.
+	HostRoot         string   `yaml:"hostRoot"`
+	PackagesInterval Duration `yaml:"packagesInterval"`
 }
 
 // HostMetricsEnabled reports whether the node agent gathers node memory and network series.
@@ -340,6 +344,8 @@ func (c *Config) ApplyDefaults() {
 	setI(&c.Node.KubeletPort, 10250)
 	setS(&c.Node.ProcPath, "/proc")
 	setS(&c.Node.SysPath, "/host/sys")
+	setS(&c.Node.HostRoot, "/host")
+	setD(&c.Node.PackagesInterval, 10*time.Minute)
 	setB(&c.Host.DiskCap, 2<<30)
 	setB(&c.Host.SpoolReserve, 1<<30)
 	setB(&c.Host.TSDBMax, 768<<20)
@@ -396,7 +402,7 @@ func (c *Config) Validate() error {
 	}
 	for _, cp := range c.Capabilities {
 		switch cp {
-		case CapInventory, CapMetrics, CapLogs:
+		case CapInventory, CapMetrics, CapLogs, CapPackages:
 		default:
 			errs = append(errs, "unknown capability "+cp)
 		}
@@ -443,6 +449,9 @@ func (c *Config) Validate() error {
 	}
 	if ii := c.ImageInventory; !path.IsAbs(ii.ContentStore) || ii.MaxFiles < 0 || ii.MaxPackages < 0 || ii.CacheEntries < 0 || ii.Timeout < 0 {
 		errs = append(errs, "imageInventory.contentStore must be an absolute path and its limits must not be negative")
+	}
+	if c.Node.PackagesInterval.D() < time.Minute {
+		errs = append(errs, "node.packagesInterval must be at least 1m")
 	}
 	switch c.Node.KubeletTLS {
 	case "verify", "skip":

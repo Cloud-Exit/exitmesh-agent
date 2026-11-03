@@ -122,6 +122,36 @@
         },
         "logs": {
           "type": "boolean"
+        },
+        "packages": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "packages": {
+      "type": "object",
+      "properties": {
+        "databases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "dpkg",
+              "rpm",
+              "apk"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "osRelease": {
+          "type": "string",
+          "pattern": "^/[^\\s]*$"
+        },
+        "interval": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false

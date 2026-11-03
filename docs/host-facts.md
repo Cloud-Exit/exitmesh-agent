@@ -33,7 +33,7 @@ Package databases are re-read only when their size or modification time changes.
 |`host/fact/sockets`|`host/Socket`|`protocol`, `address`, `port`, `uid`, `uids`, `inodes`, `unavailable_edges`, `unavailable_reason`|`/proc/net/tcp`, `tcp6` (state LISTEN), `udp`, `udp6` (unconnected bound sockets) of the agent's network namespace|world-readable procfs files|available|
 |`host/fact/units`|`host/Unit`|`description`, `load_state`, `active_state`, `sub_state`, `unit_file_state`, `fragment_path`|D-Bus `org.freedesktop.systemd1.Manager.ListUnits`; `Unit` properties `FragmentPath`, `UnitFileState`; `Service` property `MainPID`|system bus connection; read-only property queries are allowed to unprivileged clients by the systemd bus policy|available where systemd runs|
 |`host/fact/timers`|`host/Timer`|`description`, `load_state`, `active_state`, `sub_state`, `unit_file_state`, `fragment_path`, `scheduled`, `last_trigger_day`|D-Bus `Timer` properties `Unit`, `NextElapseUSecRealtime` (reported only as `scheduled`), `LastTriggerUSec` (bucketed to the UTC day)|system bus connection|available where systemd runs|
-|`host/fact/packages`|`host/Package`|`manager`, `name`, `version`, `arch`, `state`|dpkg `/var/lib/dpkg/status`; rpm database (`rpmdb.sqlite`, `Packages.db`, or Berkeley DB `Packages`) via go-rpmdb; apk `/lib/apk/db/installed`|world-readable package databases|available|
+|`host/fact/packages`|`host/Package`|`manager`, `name`, `version`, `arch`, `state`, `source`, `source_version`|dpkg `/var/lib/dpkg/status` (`source` from the `Source` field, else the package itself); rpm database (`rpmdb.sqlite`, `Packages.db`, or Berkeley DB `Packages`) via go-rpmdb (`source` from `SOURCERPM`); apk `/lib/apk/db/installed` (`source` from the origin `o:`)|world-readable package databases|available|
 |`host/fact/processes`|`host/Process`|`pid`, `comm`, `uid`, `cmdline`|`/proc/<pid>/stat`, `/proc/<pid>/status`; `cmdline` only for allowlisted comm names, redacted. Only unit main processes and socket owners are collected|world-readable procfs files (hidden when procfs is mounted with `hidepid`)|available unless `hidepid` is set|
 
 ## Edges
@@ -62,10 +62,19 @@ Package databases are re-read only when their size or modification time changes.
 |`dependency_unavailable`|The edge depends on a fact that is unavailable in this collection.|
 |`process_vanished`|The process exited between listing and reading.|
 |`capacity_permission_denied`|`statfs(2)` on the mount point was denied; the filesystem is reported without capacity.|
+|`limit_exceeded`|A Kubernetes node's package inventory holds more than 16384 packages; the first 16384 in canonical order are reported.|
 
 ## Kubernetes node detection
 
 Host mode refuses to start when `IsKubernetesNode` finds a process whose comm is `kubelet` or `kubelite`, or kubelet state at `/var/lib/kubelet/config.yaml`, `/etc/kubernetes/kubelet.conf`, `/var/lib/rancher/k3s/agent/kubelet.kubeconfig`, or `/var/lib/rancher/rke2/agent/kubelet.kubeconfig` (a state directory that exists but cannot be searched also counts). Such hosts are covered by the Helm chart (PRD H11).
+
+## Kubernetes node package inventory
+
+With the `packages` capability, each node agent reads os-release and the package databases of its node through read-only host mounts below `node.hostRoot` (default `/host`), with the same parsers as host mode but without unit file lists, every `node.packagesInterval` (default 10 minutes). It sends the inventory to the coordinator when its content or status changes, and again every 6 hours so a coordinator that could not apply it converges. Advisory matching is not done by the agent: the inventory is state for the control plane to match against distribution advisories.
+
+The coordinator stores identical inventories once. A `host/PackageSet` resource (UID `host:packageset:<first 32 hex digits of the content SHA-256>`, cluster-scoped, named by those digits) holds `os` (the cataloged os-release fields: `id`, `id_like`, `version_id`, `version_codename`, `name`, `pretty_name`, `variant_id`), `packages` (a list in canonical order of maps with `manager`, `name`, `version`, `arch`, `state`, `source`, `source_version`), and `package_count`. An `installed_on` edge links it to every `Node` that reported it, with attributes `state` (`complete`, `partial`, or `unavailable`) and `reason`. When a node's inventory changes, its edge moves to the new set and a set no node links to is deleted. An inventory that becomes unavailable keeps the last set and only the edge state changes; a node agent that registers without the capability marks its edge `unavailable` with reason `capability_disabled`. Edges to nodes that left the cluster are removed. The vulnerable nodes for a package version are the `installed_on` targets of the sets that contain it.
+
+Package entries without a manager, name, or version are skipped. An inventory holds at most 16384 packages and 2 MiB of package strings, each string cut to 256 bytes; a larger one is cut in canonical order and reported `partial` with reason `limit_exceeded`.
 
 ## Host metrics
 
