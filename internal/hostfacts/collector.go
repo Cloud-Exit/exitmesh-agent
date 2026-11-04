@@ -29,6 +29,9 @@ type NetInterface struct {
 
 // Options configures the collectors. Zero values are replaced by DefaultOptions values.
 type Options struct {
+	// Root is a read-only mount of the host's / ; when set, the package databases and os-release are read below it.
+	Root string
+
 	ProcRoot     string
 	SysRoot      string
 	EtcRoot      string

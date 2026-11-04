@@ -16,11 +16,13 @@ declare -A sets=(
 	[precreated]="--set createNamespaces=false --set namespaces.skipLookupValidation=true"
 	[inventory]="--set capabilities.metrics=false --set capabilities.logs=false"
 )
-for name in "${!sets[@]}"; do
-	# shellcheck disable=SC2086
-	helm template exitmesh-agent "$chart" "${base[@]}" ${sets[$name]} >"$out/$name.yaml"
-done
+# Each version validates what the chart renders for that version, since some fields depend on it.
 for v in $versions; do
+	mkdir -p "$out/$v"
+	for name in "${!sets[@]}"; do
+		# shellcheck disable=SC2086
+		helm template exitmesh-agent "$chart" "${base[@]}" --kube-version "$v" ${sets[$name]} >"$out/$v/$name.yaml"
+	done
 	echo "== Kubernetes $v"
-	kubeconform -strict -summary -kubernetes-version "$v" -schema-location default "$out"/*.yaml
+	kubeconform -strict -summary -kubernetes-version "$v" -schema-location default "$out/$v"/*.yaml
 done

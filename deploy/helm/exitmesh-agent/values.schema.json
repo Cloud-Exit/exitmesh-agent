@@ -132,6 +132,13 @@
     "packages": {
       "type": "object",
       "properties": {
+        "recursiveReadOnly": {
+          "type": "string",
+          "enum": [
+            "Enabled",
+            "IfPossible"
+          ]
+        },
         "databases": {
           "type": "array",
           "items": {
@@ -142,12 +149,13 @@
               "apk"
             ]
           },
-          "minItems": 1,
-          "uniqueItems": true
+          "uniqueItems": true,
+          "description": "Ignored since 0.23: node agents find the package database below a read-only mount of /."
         },
         "osRelease": {
           "type": "string",
-          "pattern": "^/[^\\s]*$"
+          "pattern": "^/[^\\s]*$",
+          "description": "Ignored since 0.23: node agents read /etc/os-release or /usr/lib/os-release below a read-only mount of /."
         },
         "interval": {
           "type": "string",

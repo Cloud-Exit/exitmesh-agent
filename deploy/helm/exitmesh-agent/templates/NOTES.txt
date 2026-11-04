@@ -24,10 +24,7 @@ Host-mount summary (node agents)
   {{ .Values.imageInventory.contentStore }}  read-only, the containerd content store, for package inventories of running images.
 {{- end }}
 {{- if (include "exitmesh.packagesEnabled" .) }}
-{{- range (include "exitmesh.packageDatabasePaths" . | fromJsonArray) }}
-  {{ .path }}  read-only, never created, installed packages for vulnerability matching. Must exist on every node.
-{{- end }}
-  {{ .Values.packages.osRelease }}  read-only, distribution release for vulnerability matching.
+  /                  read-only at /host (recursiveReadOnly: {{ .Values.packages.recursiveReadOnly }}); only os-release and the dpkg, rpm or apk package database are read, for vulnerability matching.
 {{- end }}
 {{- if .Values.node.runAsRootFallback }}
   Capabilities: all dropped except CAP_DAC_READ_SEARCH; read-only root filesystem; never privileged. An init container runs as root with only CAP_CHOWN to set ownership of /var/lib/exitmesh.
@@ -37,6 +34,14 @@ Host-mount summary (node agents)
 {{- if .Values.node.runAsRootFallback }}
 
 WARNING: node.runAsRootFallback=true. Node agents run as UID 0. Use this only where policy forbids CAP_SETUID. The connector flags this installation.
+{{- end }}
+{{- if and .Values.capabilities.packages .Values.capabilities.inventory (not (include "exitmesh.packagesEnabled" .)) }}
+
+NOTE: the packages capability is off because it needs Kubernetes 1.31 or later, where the node's / can be mounted recursively read-only. Node vulnerabilities are not checked.
+{{- end }}
+{{- if and (include "exitmesh.packagesEnabled" .) (eq .Values.packages.recursiveReadOnly "IfPossible") }}
+
+WARNING: packages.recursiveReadOnly=IfPossible. On nodes whose kernel or runtime cannot make the / mount recursively read-only, filesystems mounted below it (a separate /tmp, for example) stay writable where file permissions allow.
 {{- end }}
 
 Export preview

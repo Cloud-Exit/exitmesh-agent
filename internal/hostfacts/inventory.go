@@ -32,14 +32,23 @@ type Inventory struct {
 	Reason string
 }
 
+// readAt reads a host file below Options.Root.
+func (c *Collector) readAt(path string) ([]byte, error) {
+	resolved, err := c.at(path)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(resolved)
+}
+
 // Inventory reads os-release and every package database without unit file lists.
 func (c *Collector) Inventory() Inventory {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	inv := Inventory{OS: map[string]string{}}
-	b, err := os.ReadFile(filepath.Join(c.o.EtcRoot, "os-release"))
+	b, err := c.readAt(filepath.Join(c.o.EtcRoot, "os-release"))
 	if errors.Is(err, fs.ErrNotExist) {
-		b, err = os.ReadFile(filepath.Join(c.o.UsrLibRoot, "os-release"))
+		b, err = c.readAt(filepath.Join(c.o.UsrLibRoot, "os-release"))
 	}
 	if err == nil {
 		for k, v := range ParseOSRelease(b) {

@@ -12,6 +12,7 @@ require (
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b
 	github.com/coder/websocket v1.8.15
 	github.com/coreos/go-oidc/v3 v3.21.0
+	github.com/cyphar/filepath-securejoin v0.6.1
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/godbus/dbus/v5 v5.2.2
@@ -74,7 +75,6 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
-	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dennwc/btrfs v0.0.0-20260222081608-edfb8b9e4f55 // indirect
 	github.com/dennwc/ioctl v1.0.1-0.20181021180353-017804252068 // indirect

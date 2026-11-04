@@ -11,11 +11,25 @@ import (
 	"strconv"
 	"strings"
 
+	securejoin "github.com/cyphar/filepath-securejoin"
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/hostfacts/sqlitedb"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
+
+// at resolves a host path below Options.Root, following the host's symlinks inside it, or returns it unchanged.
+// A path that cannot be resolved inside the root is an error, never a path the container would resolve itself.
+func (c *Collector) at(path string) (string, error) {
+	if c.o.Root == "" {
+		return path, nil
+	}
+	resolved, err := securejoin.SecureJoin(c.o.Root, path)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s below the host root: %w", path, err)
+	}
+	return resolved, nil
+}
 
 // DefaultRPMPaths are probed in order; the first existing database is read.
 var DefaultRPMPaths = []string{
@@ -217,7 +231,10 @@ func ParseAPKInstalled(b []byte) []Package {
 
 // readDpkg returns the dpkg packages and the reason of the first unreadable file list, if any.
 func (c *Collector) readDpkg(withUnits bool) ([]Package, string, error) {
-	status := filepath.Join(c.o.DpkgDir, "status")
+	status, err := c.at(filepath.Join(c.o.DpkgDir, "status"))
+	if err != nil {
+		return nil, "", err
+	}
 	stamp, err := stampOf(status)
 	if err != nil {
 		return nil, "", err
@@ -250,7 +267,10 @@ func (c *Collector) readDpkg(withUnits bool) ([]Package, string, error) {
 func (c *Collector) dpkgUnits(p Package) ([]string, error) {
 	info := filepath.Join(c.o.DpkgDir, "info")
 	for _, name := range []string{p.Name + ":" + p.Arch + ".list", p.Name + ".list"} {
-		path := filepath.Join(info, name)
+		path, err := c.at(filepath.Join(info, name))
+		if err != nil {
+			return nil, err
+		}
 		stamp, err := stampOf(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -319,7 +339,11 @@ func ReadRPM(path string) ([]Package, error) {
 }
 
 func (c *Collector) readRPM() ([]Package, bool, error) {
-	for _, p := range c.o.RPMPaths {
+	for _, configured := range c.o.RPMPaths {
+		p, err := c.at(configured)
+		if err != nil {
+			return nil, true, err
+		}
 		stamp, err := stampOf(p, p+"-wal")
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -347,19 +371,23 @@ func (c *Collector) readRPM() ([]Package, bool, error) {
 }
 
 func (c *Collector) readAPK() ([]Package, error) {
-	stamp, err := stampOf(c.o.APKInstalled)
+	installed, err := c.at(c.o.APKInstalled)
 	if err != nil {
 		return nil, err
 	}
-	if cp, ok := c.pkgs.dbs[c.o.APKInstalled]; ok && cp.stamp == stamp {
+	stamp, err := stampOf(installed)
+	if err != nil {
+		return nil, err
+	}
+	if cp, ok := c.pkgs.dbs[installed]; ok && cp.stamp == stamp {
 		return cp.pkgs, nil
 	}
-	b, err := os.ReadFile(c.o.APKInstalled)
+	b, err := os.ReadFile(installed)
 	if err != nil {
 		return nil, err
 	}
 	pkgs := ParseAPKInstalled(b)
-	c.pkgs.dbs[c.o.APKInstalled] = cachedPkgs{stamp: stamp, pkgs: pkgs}
+	c.pkgs.dbs[installed] = cachedPkgs{stamp: stamp, pkgs: pkgs}
 	return pkgs, nil
 }
 
