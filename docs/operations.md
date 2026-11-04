@@ -68,11 +68,11 @@ The coordinator spool on the PVC holds every checkpoint, delta, range record, me
 
 |Setting|Default|Meaning|
 |---|---|---|
-|`coordinator.spool.capacity`|10Gi (PVC 12Gi)|Hard budget for record bodies; sized for about 7 days of outage at the reference workload.|
+|`coordinator.spool.capacity`|10Gi (PVC 12Gi)|Hard budget for record bodies and for the segment files that hold them; sized for about 7 days of outage at the reference workload.|
 |`coordinator.spool.window`|8Mi|Transmitted-unconfirmed window.|
 |`coordinator.spool.coalesceAt`|0.90|Fill ratio at which coalescing starts.|
 
-Under pressure the coordinator relieves the spool in a fixed order: evict evidence, then compact finding samples to counts, then coalesce the oldest never-transmitted range into a range record whose interior is marked unavailable for exact reconstruction. Transmitted records are never coalesced and the chain stays unbroken. A finding is raised on the cluster before capacity is reached, and the projected window (how long the spool lasts at the current rate) is reported. At a ten times heavier workload the window is roughly one day before coalescing. To extend it, raise `coordinator.persistence.size` and `coordinator.spool.capacity` together; the air-gap profile uses 60Gi and 50Gi.
+Under pressure the coordinator relieves the spool in a fixed order: evict evidence, then compact finding samples to counts, then coalesce the oldest never-transmitted range into a range record whose interior is marked unavailable for exact reconstruction. Transmitted records are never coalesced and the chain stays unbroken. Rewrites leave dead frames in older segment files; while the files exceed the relief target, the segments with the most dead bytes are compacted, so the files on disk stay within the capacity and the PVC never fills. A spool that outgrew its capacity, for example under an older agent, is relieved when the coordinator opens it. A finding is raised on the cluster before capacity is reached, and the projected window (how long the spool lasts at the current rate) is reported. At a ten times heavier workload the window is roughly one day before coalescing. To extend it, raise `coordinator.persistence.size` and `coordinator.spool.capacity` together; the air-gap profile uses 60Gi and 50Gi.
 
 When ExitMesh is unreachable, evaluation continues with the last valid rules, everything is spooled, and on reconnect the coordinator resumes and drains in order with no gap in the delta chain.
 

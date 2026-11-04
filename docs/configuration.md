@@ -52,7 +52,7 @@ Coordinator spool on the PVC (hosts use `host.spoolReserve`).
 
 |Key|Default|Meaning|
 |---|---|---|
-|`spool.capacity`|`10Gi`|Hard budget for record bodies; about 7 days at the reference workload.|
+|`spool.capacity`|`10Gi`|Hard budget for record bodies and the segment files that hold them; about 7 days at the reference workload.|
 |`spool.window`|`8Mi`|Transmitted-unconfirmed window.|
 |`spool.coalesceAt`|`0.90`|Fill ratio in (0, 1] at which the oldest never-transmitted range is coalesced, after evidence eviction and sample compaction.|
 

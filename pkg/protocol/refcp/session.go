@@ -33,6 +33,8 @@ type session struct {
 	epoch       protocol.EpochID
 	superseded  bool
 	closed      bool
+	// partial collects the parts of a summary until its last part.
+	partial *protocol.SummaryParams
 
 	qmu    sync.Mutex
 	queue  []outMsg
@@ -271,6 +273,7 @@ func (ss *session) hello(h *protocol.HelloParams) (any, error) {
 	return protocol.HelloResult{
 		Decision: d.Outcome, SessionID: ss.id, Epoch: h.Epoch, Head: ep.head,
 		WindowBytes: s.opts.WindowBytes, MaxFrameBytes: s.opts.MaxFrameBytes, Compat: t.compat,
+		SummaryParts: !s.opts.WholeSummaries,
 	}, nil
 }
 
@@ -309,6 +312,28 @@ func (ss *session) summary(p *protocol.SummaryParams) (any, error) {
 	t := ss.attachedLocked()
 	if t == nil || p.Epoch != ss.epoch {
 		return nil, &protocol.RPCError{Code: protocol.RPCInvalidRequest, Message: "no accepted session for this epoch"}
+	}
+	if p.Part > 0 || p.More {
+		if s.opts.WholeSummaries {
+			return nil, &protocol.RPCError{Code: protocol.RPCInvalidParams, Message: "summary parts are not supported"}
+		}
+		if p.Part == 0 {
+			ss.partial = &protocol.SummaryParams{Epoch: p.Epoch, Watermark: p.Watermark, Head: p.Head, Entries: []protocol.SummaryEntry{}}
+		}
+		next := ss.partial
+		if next == nil || p.Watermark != next.Watermark || p.Head != next.Head || p.Part != next.Part {
+			ss.partial = nil
+			return nil, &protocol.RPCError{Code: protocol.RPCInvalidParams, Message: "summary part out of order"}
+		}
+		next.Entries = append(next.Entries, p.Entries...)
+		next.Part++
+		if p.More {
+			return struct{}{}, nil
+		}
+		ss.partial = nil
+		whole := *next
+		whole.Part = 0
+		p = &whole
 	}
 	ep := t.epochs[p.Epoch]
 	if p.Watermark > ep.watermark {

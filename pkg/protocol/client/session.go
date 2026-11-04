@@ -21,9 +21,11 @@ type session struct {
 	epoch    protocol.EpochID
 	window   int64
 	maxFrame int64
-	anchor   uint64
-	cursor   uint64
-	limiter  limiter
+	// summaryParts: the control plane accepts history.summary in parts.
+	summaryParts bool
+	anchor       uint64
+	cursor       uint64
+	limiter      limiter
 
 	mu            sync.Mutex
 	inflight      map[uint64]int64
@@ -108,6 +110,7 @@ func (s *session) hello() (*protocol.HelloResult, error) {
 		s.window = protocol.DefaultWindowSize
 	}
 	s.maxFrame = res.MaxFrameBytes
+	s.summaryParts = res.SummaryParts
 	if s.maxFrame <= 0 || s.maxFrame > protocol.MaxFramePayload {
 		s.maxFrame = protocol.MaxFramePayload
 	}
@@ -199,12 +202,41 @@ func (s *session) resume(res *protocol.HelloResult) error {
 	if sum.Entries == nil {
 		sum.Entries = []protocol.SummaryEntry{}
 	}
-	if err := s.call(protocol.MethodSummary, sum, nil); err != nil {
+	parts, err := s.summaryMessages(sum, h.Seq)
+	if err != nil {
 		return err
+	}
+	for _, part := range parts {
+		if err := s.call(protocol.MethodSummary, part, nil); err != nil {
+			return err
+		}
 	}
 	s.anchor = anchor.Seq
 	s.c.setWatermark(anchor.Seq)
 	return s.send([]*Entry{anchor})
+}
+
+// summaryMessages splits the summary when the control plane accepts parts. A whole summary over the message limit
+// can never be delivered, so the writer rebaselines rather than reconnect with it forever.
+func (s *session) summaryMessages(sum protocol.SummaryParams, head uint64) ([]protocol.SummaryParams, error) {
+	if s.summaryParts {
+		parts, err := protocol.SplitSummary(sum, min(s.c.opts.SummaryPartBytes, s.maxFrame/2))
+		if errors.Is(err, protocol.ErrTooLarge) {
+			return nil, &DivergenceError{Head: head, Reason: err.Error()}
+		}
+		return parts, err
+	}
+	body, err := json.Marshal(sum)
+	if err != nil {
+		return nil, fmt.Errorf("encode lifecycle summary: %w", err)
+	}
+	if int64(len(body)) > s.maxFrame {
+		return nil, &DivergenceError{
+			Head:   head,
+			Reason: fmt.Sprintf("the lifecycle summary is %d bytes and the control plane accepts neither that nor summary parts", len(body)),
+		}
+	}
+	return []protocol.SummaryParams{sum}, nil
 }
 
 func (s *session) stream() error {

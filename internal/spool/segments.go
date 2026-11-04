@@ -33,6 +33,8 @@ type segments struct {
 	segs   map[uint64]*segStat
 	active uint64
 	next   uint64
+	// peak is the largest total of segment files seen after an append.
+	peak int64
 }
 
 func segName(id uint64) string { return fmt.Sprintf("%016x%s", id, segSuffix) }
@@ -178,6 +180,7 @@ func (ss *segments) appendFrames(frames [][]byte) ([]loc, func() error, error) {
 		}
 	}
 	ss.active = cur
+	ss.peak = max(ss.peak, ss.diskBytes())
 	return locs, undo, nil
 }
 

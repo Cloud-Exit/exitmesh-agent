@@ -1,6 +1,9 @@
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // JSON-RPC method names of the tunnel binding (SPEC 9.4).
 const (
@@ -169,6 +172,8 @@ type HelloResult struct {
 	WindowBytes   int64      `json:"window_bytes"`
 	MaxFrameBytes int64      `json:"max_frame_bytes"`
 	Compat        Compat     `json:"compat"`
+	// SummaryParts reports that the control plane accepts history.summary in parts (section 8.4).
+	SummaryParts bool `json:"summary_parts,omitempty"`
 }
 
 // Lifecycle states in a summary.
@@ -191,12 +196,56 @@ type SummaryEntry struct {
 	Severity       string `json:"severity"`
 }
 
-// SummaryParams is the finding lifecycle summary at the replay watermark.
+// SummaryParams is the finding lifecycle summary at the replay watermark, or one part of it.
 type SummaryParams struct {
 	Epoch     EpochID        `json:"epoch"`
 	Watermark uint64         `json:"watermark"`
 	Head      uint64         `json:"head"`
 	Entries   []SummaryEntry `json:"entries"`
+	// Part numbers the parts of one summary from 0; More is set on every part but the last.
+	Part uint32 `json:"part,omitempty"`
+	More bool   `json:"more,omitempty"`
+}
+
+// SummaryPartBytes bounds the encoded entries of one summary part, well below every message limit.
+const SummaryPartBytes = 4 << 20
+
+// SplitSummary splits a summary into parts whose encoded entries stay within maxBytes. An entry that alone exceeds
+// maxBytes fits no part and is an ErrTooLarge error.
+func SplitSummary(p SummaryParams, maxBytes int64) ([]SummaryParams, error) {
+	whole := p
+	whole.Part, whole.More = 0, false
+	if whole.Entries == nil {
+		whole.Entries = []SummaryEntry{}
+	}
+	var parts []SummaryParams
+	cur := whole
+	cur.Entries = []SummaryEntry{}
+	var size int64
+	for _, e := range whole.Entries {
+		b, err := json.Marshal(e)
+		if err != nil {
+			return nil, fmt.Errorf("protocol: encode summary entry: %w", err)
+		}
+		n := int64(len(b)) + 1
+		if n > maxBytes {
+			return nil, fmt.Errorf("%w: summary entry of finding %s is %d bytes, a part holds %d", ErrTooLarge, e.FindingID, len(b), maxBytes)
+		}
+		if len(cur.Entries) > 0 && size+n > maxBytes {
+			parts = append(parts, cur)
+			next := cur.Part + 1
+			cur = whole
+			cur.Entries, cur.Part = []SummaryEntry{}, next
+			size = 0
+		}
+		cur.Entries = append(cur.Entries, e)
+		size += n
+	}
+	parts = append(parts, cur)
+	for i := range parts[:len(parts)-1] {
+		parts[i].More = true
+	}
+	return parts, nil
 }
 
 // AckParams reports the committed head.
