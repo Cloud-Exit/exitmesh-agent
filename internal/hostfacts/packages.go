@@ -11,11 +11,24 @@ import (
 	"strconv"
 	"strings"
 
+	securejoin "github.com/cyphar/filepath-securejoin"
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/hostfacts/sqlitedb"
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
+
+// at resolves a host path below Options.Root, following the host's symlinks inside it, or returns it unchanged.
+func (c *Collector) at(path string) string {
+	if c.o.Root == "" {
+		return path
+	}
+	resolved, err := securejoin.SecureJoin(c.o.Root, path)
+	if err != nil {
+		return filepath.Join(c.o.Root, path)
+	}
+	return resolved
+}
 
 // DefaultRPMPaths are probed in order; the first existing database is read.
 var DefaultRPMPaths = []string{
@@ -217,7 +230,7 @@ func ParseAPKInstalled(b []byte) []Package {
 
 // readDpkg returns the dpkg packages and the reason of the first unreadable file list, if any.
 func (c *Collector) readDpkg(withUnits bool) ([]Package, string, error) {
-	status := filepath.Join(c.o.DpkgDir, "status")
+	status := c.at(filepath.Join(c.o.DpkgDir, "status"))
 	stamp, err := stampOf(status)
 	if err != nil {
 		return nil, "", err
@@ -250,7 +263,7 @@ func (c *Collector) readDpkg(withUnits bool) ([]Package, string, error) {
 func (c *Collector) dpkgUnits(p Package) ([]string, error) {
 	info := filepath.Join(c.o.DpkgDir, "info")
 	for _, name := range []string{p.Name + ":" + p.Arch + ".list", p.Name + ".list"} {
-		path := filepath.Join(info, name)
+		path := c.at(filepath.Join(info, name))
 		stamp, err := stampOf(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -319,7 +332,8 @@ func ReadRPM(path string) ([]Package, error) {
 }
 
 func (c *Collector) readRPM() ([]Package, bool, error) {
-	for _, p := range c.o.RPMPaths {
+	for _, configured := range c.o.RPMPaths {
+		p := c.at(configured)
 		stamp, err := stampOf(p, p+"-wal")
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -347,19 +361,20 @@ func (c *Collector) readRPM() ([]Package, bool, error) {
 }
 
 func (c *Collector) readAPK() ([]Package, error) {
-	stamp, err := stampOf(c.o.APKInstalled)
+	installed := c.at(c.o.APKInstalled)
+	stamp, err := stampOf(installed)
 	if err != nil {
 		return nil, err
 	}
-	if cp, ok := c.pkgs.dbs[c.o.APKInstalled]; ok && cp.stamp == stamp {
+	if cp, ok := c.pkgs.dbs[installed]; ok && cp.stamp == stamp {
 		return cp.pkgs, nil
 	}
-	b, err := os.ReadFile(c.o.APKInstalled)
+	b, err := os.ReadFile(installed)
 	if err != nil {
 		return nil, err
 	}
 	pkgs := ParseAPKInstalled(b)
-	c.pkgs.dbs[c.o.APKInstalled] = cachedPkgs{stamp: stamp, pkgs: pkgs}
+	c.pkgs.dbs[installed] = cachedPkgs{stamp: stamp, pkgs: pkgs}
 	return pkgs, nil
 }
 

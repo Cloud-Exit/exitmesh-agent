@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -31,19 +30,9 @@ type inventoryState struct {
 	cov   string
 }
 
-// hostCollectorOptions maps the package databases and os-release below a host root mount.
+// hostCollectorOptions reads the package databases and os-release below a read-only mount of the host's /.
 func hostCollectorOptions(root string) hostfacts.Options {
-	rpm := make([]string, len(hostfacts.DefaultRPMPaths))
-	for i, p := range hostfacts.DefaultRPMPaths {
-		rpm[i] = filepath.Join(root, p)
-	}
-	return hostfacts.Options{
-		EtcRoot:      filepath.Join(root, "etc"),
-		UsrLibRoot:   filepath.Join(root, "usr/lib"),
-		DpkgDir:      filepath.Join(root, "var/lib/dpkg"),
-		RPMPaths:     rpm,
-		APKInstalled: filepath.Join(root, "lib/apk/db/installed"),
-	}
+	return hostfacts.Options{Root: root}
 }
 
 func (s *inventoryState) load(store kv.Store, col *hostfacts.Collector) error {

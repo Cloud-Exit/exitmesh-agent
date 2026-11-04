@@ -365,13 +365,12 @@ func TestHostPaths(t *testing.T) {
 					if h.Type == nil || *h.Type != corev1.HostPathDirectoryOrCreate {
 						t.Errorf("%s: /var/lib/exitmesh must be DirectoryOrCreate", vs.name)
 					}
-				case "/var/log/pods", defaultContentStore, "/sys", "/var/lib/dpkg", "/var/lib/rpm", "/lib/apk/db", "/usr/lib/os-release":
+				case "/var/log/pods", defaultContentStore, "/sys", "/":
 					if ds.Name != nodeDS {
 						t.Errorf("%s: %s mounts %s", vs.name, ds.Name, h.Path)
 					}
-					if want, ok := map[string]corev1.HostPathType{"/var/lib/dpkg": corev1.HostPathDirectory, "/var/lib/rpm": corev1.HostPathDirectory,
-						"/lib/apk/db": corev1.HostPathDirectory, "/usr/lib/os-release": corev1.HostPathFile}[h.Path]; ok && (h.Type == nil || *h.Type != want) {
-						t.Errorf("%s: %s must be %s so a missing path is never created on the node", vs.name, h.Path, want)
+					if h.Path == "/" && (h.Type == nil || *h.Type != corev1.HostPathDirectory) {
+						t.Errorf("%s: / must be type Directory so nothing is ever created on the node", vs.name)
 					}
 					for _, c := range append(spec.InitContainers, spec.Containers...) {
 						for _, vm := range c.VolumeMounts {
@@ -412,10 +411,11 @@ func TestHostPaths(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{nil, []string{"/sys", "/usr/lib/os-release", defaultContentStore, "/var/lib/dpkg", "/var/lib/exitmesh", "/var/log/pods"}},
+		{nil, []string{"/", "/sys", defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}},
 		{[]string{"--set", "capabilities.packages=false"}, []string{"/sys", defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}},
 		{[]string{"--set", "capabilities.inventory=false"}, []string{"/sys", defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}},
-		{[]string{"--set-json", `packages.databases=["rpm","apk"]`, "--set", "packages.osRelease=/etc/os-release"}, []string{"/etc/os-release", "/lib/apk/db", "/sys", defaultContentStore, "/var/lib/exitmesh", "/var/lib/rpm", "/var/log/pods"}},
+		// Values of 0.21 and 0.22 still render; the database list no longer adds mounts.
+		{[]string{"--set-json", `packages.databases=["rpm","apk"]`, "--set", "packages.osRelease=/etc/os-release"}, []string{"/", "/sys", defaultContentStore, "/var/lib/exitmesh", "/var/log/pods"}},
 	} {
 		slices.Sort(c.want)
 		if got := nodePaths(c.args...); !reflect.DeepEqual(got, c.want) {
@@ -510,8 +510,18 @@ func TestPackagesCapabilityConfig(t *testing.T) {
 	if slices.Contains(off.Capabilities, config.CapPackages) {
 		t.Errorf("packages enabled without inventory: %v", off.Capabilities)
 	}
-	renderFails(t, "packages", append([]string{"--set-json", `packages.databases=["zypper"]`}, baseArgs...)...)
-	renderFails(t, "packages", append([]string{"--set-json", `packages.databases=[]`}, baseArgs...)...)
+	ds := daemonSet(t, render(t, baseArgs...), nodeDS)
+	mounted := false
+	for _, c := range ds.Spec.Template.Spec.Containers {
+		for _, vm := range c.VolumeMounts {
+			if vm.Name == "host-root" {
+				mounted = vm.MountPath == "/host" && vm.ReadOnly
+			}
+		}
+	}
+	if !mounted {
+		t.Error("the node's / must be mounted read-only at /host")
+	}
 }
 
 var restrictedVolumeTypes = func(v corev1.Volume) bool {

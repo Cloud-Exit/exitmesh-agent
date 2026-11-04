@@ -37,9 +37,9 @@ func (c *Collector) Inventory() Inventory {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	inv := Inventory{OS: map[string]string{}}
-	b, err := os.ReadFile(filepath.Join(c.o.EtcRoot, "os-release"))
+	b, err := os.ReadFile(c.at(filepath.Join(c.o.EtcRoot, "os-release")))
 	if errors.Is(err, fs.ErrNotExist) {
-		b, err = os.ReadFile(filepath.Join(c.o.UsrLibRoot, "os-release"))
+		b, err = os.ReadFile(c.at(filepath.Join(c.o.UsrLibRoot, "os-release")))
 	}
 	if err == nil {
 		for k, v := range ParseOSRelease(b) {

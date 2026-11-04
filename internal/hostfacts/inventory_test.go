@@ -104,6 +104,35 @@ func TestInventoryFallsBackToUsrLibOSRelease(t *testing.T) {
 	}
 }
 
+func TestInventoryBelowHostRootFollowsHostSymlinks(t *testing.T) {
+	root := t.TempDir()
+	db, err := os.ReadFile(filepath.Join(rpmdbTestdata(t), "fedora35/rpmdb.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Absolute symlinks point into the host's own tree, never the agent container's.
+	writeTree(t, root, map[string]string{
+		"usr/lib/os-release":                "ID=rocky\nVERSION_ID=\"9.4\"\nID_LIKE=\"rhel centos fedora\"\n",
+		"usr/lib/sysimage/rpm/rpmdb.sqlite": string(db),
+		"etc/os-release":                    "->/usr/lib/os-release",
+		"var/lib/rpm":                       "->/usr/lib/sysimage/rpm",
+	})
+	inv := NewCollector(Options{Root: root}).Inventory()
+	if inv.OS["id"] != "rocky" || inv.OS["version_id"] != "9.4" {
+		t.Fatalf("os %v", inv.OS)
+	}
+	if inv.State != protocol.ScopeComplete || len(inv.Packages) == 0 || inv.Packages[0].Manager != "rpm" {
+		t.Fatalf("inventory %v %q %d packages", inv.State, inv.Reason, len(inv.Packages))
+	}
+}
+
+func TestInventoryBelowHostRootWithoutDatabasesIsUnavailable(t *testing.T) {
+	inv := NewCollector(Options{Root: t.TempDir()}).Inventory()
+	if inv.State != protocol.ScopeUnavailable || inv.Reason != ReasonSourceAbsent {
+		t.Fatalf("inventory %+v", inv)
+	}
+}
+
 func TestInventoryWithoutDatabasesIsUnavailable(t *testing.T) {
 	root := t.TempDir()
 	inv := NewCollector(Options{EtcRoot: filepath.Join(root, "etc"), UsrLibRoot: filepath.Join(root, "usr/lib"), DpkgDir: filepath.Join(root, "dpkg"),

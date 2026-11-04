@@ -79,13 +79,6 @@ helm.sh/chart: {{ include "exitmesh.chart" .ctx }}
 {{- if and .Values.capabilities.packages .Values.capabilities.inventory }}true{{ end -}}
 {{- end -}}
 
-{{- define "exitmesh.packageDatabasePaths" -}}
-{{- $paths := dict "dpkg" "/var/lib/dpkg" "rpm" "/var/lib/rpm" "apk" "/lib/apk/db" -}}
-{{- $out := list -}}
-{{- range .Values.packages.databases }}{{ $out = append $out (dict "name" (printf "pkgdb-%s" .) "path" (get $paths .)) }}{{ end -}}
-{{- toJson $out -}}
-{{- end -}}
-
 {{- define "exitmesh.bundleDir" -}}
 {{- if .Values.airgap.bundles.configMap -}}/etc/exitmesh/bundles{{- else -}}{{ .Values.airgap.bundles.imagePath }}{{- end -}}
 {{- end -}}
