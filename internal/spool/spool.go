@@ -177,6 +177,13 @@ func Open(opts Options) (*Spool, error) {
 		s.release()
 		return nil, err
 	}
+	s.seqMu.Lock()
+	s.mu.Lock()
+	if s.pressure() >= s.trigger() {
+		_, s.lastReliefErr = s.relieveLocked()
+	}
+	s.mu.Unlock()
+	s.seqMu.Unlock()
 	return s, nil
 }
 

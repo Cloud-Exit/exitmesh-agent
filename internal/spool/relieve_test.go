@@ -623,3 +623,48 @@ func TestPinBudgetKeepsLatestBatch(t *testing.T) {
 		t.Fatal("re-read batch not pinned")
 	}
 }
+
+// Rewrites leave dead frames in older segments; under pressure they must not let the files outgrow the capacity.
+func TestDiskStaysWithinCapacityUnderPressure(t *testing.T) {
+	w := newWriter(t, func(o *Options) {
+		o.SegmentBytes = 8 << 10
+		o.CapacityBytes = 96 << 10
+	})
+	for i := 0; i < 150; i++ {
+		w.finding(fmt.Sprintf("f%d", i), samples(4, 600, uint64(i))...)
+		w.delta(protocol.Create(fmt.Sprintf("u%d", i), "v1/Pod", "ns", fmt.Sprintf("p%d", i), nil))
+		unpinAll(w.s)
+	}
+	u := w.s.Usage()
+	if u.ReliefError != nil {
+		t.Fatalf("relief: %v", u.ReliefError)
+	}
+	if limit := u.Capacity + w.opts.SegmentBytes; u.DiskBytes > limit {
+		t.Fatalf("segment files hold %d bytes for %d live, capacity %d", u.DiskBytes, u.Bytes, u.Capacity)
+	}
+	replayHashes(t, w.s, allEntries(w.s))
+	w.reopen()
+	replayHashes(t, w.s, allEntries(w.s))
+}
+
+// A spool that outgrew a lower capacity, for example written by an older agent, is relieved when it opens.
+func TestOpenRelievesOversizedSpool(t *testing.T) {
+	w := newWriter(t, func(o *Options) { o.SegmentBytes = 8 << 10 })
+	for i := 0; i < 60; i++ {
+		w.finding(fmt.Sprintf("f%d", i), samples(4, 600, uint64(i))...)
+	}
+	unpinAll(w.s)
+	if err := w.s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w.opts.CapacityBytes = 64 << 10
+	w.open()
+	u := w.s.Usage()
+	if u.ReliefError != nil {
+		t.Fatalf("relief: %v", u.ReliefError)
+	}
+	if limit := u.Capacity + w.opts.SegmentBytes; u.DiskBytes > limit {
+		t.Fatalf("segment files hold %d bytes after open, capacity %d", u.DiskBytes, u.Capacity)
+	}
+	replayHashes(t, w.s, allEntries(w.s))
+}

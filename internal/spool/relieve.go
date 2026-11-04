@@ -41,6 +41,11 @@ func (s *Spool) reliefTarget() int64 {
 	return int64(float64(s.opts.CapacityBytes) * s.opts.CoalesceAt * reliefFactor)
 }
 
+// pressure is the larger of the record bytes and the segment files, so dead frames count against the capacity too.
+func (s *Spool) pressure() int64 {
+	return max(s.bytes, s.segs.diskBytes())
+}
+
 // Relieve evicts evidence, compacts samples, then coalesces, stopping below the relief target.
 func (s *Spool) Relieve() (Relief, error) {
 	s.seqMu.Lock()
@@ -80,13 +85,13 @@ func (s *Spool) relieveLocked() (Relief, error) {
 		err = errors.Join(err, s.rebuildChain())
 	}
 	if err == nil {
-		err = s.compactSegments(&rel)
+		err = s.compactSegments(&rel, target)
 	}
 	s.noteIO(s.segs.gc())
 	rel.BytesAfter = s.bytes
-	if s.bytes > target {
-		rel.Exhausted = err == nil
-		s.nextRelief = s.bytes + (s.trigger() - target)
+	rel.Exhausted = s.bytes > target && err == nil
+	if p := s.pressure(); p > target {
+		s.nextRelief = p + (s.trigger() - target)
 	} else {
 		s.nextRelief = 0
 	}
@@ -486,12 +491,33 @@ func (s *Spool) persistRange(acc *protocol.Record, accMeta *recMeta, pending []r
 }
 
 // compactSegments copies live frames out of mostly superseded segments; bytes do not change.
-func (s *Spool) compactSegments(rel *Relief) error {
+// compactSegments rewrites the live frames of segments that are mostly dead and, while the segment files exceed
+// target, of the deadest segments with any dead frames.
+func (s *Spool) compactSegments(rel *Relief, target int64) error {
 	cands := map[uint64]bool{}
+	var partly []uint64
 	for id, st := range s.segs.segs {
-		if id != s.segs.active && st.live > 0 && st.live*2 < st.size {
+		switch {
+		case id == s.segs.active || st.live == 0:
+		case st.live*2 < st.size:
 			cands[id] = true
+		case st.live < st.size:
+			partly = append(partly, id)
 		}
+	}
+	disk := s.segs.diskBytes()
+	for id := range cands {
+		st := s.segs.segs[id]
+		disk -= st.size - st.live
+	}
+	dead := func(id uint64) int64 { return s.segs.segs[id].size - s.segs.segs[id].live }
+	sort.Slice(partly, func(i, j int) bool { return dead(partly[i]) > dead(partly[j]) })
+	for _, id := range partly {
+		if disk <= target {
+			break
+		}
+		cands[id] = true
+		disk -= dead(id)
 	}
 	if len(cands) == 0 {
 		return nil

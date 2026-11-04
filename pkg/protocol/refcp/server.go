@@ -26,8 +26,10 @@ type Options struct {
 	LateThreshold time.Duration // default 15m
 	WindowBytes   int64         // default protocol.DefaultWindowSize
 	MaxFrameBytes int64         // default protocol.MaxFramePayload
-	Conn          tunnel.ConnOptions
-	Logger        *slog.Logger
+	// WholeSummaries makes the server behave like a control plane that predates summary parts.
+	WholeSummaries bool
+	Conn           tunnel.ConnOptions
+	Logger         *slog.Logger
 }
 
 // Errors returned by management and query methods.

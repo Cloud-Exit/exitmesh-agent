@@ -48,6 +48,7 @@ type Options struct {
 	HealthInterval       time.Duration // default 60s; negative disables health reports
 	CallTimeout          time.Duration // default 30s
 	MaxBatchRecords      int           // default 512
+	SummaryPartBytes     int           // default protocol.SummaryPartBytes
 	DisableCompression   bool
 }
 
@@ -143,6 +144,9 @@ func New(opts Options) (*Client, error) {
 	}
 	if opts.MaxBatchRecords <= 0 {
 		opts.MaxBatchRecords = 512
+	}
+	if opts.SummaryPartBytes <= 0 {
+		opts.SummaryPartBytes = protocol.SummaryPartBytes
 	}
 	if opts.Agent.Protocol == 0 {
 		opts.Agent.Protocol = protocol.Version

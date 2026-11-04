@@ -85,7 +85,7 @@ func (s *Spool) commitAndRelieve(tx *Tx) error {
 		return err
 	}
 	s.signal()
-	if s.bytes >= s.trigger() && s.bytes >= s.nextRelief {
+	if p := s.pressure(); p >= s.trigger() && p >= s.nextRelief {
 		_, s.lastReliefErr = s.relieveLocked()
 	}
 	return nil
