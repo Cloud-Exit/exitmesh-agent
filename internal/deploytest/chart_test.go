@@ -510,17 +510,38 @@ func TestPackagesCapabilityConfig(t *testing.T) {
 	if slices.Contains(off.Capabilities, config.CapPackages) {
 		t.Errorf("packages enabled without inventory: %v", off.Capabilities)
 	}
-	ds := daemonSet(t, render(t, baseArgs...), nodeDS)
-	mounted := false
-	for _, c := range ds.Spec.Template.Spec.Containers {
-		for _, vm := range c.VolumeMounts {
-			if vm.Name == "host-root" {
-				mounted = vm.MountPath == "/host" && vm.ReadOnly
+	hostRoot := func(args ...string) *corev1.VolumeMount {
+		ds := daemonSet(t, render(t, append(args, baseArgs...)...), nodeDS)
+		for _, c := range ds.Spec.Template.Spec.Containers {
+			for _, vm := range c.VolumeMounts {
+				if vm.Name == "host-root" {
+					return &vm
+				}
 			}
 		}
+		return nil
 	}
-	if !mounted {
-		t.Error("the node's / must be mounted read-only at /host")
+	recursive := func(vm *corev1.VolumeMount) corev1.RecursiveReadOnlyMode {
+		if vm == nil || vm.RecursiveReadOnly == nil {
+			return ""
+		}
+		return *vm.RecursiveReadOnly
+	}
+	// Submounts below / stay writable unless the read-only mount is recursive.
+	if vm := hostRoot(); vm == nil || vm.MountPath != "/host" || !vm.ReadOnly || recursive(vm) != corev1.RecursiveReadOnlyEnabled {
+		t.Errorf("the node's / must be mounted recursively read-only at /host: %+v", vm)
+	}
+	if vm := hostRoot("--set", "packages.recursiveReadOnly=IfPossible"); recursive(vm) != corev1.RecursiveReadOnlyIfPossible {
+		t.Errorf("IfPossible not rendered: %+v", vm)
+	}
+	renderFails(t, "recursiveReadOnly", append([]string{"--set", "packages.recursiveReadOnly=Disabled"}, baseArgs...)...)
+	// Before 1.31 no recursive read-only mount exists, so the capability is off and nothing is mounted.
+	if vm := hostRoot("--kube-version", "1.30.0"); vm != nil {
+		t.Errorf("Kubernetes 1.30 mounts the node's /: %+v", vm)
+	}
+	_, old := agentConfigs(t, render(t, append([]string{"--kube-version", "1.30.0"}, baseArgs...)...))
+	if slices.Contains(old.Capabilities, config.CapPackages) {
+		t.Errorf("packages enabled on Kubernetes 1.30: %v", old.Capabilities)
 	}
 }
 

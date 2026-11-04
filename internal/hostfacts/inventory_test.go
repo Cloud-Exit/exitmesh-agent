@@ -126,6 +126,23 @@ func TestInventoryBelowHostRootFollowsHostSymlinks(t *testing.T) {
 	}
 }
 
+func TestInventoryBelowHostRootNeverReadsOutsideIt(t *testing.T) {
+	root := t.TempDir()
+	// A loop the resolver gives up on must not be followed by the container's own filesystem.
+	writeTree(t, root, map[string]string{
+		"etc/os-release":     "->/usr/lib/os-release",
+		"usr/lib/os-release": "->/etc/os-release",
+		"var/lib/dpkg":       "->/var/lib/dpkg",
+	})
+	inv := NewCollector(Options{Root: root}).Inventory()
+	if len(inv.OS) != 0 {
+		t.Fatalf("os read outside the host root: %v", inv.OS)
+	}
+	if inv.State == protocol.ScopeComplete || len(inv.Packages) != 0 {
+		t.Fatalf("packages read outside the host root: %v %d", inv.State, len(inv.Packages))
+	}
+}
+
 func TestInventoryBelowHostRootWithoutDatabasesIsUnavailable(t *testing.T) {
 	inv := NewCollector(Options{Root: t.TempDir()}).Inventory()
 	if inv.State != protocol.ScopeUnavailable || inv.Reason != ReasonSourceAbsent {

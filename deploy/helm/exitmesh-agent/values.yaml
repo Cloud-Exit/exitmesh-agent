@@ -52,6 +52,11 @@ capabilities:
   packages: true
 
 packages:
+  # Enabled: the node's / is read-only including every filesystem mounted below it; a node whose kernel (5.12+) or
+  # container runtime cannot do that refuses to start the node agent. IfPossible starts it anyway, leaving such
+  # submounts (a separate /tmp, for example) writable where file permissions allow. Kubernetes before 1.31 gets
+  # no / mount and no packages capability.
+  recursiveReadOnly: Enabled
   # How often node agents re-read the package databases (unchanged databases are not re-parsed).
   interval: 10m
 

@@ -75,8 +75,9 @@ helm.sh/chart: {{ include "exitmesh.chart" .ctx }}
 {{- toJson $caps -}}
 {{- end -}}
 
+{{- /* The node's / is mounted only where Kubernetes can make it recursively read-only (1.31 and later). */ -}}
 {{- define "exitmesh.packagesEnabled" -}}
-{{- if and .Values.capabilities.packages .Values.capabilities.inventory }}true{{ end -}}
+{{- if and .Values.capabilities.packages .Values.capabilities.inventory (semverCompare ">=1.31.0-0" .Capabilities.KubeVersion.Version) }}true{{ end -}}
 {{- end -}}
 
 {{- define "exitmesh.bundleDir" -}}

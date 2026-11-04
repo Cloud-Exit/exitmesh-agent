@@ -203,6 +203,7 @@ Image inventory replies also obey `investigation.maxLines` as a package count an
 |`namespaces.extraLabels`|empty|Extra labels on created namespaces.|
 |`capabilities.inventory`, `.metrics`, `.logs`|`true`|Capabilities; at least one of these must be enabled.|
 |`capabilities.packages`|`true`|Node package inventory for vulnerability matching in ExitMesh (see `docs/host-facts.md`). Effective only with `capabilities.inventory`, which provides the Node resources inventories attach to.|
+|`packages.recursiveReadOnly`|`Enabled`|How the node's `/` is made read-only. `Enabled` covers every filesystem mounted below it and needs Linux 5.12 or later and a container runtime that supports it (containerd 2.0, CRI-O 1.30); a node without that does not start the node agent. `IfPossible` starts it anyway and leaves such submounts writable where file permissions allow. Kubernetes before 1.31 gets no `/` mount and no packages capability.|
 |`packages.databases`, `packages.osRelease`|unset|Ignored since 0.23. Node agents mount the node's `/` read-only and find dpkg, rpm or apk themselves, so one chart works on every distribution.|
 |`packages.interval`|`10m`|Rendered to `node.packagesInterval`.|
 |`kubernetes.*`|see above|Rendered to the `kubernetes` section of both roles. `kubernetes.clusterDomain` (`cluster.local`) is used for certificate names only.|

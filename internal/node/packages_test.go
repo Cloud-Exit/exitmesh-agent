@@ -34,7 +34,11 @@ func writeHostRoot(t *testing.T, root, brotli string) {
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+		// Replaced atomically, as dpkg does, so the agent never reads a half-written file.
+		if err := os.WriteFile(full+".new", []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(full+".new", full); err != nil {
 			t.Fatal(err)
 		}
 	}

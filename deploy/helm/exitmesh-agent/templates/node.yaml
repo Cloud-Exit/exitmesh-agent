@@ -138,9 +138,7 @@ spec:
             - name: host-root
               mountPath: /host
               readOnly: true
-              {{- if semverCompare ">=1.30-0" .Capabilities.KubeVersion.Version }}
-              recursiveReadOnly: IfPossible
-              {{- end }}
+              recursiveReadOnly: {{ $v.packages.recursiveReadOnly }}
             {{- end }}
             - name: config
               mountPath: /etc/exitmesh/config

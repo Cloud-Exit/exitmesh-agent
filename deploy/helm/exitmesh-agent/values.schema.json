@@ -132,6 +132,13 @@
     "packages": {
       "type": "object",
       "properties": {
+        "recursiveReadOnly": {
+          "type": "string",
+          "enum": [
+            "Enabled",
+            "IfPossible"
+          ]
+        },
         "databases": {
           "type": "array",
           "items": {
