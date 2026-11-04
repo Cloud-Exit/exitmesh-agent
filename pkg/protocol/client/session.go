@@ -220,7 +220,11 @@ func (s *session) resume(res *protocol.HelloResult) error {
 // can never be delivered, so the writer rebaselines rather than reconnect with it forever.
 func (s *session) summaryMessages(sum protocol.SummaryParams, head uint64) ([]protocol.SummaryParams, error) {
 	if s.summaryParts {
-		return protocol.SplitSummary(sum, int(min(int64(s.c.opts.SummaryPartBytes), s.maxFrame/2)))
+		parts, err := protocol.SplitSummary(sum, min(s.c.opts.SummaryPartBytes, s.maxFrame/2))
+		if errors.Is(err, protocol.ErrTooLarge) {
+			return nil, &DivergenceError{Head: head, Reason: err.Error()}
+		}
+		return parts, err
 	}
 	body, err := json.Marshal(sum)
 	if err != nil {

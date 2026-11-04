@@ -210,9 +210,9 @@ type SummaryParams struct {
 // SummaryPartBytes bounds the encoded entries of one summary part, well below every message limit.
 const SummaryPartBytes = 4 << 20
 
-// SplitSummary splits a summary into parts whose encoded entries stay within maxBytes; one entry larger than that
-// is a part of its own.
-func SplitSummary(p SummaryParams, maxBytes int) ([]SummaryParams, error) {
+// SplitSummary splits a summary into parts whose encoded entries stay within maxBytes. An entry that alone exceeds
+// maxBytes fits no part and is an ErrTooLarge error.
+func SplitSummary(p SummaryParams, maxBytes int64) ([]SummaryParams, error) {
 	whole := p
 	whole.Part, whole.More = 0, false
 	if whole.Entries == nil {
@@ -221,20 +221,25 @@ func SplitSummary(p SummaryParams, maxBytes int) ([]SummaryParams, error) {
 	var parts []SummaryParams
 	cur := whole
 	cur.Entries = []SummaryEntry{}
-	size := 0
+	var size int64
 	for _, e := range whole.Entries {
 		b, err := json.Marshal(e)
 		if err != nil {
 			return nil, fmt.Errorf("protocol: encode summary entry: %w", err)
 		}
-		if len(cur.Entries) > 0 && size+len(b)+1 > maxBytes {
+		n := int64(len(b)) + 1
+		if n > maxBytes {
+			return nil, fmt.Errorf("%w: summary entry of finding %s is %d bytes, a part holds %d", ErrTooLarge, e.FindingID, len(b), maxBytes)
+		}
+		if len(cur.Entries) > 0 && size+n > maxBytes {
 			parts = append(parts, cur)
+			next := cur.Part + 1
 			cur = whole
-			cur.Entries, cur.Part = []SummaryEntry{}, uint32(len(parts))
+			cur.Entries, cur.Part = []SummaryEntry{}, next
 			size = 0
 		}
 		cur.Entries = append(cur.Entries, e)
-		size += len(b) + 1
+		size += n
 	}
 	parts = append(parts, cur)
 	for i := range parts[:len(parts)-1] {

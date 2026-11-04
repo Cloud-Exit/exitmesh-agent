@@ -2,6 +2,7 @@ package refcp_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cloud-exit/exitmesh-agent/internal/tunnel"
@@ -77,5 +78,26 @@ func TestOversizedWholeSummaryRebaselines(t *testing.T) {
 	eps, err := h.cp.Epochs(tid)
 	if err != nil || len(eps) != 2 {
 		t.Fatalf("epochs %d %v", len(eps), err)
+	}
+}
+
+// One finding whose summary entry fits no part cannot be delivered even in parts; the writer rebaselines.
+func TestSummaryEntryLargerThanAPartRebaselines(t *testing.T) {
+	h := newHarness(t, refcp.Options{MaxFrameBytes: 4 << 10, Conn: tunnel.ConnOptions{ReadLimit: 8 << 10}})
+	tid, _, w := h.target(protocol.TargetKubernetes, "")
+	p := h.start(w, nil)
+	h.waitDrained(w)
+	before := currentEpoch(w)
+	earlier, _ := h.cp.Summaries(tid)
+	outage(t, h, tid, p)
+	mustFire(t, w, strings.Repeat("<", 1500))
+	h.cp.SetUnavailable(false)
+	waitFor(t, "rebaseline", func() bool { return currentEpoch(w) != before })
+	h.waitDrained(w)
+	sums, _ := h.cp.Summaries(tid)
+	for _, sum := range sums[len(earlier):] {
+		if sum.Epoch == before {
+			t.Fatalf("a summary of epoch %s was delivered", before)
+		}
 	}
 }

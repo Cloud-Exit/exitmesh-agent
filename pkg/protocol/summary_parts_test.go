@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -49,5 +50,17 @@ func TestSplitSummaryOfNothingIsOneEmptyPart(t *testing.T) {
 	b, _ := json.Marshal(parts[0])
 	if strings.Contains(string(b), "part") || strings.Contains(string(b), "more") {
 		t.Fatalf("a whole summary carries part fields: %s", b)
+	}
+}
+
+// JSON escaping can make one entry far larger than its finding; such an entry fits no part and is refused.
+func TestSplitSummaryRefusesAnEntryLargerThanAPart(t *testing.T) {
+	sum := SummaryParams{Watermark: 9, Head: 8, Entries: []SummaryEntry{
+		{FindingID: "small", DedupKey: "k", State: LifecycleFiring},
+		{FindingID: "huge", DedupKey: strings.Repeat("<", 3000), State: LifecycleFiring},
+	}}
+	_, err := SplitSummary(sum, 8<<10)
+	if !errors.Is(err, ErrTooLarge) || !strings.Contains(err.Error(), "huge") {
+		t.Fatalf("err %v", err)
 	}
 }

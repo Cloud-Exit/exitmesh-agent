@@ -642,6 +642,10 @@ func TestDiskStaysWithinCapacityUnderPressure(t *testing.T) {
 	if limit := u.Capacity + w.opts.SegmentBytes; u.DiskBytes > limit {
 		t.Fatalf("segment files hold %d bytes for %d live, capacity %d", u.DiskBytes, u.Bytes, u.Capacity)
 	}
+	// Relief itself writes before it frees; reclaiming each source segment as it empties keeps that bounded.
+	if limit := u.Capacity + 2*w.opts.SegmentBytes; w.s.segs.peak > limit {
+		t.Fatalf("segment files peaked at %d bytes, capacity %d", w.s.segs.peak, u.Capacity)
+	}
 	replayHashes(t, w.s, allEntries(w.s))
 	w.reopen()
 	replayHashes(t, w.s, allEntries(w.s))

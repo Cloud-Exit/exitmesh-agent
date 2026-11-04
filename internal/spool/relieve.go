@@ -267,6 +267,8 @@ func (s *Spool) replaceMetas(olds, news []recMeta, frames [][]byte, changed []in
 		s.account(olds[i], -1)
 		s.account(news[i], 1)
 	}
+	// Segments emptied by this batch go now, so a rewrite never holds old and new copies of everything at once.
+	s.noteIO(s.segs.gc())
 	return nil
 }
 
@@ -492,37 +494,16 @@ func (s *Spool) persistRange(acc *protocol.Record, accMeta *recMeta, pending []r
 
 // compactSegments copies live frames out of mostly superseded segments; bytes do not change.
 // compactSegments rewrites the live frames of segments that are mostly dead and, while the segment files exceed
-// target, of the deadest segments with any dead frames.
+// target, of the deadest segments with any dead frames. Each segment is moved whole and removed before the next.
 func (s *Spool) compactSegments(rel *Relief, target int64) error {
-	cands := map[uint64]bool{}
-	var partly []uint64
-	for id, st := range s.segs.segs {
-		switch {
-		case id == s.segs.active || st.live == 0:
-		case st.live*2 < st.size:
-			cands[id] = true
-		case st.live < st.size:
-			partly = append(partly, id)
-		}
-	}
-	disk := s.segs.diskBytes()
-	for id := range cands {
-		st := s.segs.segs[id]
-		disk -= st.size - st.live
-	}
-	dead := func(id uint64) int64 { return s.segs.segs[id].size - s.segs.segs[id].live }
-	sort.Slice(partly, func(i, j int) bool { return dead(partly[i]) > dead(partly[j]) })
-	for _, id := range partly {
-		if disk <= target {
-			break
-		}
-		cands[id] = true
-		disk -= dead(id)
-	}
-	if len(cands) == 0 {
+	order := s.compactionOrder(target)
+	if len(order) == 0 {
 		return nil
 	}
-	var metas []recMeta
+	bySeg := map[uint64][]recMeta{}
+	for _, id := range order {
+		bySeg[id] = nil
+	}
 	err := s.db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket(bucketRecords).Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -530,8 +511,8 @@ func (s *Spool) compactSegments(rel *Relief, target int64) error {
 			if err != nil {
 				return err
 			}
-			if cands[m.Seg] {
-				metas = append(metas, m)
+			if metas, ok := bySeg[m.Seg]; ok {
+				bySeg[m.Seg] = append(metas, m)
 			}
 		}
 		return nil
@@ -539,6 +520,47 @@ func (s *Spool) compactSegments(rel *Relief, target int64) error {
 	if err != nil {
 		return err
 	}
+	for _, id := range order {
+		if err := s.moveFrames(bySeg[id]); err != nil {
+			return err
+		}
+		rel.SegmentsCompacted++
+	}
+	return nil
+}
+
+// compactionOrder lists the segments to compact, deadest first.
+func (s *Spool) compactionOrder(target int64) []uint64 {
+	dead := func(id uint64) int64 { return s.segs.segs[id].size - s.segs.segs[id].live }
+	var mostly, partly []uint64
+	for id, st := range s.segs.segs {
+		switch {
+		case id == s.segs.active || st.live == 0:
+		case st.live*2 < st.size:
+			mostly = append(mostly, id)
+		case st.live < st.size:
+			partly = append(partly, id)
+		}
+	}
+	disk := s.segs.diskBytes()
+	for _, id := range mostly {
+		disk -= dead(id)
+	}
+	sort.Slice(partly, func(i, j int) bool { return dead(partly[i]) > dead(partly[j]) })
+	order := mostly
+	for _, id := range partly {
+		if disk <= target {
+			break
+		}
+		order = append(order, id)
+		disk -= dead(id)
+	}
+	sort.Slice(order, func(i, j int) bool { return dead(order[i]) > dead(order[j]) })
+	return order
+}
+
+// moveFrames copies the frames of metas, unchanged, to the active segment in bounded batches.
+func (s *Spool) moveFrames(metas []recMeta) error {
 	for len(metas) > 0 {
 		var olds []recMeta
 		var frames [][]byte
@@ -561,6 +583,5 @@ func (s *Spool) compactSegments(rel *Relief, target int64) error {
 			return err
 		}
 	}
-	rel.SegmentsCompacted = len(cands)
 	return nil
 }
