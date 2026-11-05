@@ -64,3 +64,32 @@ func TestSplitSummaryRefusesAnEntryLargerThanAPart(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+func TestSplitSummaryRefusesALoneOversizedEntry(t *testing.T) {
+	sum := SummaryParams{Watermark: 3, Head: 1, Entries: []SummaryEntry{{FindingID: "only", DedupKey: strings.Repeat("k", 9000), State: LifecycleFiring}}}
+	parts, err := SplitSummary(sum, 8<<10)
+	if !errors.Is(err, ErrTooLarge) || parts != nil {
+		t.Fatalf("parts %d err %v", len(parts), err)
+	}
+}
+
+// A valid finding of about 3 MiB escapes to an entry over the largest frame, so no part limit can carry it.
+func TestSplitSummaryRefusesAValidFindingThatEscapesPastTheFrameLimit(t *testing.T) {
+	key := strings.Repeat("<", 3<<19)
+	b := newChainBuilder(t)
+	f := testFinding("big", TransitionFiring, b.now)
+	f.DedupKey, f.Provenance.RuleID = key, key
+	rec := b.add(&Record{Envelope: b.chain.Next(TypeFinding, 1, b.now), Finding: f})
+	if n := len(rec.Bytes()); n > MaxRecordBytes || n < 3<<20 {
+		t.Fatalf("finding record is %d bytes", n)
+	}
+	e := SummaryEntry{FindingID: f.ID, DedupKey: key, State: LifecycleFiring, RuleID: key, Severity: "high"}
+	if eb, _ := json.Marshal(e); len(eb) <= MaxFramePayload {
+		t.Fatalf("entry is only %d bytes", len(eb))
+	}
+	sum := SummaryParams{Watermark: 9, Head: 8, Entries: []SummaryEntry{{FindingID: "a", DedupKey: "k", State: LifecycleFiring}, e}}
+	parts, err := SplitSummary(sum, SummaryPartBytes)
+	if !errors.Is(err, ErrTooLarge) || parts != nil {
+		t.Fatalf("parts %d err %v", len(parts), err)
+	}
+}
