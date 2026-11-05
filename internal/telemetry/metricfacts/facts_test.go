@@ -183,3 +183,56 @@ func TestThresholds(t *testing.T) {
 		t.Fatal("configured relative threshold")
 	}
 }
+
+func TestVolumeFacts(t *testing.T) {
+	db, err := tsdb.Open(t.TempDir(), tsdb.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	start := time.Unix(1_790_000_000, 0).Truncate(time.Hour)
+	vol := func(name string) labels.Labels {
+		return labels.FromStrings("__name__", name, "namespace", "db", "persistentvolumeclaim", "data-0", "node", "n1", "job", "kubelet")
+	}
+	for el := time.Duration(0); el <= time.Hour; el += 30 * time.Second {
+		app := db.Appender(context.Background())
+		for _, s := range []struct {
+			l labels.Labels
+			v float64
+		}{
+			{vol("kubelet_volume_stats_capacity_bytes"), 10 * gib},
+			{vol("kubelet_volume_stats_available_bytes"), 4 * gib},
+			{vol("kubelet_volume_stats_used_bytes"), 6 * gib},
+		} {
+			if _, err := app.Append(0, s.l, start.Add(el).UnixMilli(), s.v); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := app.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := promql.NewEngine(promql.EngineOpts{MaxSamples: 50_000_000, Timeout: time.Minute})
+	facts, err := Compute(context.Background(), db, engine, start.Add(time.Hour), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, ok := byKey(facts)["claim/db/data-0"]
+	if !ok {
+		t.Fatalf("no claim fact in %+v", facts)
+	}
+	if f.Claim != "data-0" || f.Namespace != "db" || f.Pod != "" || f.Node != "" {
+		t.Fatalf("claim identity %+v", f)
+	}
+	want := map[string]any{
+		VolumeCapacity:  10 * gib,
+		VolumeAvailable: 4 * gib,
+		VolumeUsed:      6 * gib,
+		VolumeUsedRatio: 0.6,
+	}
+	for k, v := range want {
+		if f.Fields[k] != v {
+			t.Fatalf("%s = %v, want %v (%+v)", k, f.Fields[k], v, f.Fields)
+		}
+	}
+}

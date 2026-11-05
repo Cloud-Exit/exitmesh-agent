@@ -34,17 +34,23 @@ const (
 	NodeMemPressure  = "metric.node.memory_pressure"
 	NodeDiskPressure = "metric.node.disk_pressure"
 	NodePIDPressure  = "metric.node.pid_pressure"
+	VolumeCapacity   = "metric.volume.capacity_bytes"
+	VolumeAvailable  = "metric.volume.available_bytes"
+	VolumeUsed       = "metric.volume.used_bytes"
+	VolumeUsedRatio  = "metric.volume.used_ratio"
 )
 
 // SaturationRatio is the fraction of a limit at which usage p95 counts as saturated.
 const SaturationRatio = 0.9
 
-// Fact is one resource summary: a container (Namespace, Pod, Container set) or a node (only Node set).
+// Fact is one resource summary: a container (Namespace, Pod, Container set), a node (only Node set)
+// or a volume claim (Namespace, Claim set; Node stays empty so older coordinators skip it).
 type Fact struct {
 	Namespace string
 	Pod       string
 	Container string
 	Node      string
+	Claim     string `cbor:",omitempty"`
 	Fields    map[string]any
 	// UID is the pod the node agent observed under Namespace and Pod when it computed the fact.
 	UID string `cbor:",omitempty"`
@@ -52,6 +58,9 @@ type Fact struct {
 
 // Key identifies the resource.
 func (f Fact) Key() string {
+	if f.Claim != "" {
+		return "claim/" + f.Namespace + "/" + f.Claim
+	}
 	if f.Pod == "" {
 		return "node/" + f.Node
 	}
@@ -147,6 +156,11 @@ func Compute(ctx context.Context, q storage.Queryable, engine *promql.Engine, no
 		return nil, err
 	}
 	out = append(out, nodes...)
+	volumes, err := volumeFacts(ctx, q, engine, now, iv)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, volumes...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })
 	return out, nil
 }
@@ -210,6 +224,43 @@ func nodeFacts(ctx context.Context, q storage.Queryable, engine *promql.Engine, 
 	return out, nil
 }
 
+// volumeFacts reports each mounted claim's last kubelet volume stats; an unmounted claim has none.
+func volumeFacts(ctx context.Context, q storage.Queryable, engine *promql.Engine, now time.Time, iv string) ([]Fact, error) {
+	byClaim := map[string]*Fact{}
+	for metric, key := range map[string]string{
+		"kubelet_volume_stats_capacity_bytes":  VolumeCapacity,
+		"kubelet_volume_stats_available_bytes": VolumeAvailable,
+		"kubelet_volume_stats_used_bytes":      VolumeUsed,
+	} {
+		vec, err := instant(ctx, engine, q, fmt.Sprintf(`max by (namespace, persistentvolumeclaim) (last_over_time(%s[%s]))`, metric, iv), now)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range vec {
+			ns, claim := s.Metric.Get("namespace"), s.Metric.Get("persistentvolumeclaim")
+			if ns == "" || claim == "" || math.IsNaN(s.F) || math.IsInf(s.F, 0) || s.H != nil {
+				continue
+			}
+			f := byClaim[ns+"/"+claim]
+			if f == nil {
+				f = &Fact{Namespace: ns, Claim: claim, Fields: map[string]any{}}
+				byClaim[ns+"/"+claim] = f
+			}
+			f.Fields[key] = math.Round(s.F)
+		}
+	}
+	out := make([]Fact, 0, len(byClaim))
+	for _, f := range byClaim {
+		capacity, ok1 := f.Fields[VolumeCapacity].(float64)
+		used, ok2 := f.Fields[VolumeUsed].(float64)
+		if ok1 && ok2 && capacity > 0 {
+			f.Fields[VolumeUsedRatio] = round(used/capacity, 4)
+		}
+		out = append(out, *f)
+	}
+	return out, nil
+}
+
 func instant(ctx context.Context, engine *promql.Engine, q storage.Queryable, expr string, now time.Time) (promql.Vector, error) {
 	qry, err := engine.NewInstantQuery(ctx, q, nil, expr, now)
 	if err != nil {
@@ -237,6 +288,7 @@ func DefaultThresholds() Thresholds {
 		"_cores":     0.01,
 		"_bytes":     4 << 20,
 		"_ratio_p95": 0.02,
+		"used_ratio": 0.01,
 		".count":     1,
 		".per_hour":  0.5,
 	}}

@@ -63,7 +63,7 @@ func (a *Agent) emitFacts(ctx context.Context) error {
 	}
 	a.facts.mu.Lock()
 	defer a.facts.mu.Unlock()
-	var changed []metricfacts.Fact
+	var changed, claims []metricfacts.Fact
 	for _, f := range facts {
 		if f.Pod != "" {
 			uid, ok := a.pods.resolve(state.KindPod, f.Namespace, f.Pod)
@@ -73,9 +73,22 @@ func (a *Agent) emitFacts(ctx context.Context) error {
 			f.UID = uid
 		}
 		if f.UID != a.facts.lastUID[f.Key()] || a.facts.th.Changed(a.facts.last[f.Key()], f.Fields) {
-			changed = append(changed, f)
+			if f.Claim != "" {
+				claims = append(claims, f)
+			} else {
+				changed = append(changed, f)
+			}
 		}
 	}
+	// Claim facts travel in their own items, so a coordinator that predates them refuses only those.
+	if err := a.sendFacts(changed); err != nil {
+		return err
+	}
+	return a.sendFacts(claims)
+}
+
+// sendFacts queues facts in bounded items and remembers what each key last sent.
+func (a *Agent) sendFacts(changed []metricfacts.Fact) error {
 	for len(changed) > 0 {
 		n := min(len(changed), maxFactsPerItem)
 		batch := changed[:n]
