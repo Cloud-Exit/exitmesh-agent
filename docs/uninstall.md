@@ -44,7 +44,7 @@ comm -23 <(kubectl get nodes -o name | sed 's#node/##' | sort) \
       -o jsonpath='{range .items[?(@.status.containerStatuses[0].ready==true)]}{.spec.nodeName}{"\n"}{end}' | sort)
 ```
 
-Inside the pods the directory is the hostPath mount point, so the cleanup removes all of its contents and an empty `/var/lib/exitmesh` directory remains on each node. A node administrator may remove it with `rmdir /var/lib/exitmesh`.
+Inside the pods the directory is the hostPath mount point (`node.stateHostPath`, default `/var/lib/exitmesh`), so the cleanup removes all of its contents and an empty directory remains on each node. A node administrator may remove it with `rmdir /var/lib/exitmesh`.
 
 ### Finish
 

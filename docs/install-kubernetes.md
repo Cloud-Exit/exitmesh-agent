@@ -90,7 +90,7 @@ This is the summary shown at onboarding and printed by the chart after install.
 
 |Path|Access|Purpose|
 |---|---|---|
-|`/var/lib/exitmesh`|read-write, `DirectoryOrCreate`, mode 0700, owned by UID 65532|Node queue, local TSDB, log offsets, alert state. The only host write. Capped at `node.diskCap` (1 GiB) by the agent because kubelet eviction does not see hostPath usage. Removed on uninstall.|
+|`node.stateHostPath` (default `/var/lib/exitmesh`)|read-write, `DirectoryOrCreate`, mode 0700, owned by UID 65532|Node queue, local TSDB, log offsets, alert state, mounted at `/var/lib/exitmesh` in the pod. The only host write. Capped at `node.diskCap` (1 GiB) by the agent because kubelet eviction does not see hostPath usage. Removed on uninstall. Two releases on the same nodes need different values: the node agent locks the directory and the cleanup hook empties it.|
 |`/var/log/pods`|read-only|Log rules and investigation (logs capability).|
 |`/sys` at `/host/sys`|read-only, mounted only while `node.hostMetrics` (default `true`) and the metrics capability are on|Byte counters and link speeds of the node's physical network devices for the node network rule. Set `node.hostMetrics=false` to drop the mount; node memory still comes from the agent's own `/proc` only while it is on.|
 |`imageInventory.contentStore` (default `/var/lib/containerd/io.containerd.content.v1.content`)|read-only, mounted only while `imageInventory.enabled`|Package inventories of running images for `image.sbom.get`. Staged metadata files and the cache live under `/var/lib/exitmesh/sbom`.|
