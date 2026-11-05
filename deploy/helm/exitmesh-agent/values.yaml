@@ -173,6 +173,8 @@ node:
   gid: 65532
   # FALLBACK ONLY: stay UID 0 with CAP_DAC_READ_SEARCH alone instead of switching users, where policy forbids CAP_SETUID. Flagged on the connector and in the install notes.
   runAsRootFallback: false
+  # Node directory mounted as the agent state at /var/lib/exitmesh; give each release sharing nodes its own.
+  stateHostPath: /var/lib/exitmesh
   diskCap: 1Gi
   evidenceRing: 16Mi
   scrapeInterval: 30s

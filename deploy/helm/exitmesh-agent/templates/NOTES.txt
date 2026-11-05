@@ -16,7 +16,7 @@ Permission summary (verbs get, list, watch only; no writes, no Secrets, no exec,
 {{- end }}
 
 Host-mount summary (node agents)
-  /var/lib/exitmesh  read-write, created if missing, mode 0700, owned by UID {{ ternary 0 .Values.node.uid .Values.node.runAsRootFallback }}. The only host path written. Capped at {{ .Values.node.diskCap }} by the agent; removed on uninstall.
+  {{ .Values.node.stateHostPath }}  read-write (the agent's /var/lib/exitmesh), created if missing, mode 0700, owned by UID {{ ternary 0 .Values.node.uid .Values.node.runAsRootFallback }}. The only host path written. Capped at {{ .Values.node.diskCap }} by the agent; removed on uninstall.
 {{- if .Values.capabilities.logs }}
   /var/log/pods      read-only, for log rules and investigation.
 {{- end }}

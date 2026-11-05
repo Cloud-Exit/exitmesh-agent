@@ -781,6 +781,30 @@ func TestNetworkPolicies(t *testing.T) {
 	}
 }
 
+func TestNodeStateHostPath(t *testing.T) {
+	const dir = "/var/lib/exitmesh-second"
+	m := render(t, append([]string{"--set", "node.stateHostPath=" + dir}, baseArgs...)...)
+	for _, name := range []string{nodeDS, cleanupDS} {
+		spec := daemonSet(t, m, name).Spec.Template.Spec
+		h := hostPaths(spec)["state"]
+		if h == nil || h.Path != dir || h.Type == nil || *h.Type != corev1.HostPathDirectoryOrCreate {
+			t.Fatalf("%s: state hostPath = %+v, want %s DirectoryOrCreate", name, h, dir)
+		}
+		for _, c := range append(spec.InitContainers, spec.Containers...) {
+			for _, vm := range c.VolumeMounts {
+				if vm.Name == "state" && vm.MountPath != "/var/lib/exitmesh" {
+					t.Errorf("%s/%s: state mounted at %s, the agent always uses /var/lib/exitmesh", name, c.Name, vm.MountPath)
+				}
+			}
+		}
+	}
+	if _, node := agentConfigs(t, m); node.StateDir != "/var/lib/exitmesh" {
+		t.Fatalf("node stateDir = %s", node.StateDir)
+	}
+	schemaFails(t, "stateHostPath", append([]string{"--set", "node.stateHostPath=relative/path"}, baseArgs...)...)
+	schemaFails(t, "stateHostPath", append([]string{"--set", "node.stateHostPath=/"}, baseArgs...)...)
+}
+
 func TestCleanupHook(t *testing.T) {
 	m := render(t, baseArgs...)
 	o := m.find(t, "DaemonSet", cleanupDS)

@@ -152,7 +152,7 @@ spec:
       volumes:
         - name: state
           hostPath:
-            path: /var/lib/exitmesh
+            path: {{ $v.node.stateHostPath | quote }}
             type: DirectoryOrCreate
         {{- if $v.capabilities.logs }}
         - name: pod-logs
