@@ -242,6 +242,7 @@ Image inventory replies also obey `investigation.maxLines` as a package count an
 |`networkPolicy.enabled`|`true`|Ship NetworkPolicies.|
 |`networkPolicy.dns.ports`|`[53]`|DNS egress (UDP and TCP).|
 |`networkPolicy.apiServer`, `.endpoint`, `.kubelet`|`cidrs: []`; ports `[443, 6443]`, `[443]`, `[10250]`|Egress rules; empty `cidrs` means any destination on those ports.|
+|`networkPolicy.cilium`|`auto`|Cilium host firewall rule letting node agents reach the kubelet port: `auto` renders it when the cluster serves `cilium.io/v2` CiliumClusterwideNetworkPolicy, `true` always, `false` never. Metrics capability only; independent of `networkPolicy.enabled`. See [install-kubernetes.md](install-kubernetes.md#networkpolicies).|
 |`cleanup.enabled`, `cleanup.resources`|`true`|Post-delete cleanup DaemonSet ([uninstall.md](uninstall.md)).|
 
 ### Example lookback values

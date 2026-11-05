@@ -781,6 +781,74 @@ func TestNetworkPolicies(t *testing.T) {
 	}
 }
 
+func TestCiliumKubeletPolicy(t *testing.T) {
+	const ccnp = "CiliumClusterwideNetworkPolicy"
+	cilium := []string{"--api-versions", "cilium.io/v2/CiliumClusterwideNetworkPolicy"}
+	if m := render(t, baseArgs...); len(m.all(ccnp)) != 0 {
+		t.Fatal("a cluster without Cilium got a Cilium policy")
+	}
+	m := render(t, append(cilium, baseArgs...)...)
+	p := m.find(t, ccnp, nodeDS+"-kubelet")
+	specs, _ := get(p, "specs").([]any)
+	if len(specs) != 2 {
+		t.Fatalf("specs = %v", specs)
+	}
+	agent := map[string]any{
+		"io.kubernetes.pod.namespace": "exitmesh-node",
+		"app.kubernetes.io/name":      "exitmesh-agent",
+		"app.kubernetes.io/instance":  "exitmesh-agent",
+		"app.kubernetes.io/component": "node",
+	}
+	kubelet := []any{map[string]any{"ports": []any{map[string]any{"port": "10250", "protocol": "TCP"}}}}
+	noDefaultDeny := map[string]any{"ingress": false, "egress": false}
+	host, egress := specs[0], specs[1]
+	if !reflect.DeepEqual(get(host, "nodeSelector"), map[string]any{}) {
+		t.Errorf("host rule must select every node: %v", get(host, "nodeSelector"))
+	}
+	ingress, _ := get(host, "ingress").([]any)
+	if len(ingress) != 1 ||
+		!reflect.DeepEqual(get(ingress[0], "fromEndpoints"), []any{map[string]any{"matchLabels": agent}}) ||
+		!reflect.DeepEqual(get(ingress[0], "toPorts"), kubelet) {
+		t.Errorf("host ingress = %v", ingress)
+	}
+	if !reflect.DeepEqual(get(egress, "endpointSelector"), map[string]any{"matchLabels": agent}) {
+		t.Errorf("egress rule selects %v", get(egress, "endpointSelector"))
+	}
+	out, _ := get(egress, "egress").([]any)
+	if len(out) != 1 ||
+		!reflect.DeepEqual(get(out[0], "toEntities"), []any{"host", "remote-node"}) ||
+		!reflect.DeepEqual(get(out[0], "toPorts"), kubelet) {
+		t.Errorf("agent egress = %v", out)
+	}
+	// Selecting a host must never turn on default deny for it: the policy only adds allows.
+	for i, s := range specs {
+		if !reflect.DeepEqual(get(s, "enableDefaultDeny"), noDefaultDeny) {
+			t.Errorf("spec %d enableDefaultDeny = %v", i, get(s, "enableDefaultDeny"))
+		}
+	}
+	port := render(t, append(cilium, append([]string{"--set", "node.kubeletPort=10255"}, baseArgs...)...)...)
+	portSpecs, _ := get(port.find(t, ccnp, nodeDS+"-kubelet"), "specs").([]any)
+	portIngress, _ := get(portSpecs[0], "ingress").([]any)
+	want := []any{map[string]any{"ports": []any{map[string]any{"port": "10255", "protocol": "TCP"}}}}
+	if !reflect.DeepEqual(get(portIngress[0], "toPorts"), want) {
+		t.Errorf("custom kubelet port not used: %v", get(portIngress[0], "toPorts"))
+	}
+	for _, off := range [][]string{
+		{"--set", "networkPolicy.cilium=false"},
+		{"--set", "capabilities.metrics=false"},
+	} {
+		if m := render(t, append(cilium, append(off, baseArgs...)...)...); len(m.all(ccnp)) != 0 {
+			t.Errorf("%v still renders the Cilium policy", off)
+		}
+	}
+	if m := render(t, append([]string{"--set", "networkPolicy.cilium=true"}, baseArgs...)...); len(m.all(ccnp)) != 1 {
+		t.Error("networkPolicy.cilium=true must render without API discovery")
+	}
+	if _, err := helmTemplate(t, append([]string{"--set", "networkPolicy.cilium=maybe"}, baseArgs...)...); err == nil || !strings.Contains(err.Error(), "cilium") {
+		t.Errorf("networkPolicy.cilium=maybe: err = %v, want a schema rejection", err)
+	}
+}
+
 func TestNodeStateHostPath(t *testing.T) {
 	const dir = "/var/lib/exitmesh-second"
 	m := render(t, append([]string{"--set", "node.stateHostPath=" + dir}, baseArgs...)...)

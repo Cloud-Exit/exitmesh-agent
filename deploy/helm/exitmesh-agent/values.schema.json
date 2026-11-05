@@ -971,6 +971,17 @@
             }
           },
           "additionalProperties": false
+        },
+        "cilium": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "enum": ["auto"]
+            }
+          ]
         }
       },
       "additionalProperties": false

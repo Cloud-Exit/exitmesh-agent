@@ -252,6 +252,10 @@ networkPolicy:
   kubelet:
     cidrs: []
     ports: [10250]
+  # Cilium host firewall rule letting node agents scrape the kubelet: auto renders it when the cluster serves
+  # cilium.io/v2 CiliumClusterwideNetworkPolicy. It only adds allows (enableDefaultDeny off, Cilium 1.16+) and
+  # applies whether or not networkPolicy.enabled is set, since the host firewall blocks kubelet either way.
+  cilium: auto
 
 # Post-delete cleanup DaemonSet that removes /var/lib/exitmesh on every node after the workloads are gone.
 cleanup:
