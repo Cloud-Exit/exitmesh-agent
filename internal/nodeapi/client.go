@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -78,7 +79,7 @@ type ClientOptions struct {
 // Client is the node agent side of the API. Retries are the caller's job.
 type Client struct {
 	base      string
-	hc        *http.Client
+	ca        *caReloader
 	tokenFile string
 	node      string
 	timeout   time.Duration
@@ -97,17 +98,9 @@ func NewClient(o ClientOptions) (*Client, error) {
 	if err := checkNode(o.Node); err != nil {
 		return nil, err
 	}
-	tlsc := &tls.Config{MinVersion: tls.VersionTLS12}
-	if o.CAFile != "" {
-		pem, err := os.ReadFile(o.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("nodeapi: reading CA file: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("nodeapi: CA file %s holds no certificates", o.CAFile)
-		}
-		tlsc.RootCAs = pool
+	ca, err := newCAReloader(o.CAFile)
+	if err != nil {
+		return nil, err
 	}
 	if o.Timeout <= 0 {
 		o.Timeout = DefaultClientTimeout
@@ -115,17 +108,93 @@ func NewClient(o ClientOptions) (*Client, error) {
 	if o.LongPollTimeout <= 0 {
 		o.LongPollTimeout = DefaultLongPollTimeout
 	}
-	tr := &http.Transport{
-		TLSClientConfig:     tlsc,
+	return &Client{
+		base:      strings.TrimRight(u.String(), "/"),
+		ca:        ca,
+		tokenFile: o.TokenFile,
+		node:      o.Node,
+		timeout:   o.Timeout,
+		longPoll:  o.LongPollTimeout,
+	}, nil
+}
+
+func newTransport(roots *x509.CertPool) *http.Transport {
+	return &http.Transport{
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots},
 		ForceAttemptHTTP2:   true,
 		TLSHandshakeTimeout: 10 * time.Second,
 		IdleConnTimeout:     90 * time.Second,
 		MaxIdleConnsPerHost: 4,
 	}
-	return &Client{
-		base: strings.TrimRight(u.String(), "/"), hc: &http.Client{Transport: tr},
-		tokenFile: o.TokenFile, node: o.Node, timeout: o.Timeout, longPoll: o.LongPollTimeout,
-	}, nil
+}
+
+// caReloader rebuilds the HTTP client when the CA file changes, so a rotated coordinator CA
+// is trusted without restarting the node agent.
+type caReloader struct {
+	file  string
+	mu    sync.Mutex
+	stamp fileStamp
+	hc    *http.Client
+}
+
+type fileStamp struct {
+	mod  time.Time
+	size int64
+}
+
+func newCAReloader(file string) (*caReloader, error) {
+	r := &caReloader{file: file}
+	if file == "" {
+		r.hc = &http.Client{Transport: newTransport(nil)}
+		return r, nil
+	}
+	st, err := os.Stat(file)
+	if err != nil {
+		return nil, fmt.Errorf("nodeapi: reading CA file: %w", err)
+	}
+	pool, err := readCAPool(file)
+	if err != nil {
+		return nil, err
+	}
+	r.stamp = fileStamp{mod: st.ModTime(), size: st.Size()}
+	r.hc = &http.Client{Transport: newTransport(pool)}
+	return r, nil
+}
+
+func readCAPool(file string) (*x509.CertPool, error) {
+	pem, err := os.ReadFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("nodeapi: reading CA file: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("nodeapi: CA file %s holds no certificates", file)
+	}
+	return pool, nil
+}
+
+// client returns the HTTP client for the current CA file; an unreadable file keeps the last good one.
+func (r *caReloader) client() *http.Client {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.file == "" {
+		return r.hc
+	}
+	st, err := os.Stat(r.file)
+	if err != nil {
+		return r.hc
+	}
+	if st.ModTime().Equal(r.stamp.mod) && st.Size() == r.stamp.size {
+		return r.hc
+	}
+	pool, err := readCAPool(r.file)
+	if err != nil {
+		return r.hc
+	}
+	r.stamp = fileStamp{mod: st.ModTime(), size: st.Size()}
+	r.hc.CloseIdleConnections()
+	r.hc = &http.Client{Transport: newTransport(pool)}
+	return r.hc
 }
 
 func (c *Client) token() (string, error) {
@@ -165,7 +234,7 @@ func (c *Client) do(ctx context.Context, op, method, path string, timeout time.D
 	if in != nil {
 		req.Header.Set("Content-Type", ContentType)
 	}
-	resp, err := c.hc.Do(req)
+	resp, err := c.ca.client().Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return false, ctx.Err()
