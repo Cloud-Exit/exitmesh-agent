@@ -141,6 +141,20 @@ func TestInventoryConversion(t *testing.T) {
 	}
 }
 
+func TestClaimFactIdentifiesItsClaim(t *testing.T) {
+	ok := SubmitRequest{Node: "n", Items: []Item{{Seq: 1, Kind: KindMetricFacts, Facts: []metricfacts.Fact{{Namespace: "db", Claim: "data-0", Fields: map[string]any{"metric.volume.used_bytes": 1}}}}}}
+	if out := roundTrip(t, ok); out.Items[0].Facts[0].Claim != "data-0" {
+		t.Fatalf("claim fact = %+v", out.Items[0].Facts[0])
+	}
+	if _, err := ok.Items[0].claims(); err != nil {
+		t.Fatalf("claim fact refused: %v", err)
+	}
+	bad := Item{Seq: 1, Kind: KindMetricFacts, Facts: []metricfacts.Fact{{Claim: "data-0", Fields: map[string]any{"metric.volume.used_bytes": 1}}}}
+	if _, err := bad.claims(); err == nil {
+		t.Fatal("a claim fact without a namespace was accepted")
+	}
+}
+
 func TestFactFieldsNormalized(t *testing.T) {
 	in := SubmitRequest{Node: "n", Items: []Item{{Seq: 1, Kind: KindMetricFacts, Facts: []metricfacts.Fact{{Node: "n", Fields: map[string]any{"count": 3, "neg": -2}}}}}}
 	out := roundTrip(t, in)

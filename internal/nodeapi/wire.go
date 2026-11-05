@@ -498,7 +498,7 @@ func (it Item) claims() ([]string, error) {
 			return nil, invalid("metric facts item %d is malformed", it.Seq)
 		}
 		for _, f := range it.Facts {
-			if f.Node == "" && f.Pod == "" {
+			if f.Node == "" && f.Pod == "" && (f.Claim == "" || f.Namespace == "") {
 				return nil, invalid("item %d fact identifies no resource", it.Seq)
 			}
 			if _, err := protocol.NormalizeFields(f.Fields, false); err != nil {

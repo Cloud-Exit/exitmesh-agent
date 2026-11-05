@@ -422,3 +422,29 @@ func TestNodeRuleStatesInHealth(t *testing.T) {
 		t.Fatalf("health json %s %v", raw, err)
 	}
 }
+
+func TestClaimFactsLandOnTheirVolumeClaim(t *testing.T) {
+	e := newEnv(t)
+	r := e.start(e.config())
+	e.committed(r)
+	ctx := context.Background()
+	n1 := e.nodeClient(t, r, "node-1", "node-1")
+	if _, err := n1.Register(ctx, nodeapi.RegisterRequest{Node: "node-1", AgentVersion: "test", Capabilities: []string{"metrics"}}); err != nil {
+		t.Fatal(err)
+	}
+	claim := nodeapi.Item{Seq: 1, Kind: nodeapi.KindMetricFacts, Facts: []metricFact{
+		{Namespace: "shop", Claim: "data-0", Fields: map[string]any{
+			"metric.volume.capacity_bytes": int64(10 << 30), "metric.volume.used_bytes": int64(6 << 30),
+			"metric.volume.available_bytes": int64(4 << 30), "metric.volume.used_ratio": 0.6,
+		}},
+		{Namespace: "shop", Claim: "gone", Fields: map[string]any{"metric.volume.used_bytes": int64(1)}},
+	}}
+	if acked, err := n1.Submit(ctx, "", []nodeapi.Item{claim}); err != nil || acked != 1 {
+		t.Fatalf("submit: acked %d err %v", acked, err)
+	}
+	eventually(t, "claim usage on the volume claim", func() bool {
+		f := r.c.stateView().Resources["claim-1"].Fields
+		return protocol.ValueEqual(f["metric.volume.used_bytes"], int64(6<<30)) &&
+			protocol.ValueEqual(f["metric.volume.capacity_bytes"], int64(10<<30))
+	})
+}

@@ -136,6 +136,10 @@ func testObjects(t testing.TB) []*unstructured.Unstructured {
 		toU(t, testPod("web-2", "pod-2", "node-2", "nginx:1.27"), "v1", "Pod"),
 		toU(t, dep, "apps/v1", "Deployment"),
 		toU(t, svc, "v1", "Service"),
+		toU(t, &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "data-0", Namespace: "shop", UID: "claim-1", ResourceVersion: "1"},
+			Status:     corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound},
+		}, "v1", "PersistentVolumeClaim"),
 	)
 	return out
 }
