@@ -1,6 +1,10 @@
 {{- $v := .Values -}}
 {{- $mode := $v.networkPolicy.cilium -}}
-{{- $cilium := or (eq (toString $mode) "true") (and (eq (toString $mode) "auto") (.Capabilities.APIVersions.Has "cilium.io/v2/CiliumClusterwideNetworkPolicy")) -}}
+{{- $cilium := eq (toString $mode) "true" -}}
+{{- if eq (toString $mode) "auto" }}
+{{- $crd := lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" "ciliumclusterwidenetworkpolicies.cilium.io" -}}
+{{- $cilium = include "exitmesh.ciliumAllowOnly" $crd | eq "true" -}}
+{{- end }}
 {{- if and $v.capabilities.metrics $cilium }}
 {{- $agent := dict "io.kubernetes.pod.namespace" $v.namespaces.node -}}
 {{- $agent = merge $agent (include "exitmesh.selectorLabels" (dict "ctx" . "component" "node") | fromYaml) -}}
@@ -32,7 +36,12 @@ specs:
       ingress: false
       egress: false
     egress:
+      {{- with $v.networkPolicy.kubelet.cidrs }}
+      - toCIDR:
+          {{- toYaml . | nindent 10 }}
+      {{- else }}
       - toEntities: [host, remote-node]
+      {{- end }}
         toPorts:
           {{- toYaml $ports | nindent 10 }}
 {{- end }}
