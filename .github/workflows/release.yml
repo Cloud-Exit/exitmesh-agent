@@ -31,7 +31,9 @@ jobs:
           fetch-depth: 0
       - name: reserve max(Chart.yaml, latest tag) + 1 by pushing its tag
         id: next
-        run: echo "version=$(.github/scripts/reserve-version.sh "${{ inputs.bump || 'minor' }}" "$GITHUB_SHA")" >>"$GITHUB_OUTPUT"
+        run: |
+          version=$(.github/scripts/reserve-version.sh "${{ inputs.bump || 'minor' }}" "$GITHUB_SHA")
+          echo "version=$version" >>"$GITHUB_OUTPUT"
 
   quality:
     needs: version

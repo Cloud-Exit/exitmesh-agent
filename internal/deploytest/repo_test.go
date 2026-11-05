@@ -177,6 +177,10 @@ func TestWorkflowsParse(t *testing.T) {
 			t.Errorf("release.yml pulls a chart into %s without creating it", dir)
 		}
 	}
+	// echo "version=$(...)" exits 0 when the reservation fails, so the run would build unversioned snapshot packages.
+	if regexp.MustCompile(`echo "version=\$\(`).MatchString(string(relText)) {
+		t.Error("release.yml must assign the reserved version before writing it, so a failed reservation fails the job")
+	}
 	if u := rel.Jobs["unreserve"].If; !strings.Contains(u, "needs.publish.outputs.published != 'true'") {
 		t.Errorf("unreserve must release the tag of any run that published nothing, if = %q", u)
 	}
