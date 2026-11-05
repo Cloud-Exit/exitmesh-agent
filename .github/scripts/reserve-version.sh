@@ -8,6 +8,7 @@ level=${1:?usage: reserve-version.sh LEVEL COMMIT}
 commit=$(git rev-parse --verify "${2:?usage: reserve-version.sh LEVEL COMMIT}^{commit}")
 here=$(cd "$(dirname "$0")" && pwd)
 run="${GITHUB_SERVER_URL:-local}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-$$}"
+failed=0
 
 for attempt in $(seq 1 10); do
 	git fetch -q --force --prune --prune-tags --tags origin
@@ -25,8 +26,12 @@ for attempt in $(seq 1 10); do
 	fi
 	git tag -d "$tag" >/dev/null
 	if [ -z "$remote" ]; then
-		echo "reserve-version: pushing $tag failed: $out" >&2
-		exit 1
+		# Server errors are often transient; a push that keeps failing is not.
+		failed=$((failed + 1))
+		echo "reserve-version: pushing $tag failed (attempt $failed): $out" >&2
+		[ "$failed" -lt 3 ] || exit 1
+		sleep "$failed"
+		continue
 	fi
 	echo "reserve-version: $tag was taken by a concurrent release (attempt $attempt)" >&2
 	sleep "$attempt"

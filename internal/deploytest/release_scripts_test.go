@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -151,6 +152,42 @@ func TestReserveVersionGivesEveryRunItsOwnVersion(t *testing.T) {
 	}
 	if v := g.run(a, ".github/scripts/reserve-version.sh", "major", "HEAD"); v != "1.0.0" {
 		t.Fatalf("major reservation %s", v)
+	}
+}
+
+// rejectPushes makes the remote refuse the next n pushes, as a transient server error does.
+func (g *gitEnv) rejectPushes(n int) {
+	g.t.Helper()
+	count := g.path("rejections")
+	hook := filepath.Join(g.path("remote.git"), "hooks", "pre-receive")
+	script := "#!/bin/sh\nn=$(cat " + count + " 2>/dev/null || echo 0)\nif [ \"$n\" -lt " + strconv.Itoa(n) + " ]; then echo $((n + 1)) >" + count + "; echo 'Internal Server Error' >&2; exit 1; fi\n"
+	if err := os.WriteFile(hook, []byte(script), 0o755); err != nil {
+		g.t.Fatal(err)
+	}
+}
+
+func TestReserveVersionRetriesFailedPushes(t *testing.T) {
+	g := newGitEnv(t)
+	a := g.clone("a")
+	g.rejectPushes(2)
+	out := g.run(a, ".github/scripts/reserve-version.sh", "minor", "HEAD")
+	if v := out[strings.LastIndex(out, "\n")+1:]; v != "0.2.0" || strings.Count(out, "failed (attempt") != 2 {
+		t.Fatalf("reservation after two rejected pushes:\n%s", out)
+	}
+	if tags := g.remoteTags(); !slices.Equal(tags, []string{"v0.2.0"}) {
+		t.Fatalf("remote tags %v", tags)
+	}
+
+	g = newGitEnv(t)
+	a = g.clone("a")
+	g.rejectPushes(100)
+	var err error
+	out, err = g.cmd(a, ".github/scripts/reserve-version.sh", "minor", "HEAD")
+	if err == nil {
+		t.Fatalf("reservation succeeded with every push rejected: %s", out)
+	}
+	if !strings.Contains(out, "Internal Server Error") || len(g.remoteTags()) != 0 {
+		t.Fatalf("persistent rejection output %q, remote tags %v", out, g.remoteTags())
 	}
 }
 
