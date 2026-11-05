@@ -734,3 +734,74 @@ func (l *syncLog) String() string {
 	defer l.mu.Unlock()
 	return l.b.String()
 }
+
+// A 3 MiB finding whose summary entry escapes to 18 MiB fits no part at default limits; the writer rebaselines once.
+func TestOversizedSummaryEntryRebaselinesWithoutSendingIt(t *testing.T) {
+	w := newWriter(t, "m")
+	ep, _ := w.Store.Epoch()
+	if _, _, err := w.Fire(strings.Repeat("<", 3<<19)); err != nil {
+		t.Fatal(err)
+	}
+	cp := newFakeCP()
+	cp.hello = func(n int, p protocol.HelloParams) (*protocol.HelloResult, error) {
+		r, err := cp.acceptHello(n, p)
+		if r != nil {
+			r.SummaryParts = true
+		}
+		return r, err
+	}
+	startClient(t, w, cp, nil)
+	eventually(t, "rebaseline drained", func() bool { e, _ := w.Store.Epoch(); return e.ID != ep.ID && isDrained(w) })
+	if _, err := w.Apply(protocol.Create("u1", "Pod", "ns", "p", nil)); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "live record", func() bool { return isDrained(w) })
+	hellos, _, _, _ := cp.snapshot()
+	cp.mu.Lock()
+	cp.hello = func(n int, p protocol.HelloParams) (*protocol.HelloResult, error) {
+		return nil, errors.New("unavailable")
+	}
+	cp.mu.Unlock()
+	cp.conn(len(hellos) - 1).Close()
+	for i := 0; i < 3; i++ {
+		if _, err := w.Apply(protocol.Create(fmt.Sprint("v", i), "Pod", "ns", "p", nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cp.mu.Lock()
+	cp.hello = func(n int, p protocol.HelloParams) (*protocol.HelloResult, error) {
+		r, err := cp.acceptHello(n, p)
+		if r != nil {
+			r.SummaryParts = true
+		}
+		return r, err
+	}
+	cp.mu.Unlock()
+	eventually(t, "resume drained", func() bool { return isDrained(w) })
+	hellos, sums, frames, _ := cp.snapshot()
+	now, _ := w.Store.Epoch()
+	resumed := false
+	for _, s := range sums {
+		if len(s.Entries) > 0 {
+			t.Fatalf("a summary with %d entries was sent", len(s.Entries))
+		}
+		resumed = resumed || s.Epoch == now.ID
+	}
+	if !resumed {
+		t.Fatal("no resume summary in the new epoch")
+	}
+	epochs := map[protocol.EpochID]bool{}
+	for _, h := range hellos {
+		epochs[h.Epoch] = true
+	}
+	if len(epochs) != 2 {
+		t.Fatalf("hellos named %d epochs", len(epochs))
+	}
+	for _, f := range frames {
+		for _, rec := range f {
+			if rec.Type == protocol.TypeFinding {
+				t.Fatalf("the oversized finding %d was sent", rec.Seq)
+			}
+		}
+	}
+}

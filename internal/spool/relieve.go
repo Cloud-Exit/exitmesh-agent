@@ -31,7 +31,13 @@ const (
 	foldChunkBytes    = 1 << 20
 	persistChunkBytes = 16 << 20
 	rewriteBatch      = 256
+	minReliefStep     = 4 << 10
 )
+
+// reliefStep bounds what relief writes before it reclaims, so disk use stays within about a segment of its limit.
+func (s *Spool) reliefStep() int64 {
+	return min(persistChunkBytes, max(s.opts.SegmentBytes, minReliefStep))
+}
 
 func (s *Spool) trigger() int64 {
 	return int64(float64(s.opts.CapacityBytes) * s.opts.CoalesceAt)
@@ -66,14 +72,16 @@ func (s *Spool) Relieve() (Relief, error) {
 func (s *Spool) relieveLocked() (Relief, error) {
 	rel := Relief{BytesBefore: s.bytes}
 	target := s.reliefTarget()
+	s.diskLimit = max(s.segs.diskBytes(), s.opts.CapacityBytes)
+	defer func() { s.diskLimit = 0 }()
 	var err error
 	rewrote := false
 	if s.epoch != nil && s.bytes > target {
 		var n int
-		n, err = s.rewriteFindings(target, flagEvicted, evictEvidence)
+		n, err = s.rewriteFindings(target, &rel, flagEvicted, evictEvidence)
 		rel.EvidenceEvicted, rewrote = n, n > 0
 		if err == nil && s.bytes > target {
-			n, err = s.rewriteFindings(target, flagCompacted, compactSamples)
+			n, err = s.rewriteFindings(target, &rel, flagCompacted, compactSamples)
 			rel.SamplesCompacted, rewrote = n, rewrote || n > 0
 		}
 		if err == nil && s.bytes > target {
@@ -160,8 +168,9 @@ func compactSamples(f *protocol.Finding) bool {
 }
 
 // rewriteFindings edits never-transmitted finding and range records, oldest first, until at target.
-func (s *Spool) rewriteFindings(target int64, bit uint8, edit func(*protocol.Finding) bool) (int, error) {
+func (s *Spool) rewriteFindings(target int64, rel *Relief, bit uint8, edit func(*protocol.Finding) bool) (int, error) {
 	rewritten := 0
+	step := s.reliefStep()
 	from := uint64(1)
 	for s.bytes > target {
 		var cands []recMeta
@@ -192,8 +201,10 @@ func (s *Spool) rewriteFindings(target int64, bit uint8, edit func(*protocol.Fin
 		var frames [][]byte
 		var changed []int
 		projected := s.bytes
+		var written int64
 		for _, m := range cands {
-			if projected <= target {
+			if projected <= target || written >= step {
+				from = m.Seq
 				break
 			}
 			body, err := s.readBody(m)
@@ -224,6 +235,7 @@ func (s *Spool) rewriteFindings(target int64, bit uint8, edit func(*protocol.Fin
 				changed = append(changed, len(news))
 				frames = append(frames, appendFrame(nil, b))
 				projected += int64(len(b)) - int64(m.Len)
+				written += int64(len(b))
 			}
 			olds, news = append(olds, m), append(news, nm)
 		}
@@ -231,6 +243,9 @@ func (s *Spool) rewriteFindings(target int64, bit uint8, edit func(*protocol.Fin
 			return rewritten, err
 		}
 		rewritten += len(changed)
+		if err := s.reclaim(rel); err != nil {
+			return rewritten, err
+		}
 	}
 	return rewritten, nil
 }
@@ -330,6 +345,7 @@ func (s *Spool) nextRun(after uint64) (uint64, bool, error) {
 
 // loadRun returns about foldChunkBytes of the run from seq and whether the run ends there.
 func (s *Spool) loadRun(seq uint64, needTwo bool) ([]recMeta, bool, error) {
+	chunk := min(foldChunkBytes, s.reliefStep()/4)
 	var out []recMeta
 	var n int64
 	ended := true
@@ -343,7 +359,7 @@ func (s *Spool) loadRun(seq uint64, needTwo bool) ([]recMeta, bool, error) {
 			if !s.coalescible(m) {
 				return nil
 			}
-			if n >= foldChunkBytes && (!needTwo || len(out) >= 2) {
+			if n >= chunk && (!needTwo || len(out) >= 2) {
 				ended = false
 				return nil
 			}
@@ -362,6 +378,7 @@ func (s *Spool) coalesceRun(start uint64, target int64, rel *Relief, spans map[u
 	var pending []recMeta
 	var pendingBytes int64
 	flags := flagEvicted | flagCompacted
+	step := s.reliefStep()
 	persist := func() error {
 		nm, err := s.persistRange(acc, accMeta, pending, flags)
 		if err != nil {
@@ -369,8 +386,14 @@ func (s *Spool) coalesceRun(start uint64, target int64, rel *Relief, spans map[u
 		}
 		rel.RecordsCoalesced += len(pending)
 		spans[acc.Range.From] = acc.Range.To
-		accMeta, pending, pendingBytes = &nm, nil, 0
-		return nil
+		pending, pendingBytes = nil, 0
+		if err := s.reclaim(rel); err != nil {
+			return err
+		}
+		// Reclaiming may have moved the range's frame.
+		nm, err = s.meta(nm.Seq)
+		accMeta = &nm
+		return err
 	}
 	next, end := start, start
 	for {
@@ -407,6 +430,9 @@ func (s *Spool) coalesceRun(start uint64, target int64, rel *Relief, spans map[u
 		first, last := recs[0], recs[len(recs)-1]
 		tmpl := protocol.Envelope{TargetID: s.chain.TargetID, Epoch: s.chain.Epoch, Writer: s.writer, Incarnation: s.incarnation, Time: last.Time, Schema: last.Schema}
 		rr, err := protocol.NewRangeRecord(tmpl, g, first.Parent, first.Base)
+		if err == nil && int64(len(rr.Bytes())) > step {
+			err = protocol.ErrTooLarge
+		}
 		if errors.Is(err, protocol.ErrTooLarge) {
 			// Keep the range built so far and continue with a new run after it.
 			if acc == nil {
@@ -432,7 +458,7 @@ func (s *Spool) coalesceRun(start uint64, target int64, rel *Relief, spans map[u
 		if accMeta != nil {
 			projected -= int64(accMeta.Len)
 		}
-		if projected <= target || ended || pendingBytes >= persistChunkBytes {
+		if projected <= target || ended || pendingBytes >= step {
 			if err := persist(); err != nil {
 				return end, err
 			}
@@ -492,11 +518,55 @@ func (s *Spool) persistRange(acc *protocol.Record, accMeta *recMeta, pending []r
 	return nm, nil
 }
 
-// compactSegments copies live frames out of mostly superseded segments; bytes do not change.
+// meta reads the metadata of the record at seq.
+func (s *Spool) meta(seq uint64) (recMeta, error) {
+	var m recMeta
+	err := s.db.View(func(tx *bolt.Tx) error {
+		k := seqKey(seq)
+		v := tx.Bucket(bucketRecords).Get(k)
+		if v == nil {
+			return fmt.Errorf("%w: record %d missing", ErrCorrupt, seq)
+		}
+		var err error
+		m, err = decodeMeta(k, v)
+		return err
+	})
+	return m, err
+}
+
+// reclaim moves the deadest segments once relief has grown the files past its limit, so relief frees as it writes.
+func (s *Spool) reclaim(rel *Relief) error {
+	s.noteIO(s.segs.gc())
+	if s.diskLimit == 0 || s.segs.diskBytes() <= s.diskLimit {
+		return nil
+	}
+	dead := func(id uint64) int64 { return s.segs.segs[id].size - s.segs.segs[id].live }
+	var order []uint64
+	for id, st := range s.segs.segs {
+		if id != s.segs.active && st.live > 0 && st.live < st.size {
+			order = append(order, id)
+		}
+	}
+	sort.Slice(order, func(i, j int) bool { return dead(order[i]) > dead(order[j]) })
+	disk, goal := s.segs.diskBytes(), s.diskLimit-s.reliefStep()
+	for i, id := range order {
+		if disk <= goal {
+			order = order[:i]
+			break
+		}
+		disk -= dead(id)
+	}
+	return s.moveSegments(rel, order)
+}
+
 // compactSegments rewrites the live frames of segments that are mostly dead and, while the segment files exceed
-// target, of the deadest segments with any dead frames. Each segment is moved whole and removed before the next.
+// target, of the deadest segments with any dead frames.
 func (s *Spool) compactSegments(rel *Relief, target int64) error {
-	order := s.compactionOrder(target)
+	return s.moveSegments(rel, s.compactionOrder(target))
+}
+
+// moveSegments moves each segment in order whole and removes it before the next.
+func (s *Spool) moveSegments(rel *Relief, order []uint64) error {
 	if len(order) == 0 {
 		return nil
 	}
@@ -566,7 +636,7 @@ func (s *Spool) moveFrames(metas []recMeta) error {
 		var frames [][]byte
 		var changed []int
 		var n int64
-		for len(metas) > 0 && (n == 0 || n < persistChunkBytes) {
+		for len(metas) > 0 && (n == 0 || n < s.reliefStep()) {
 			m := metas[0]
 			metas = metas[1:]
 			body, err := s.readBody(m)

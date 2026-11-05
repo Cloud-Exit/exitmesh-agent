@@ -5,9 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	bolt "go.etcd.io/bbolt"
+	"gopkg.in/yaml.v3"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/cloud-exit/exitmesh-agent/pkg/protocol"
 )
@@ -671,4 +677,101 @@ func TestOpenRelievesOversizedSpool(t *testing.T) {
 		t.Fatalf("segment files hold %d bytes after open, capacity %d", u.DiskBytes, u.Capacity)
 	}
 	replayHashes(t, w.s, allEntries(w.s))
+}
+
+// chartDiskAllowance is the smallest PVC size to spool capacity ratio the chart ships.
+func chartDiskAllowance(t *testing.T) float64 {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "deploy", "helm", "exitmesh-agent", "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Coordinator struct {
+			Persistence struct{ Size string }
+			Spool       struct{ Capacity string }
+		}
+		Airgap struct {
+			PersistenceSize string `yaml:"persistenceSize"`
+			SpoolCapacity   string `yaml:"spoolCapacity"`
+		}
+	}
+	if err := yaml.Unmarshal(b, &v); err != nil {
+		t.Fatal(err)
+	}
+	ratio := func(disk, capacity string) float64 {
+		d, c := resource.MustParse(disk), resource.MustParse(capacity)
+		return float64(d.Value()) / float64(c.Value())
+	}
+	return min(ratio(v.Coordinator.Persistence.Size, v.Coordinator.Spool.Capacity), ratio(v.Airgap.PersistenceSize, v.Airgap.SpoolCapacity))
+}
+
+// A nearly full spool of mostly live segments must be relieved without its files outgrowing the chart's PVC.
+func TestReliefPeakDiskStaysWithinTheChartAllowance(t *testing.T) {
+	allowance := chartDiskAllowance(t)
+	if allowance < 1 || allowance > 1.5 {
+		t.Fatalf("chart allowance %.2f", allowance)
+	}
+	w := newWriter(t, func(o *Options) {
+		o.SegmentBytes = 16 << 10
+		o.CapacityBytes = 512 << 10
+	})
+	for i := 0; i < 600; i++ {
+		w.finding(fmt.Sprintf("f%d", i), samples(4, 100, uint64(i))...)
+		w.delta(protocol.Create(fmt.Sprintf("u%d", i), "v1/Pod", "ns", fmt.Sprintf("p%d", i), map[string]any{"pad": strings.Repeat("x", 500)}))
+		unpinAll(w.s)
+	}
+	u := w.s.Usage()
+	if u.ReliefError != nil {
+		t.Fatalf("relief: %v", u.ReliefError)
+	}
+	peak := w.s.segs.peak
+	if peak < w.s.trigger() {
+		t.Fatalf("spool never filled: peak %d", peak)
+	}
+	if float64(peak) > allowance*float64(u.Capacity) || peak > u.Capacity+2*w.opts.SegmentBytes {
+		t.Fatalf("segment files peaked at %d bytes (%.2fx capacity %d, chart allows %.2fx)", peak, float64(peak)/float64(u.Capacity), u.Capacity, allowance)
+	}
+	checkAccounting(t, w.s)
+	replayHashes(t, w.s, allEntries(w.s))
+	w.reopen()
+	checkAccounting(t, w.s)
+	replayHashes(t, w.s, allEntries(w.s))
+}
+
+// checkAccounting compares the in-memory byte and per-segment live counts with the metadata.
+func checkAccounting(t *testing.T, s *Spool) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	live := map[uint64]int64{}
+	var n int64
+	count := 0
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketRecords).ForEach(func(k, v []byte) error {
+			m, err := decodeMeta(k, v)
+			if err != nil {
+				return err
+			}
+			live[m.Seg] += frameLen(int(m.Len))
+			n += int64(m.Len)
+			count++
+			return nil
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != s.bytes || count != s.count {
+		t.Fatalf("accounted %d bytes in %d records, metadata holds %d in %d", s.bytes, s.count, n, count)
+	}
+	for id, st := range s.segs.segs {
+		if st.live != live[id] {
+			t.Fatalf("segment %d accounts %d live bytes, metadata references %d", id, st.live, live[id])
+		}
+		delete(live, id)
+	}
+	if len(live) > 0 {
+		t.Fatalf("metadata references missing segments %v", live)
+	}
 }

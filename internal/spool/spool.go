@@ -150,6 +150,7 @@ type Spool struct {
 	rate          rateEWMA
 	rebaseline    bool
 	nextRelief    int64
+	diskLimit     int64 // segment file bytes relief reclaims back to; zero outside relief
 	lastReliefErr error
 
 	notify chan struct{}
