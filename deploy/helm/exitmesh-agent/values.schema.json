@@ -520,6 +520,10 @@
         "runAsRootFallback": {
           "type": "boolean"
         },
+        "stateHostPath": {
+          "type": "string",
+          "pattern": "^/[^/].*$"
+        },
         "diskCap": {
           "type": "string",
           "pattern": "^[0-9]+(Ki|Mi|Gi|Ti|K|M|G|T)?$"

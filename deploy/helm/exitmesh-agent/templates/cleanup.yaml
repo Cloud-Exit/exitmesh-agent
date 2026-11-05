@@ -62,7 +62,7 @@ spec:
       volumes:
         - name: state
           hostPath:
-            path: /var/lib/exitmesh
+            path: {{ $v.node.stateHostPath | quote }}
             type: DirectoryOrCreate
       {{- with $v.node.nodeSelector }}
       nodeSelector:
