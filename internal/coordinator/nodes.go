@@ -423,6 +423,8 @@ func isMetricField(k string) bool {
 func (c *Coordinator) factOps(t *txn, node string, facts []metricfacts.Fact) []protocol.Op {
 	st := c.headState()
 	pods, nodes, claims := map[string][]string{}, map[string]string{}, map[string]string{}
+	// A node reports volume stats only for claims its own pods mount, so only those may move.
+	mounted := map[string]bool{}
 	for uid, r := range st.Resources {
 		switch r.Kind {
 		case state.KindPVC:
@@ -430,6 +432,9 @@ func (c *Coordinator) factOps(t *txn, node string, facts []metricfacts.Fact) []p
 		case state.KindPod:
 			if n, _ := r.Fields["nodeName"].(string); n == node {
 				pods[r.Namespace+"/"+r.Name] = append(pods[r.Namespace+"/"+r.Name], uid)
+				for _, c := range stringList(r.Fields["refs.claims"]) {
+					mounted[r.Namespace+"/"+c] = true
+				}
 			}
 		case state.KindNode:
 			nodes[r.Name] = uid
@@ -441,6 +446,10 @@ func (c *Coordinator) factOps(t *txn, node string, facts []metricfacts.Fact) []p
 		var uid, prefix string
 		switch {
 		case f.Claim != "":
+			if !mounted[f.Namespace+"/"+f.Claim] {
+				dropped++
+				continue
+			}
 			uid = claims[f.Namespace+"/"+f.Claim]
 		case f.Pod != "":
 			uid = podFor(st, pods, node, f)
@@ -802,4 +811,21 @@ func (n *nodeFindings) Commit(seq uint64) error {
 		return nil
 	}
 	return n.store.Batch(ops)
+}
+
+// stringList reads a list field, whichever slice type its decoding produced.
+func stringList(v any) []string {
+	switch l := v.(type) {
+	case []string:
+		return l
+	case []any:
+		out := make([]string, 0, len(l))
+		for _, e := range l {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }

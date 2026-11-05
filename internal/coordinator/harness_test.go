@@ -109,6 +109,13 @@ func testPod(name, uid, node, image string) *corev1.Pod {
 	}
 }
 
+func mounting(p *corev1.Pod, claim string) *corev1.Pod {
+	p.Spec.Volumes = append(p.Spec.Volumes, corev1.Volume{Name: "data", VolumeSource: corev1.VolumeSource{
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claim},
+	}})
+	return p
+}
+
 func testObjects(t testing.TB) []*unstructured.Unstructured {
 	rep := int32(2)
 	dep := &appsv1.Deployment{
@@ -132,12 +139,16 @@ func testObjects(t testing.TB) []*unstructured.Unstructured {
 		out = append(out, toU(t, node, "v1", "Node"))
 	}
 	out = append(out,
-		toU(t, testPod("web-1", "pod-1", "node-1", "nginx:1.27"), "v1", "Pod"),
-		toU(t, testPod("web-2", "pod-2", "node-2", "nginx:1.27"), "v1", "Pod"),
+		toU(t, mounting(testPod("web-1", "pod-1", "node-1", "nginx:1.27"), "data-0"), "v1", "Pod"),
+		toU(t, mounting(testPod("web-2", "pod-2", "node-2", "nginx:1.27"), "data-1"), "v1", "Pod"),
 		toU(t, dep, "apps/v1", "Deployment"),
 		toU(t, svc, "v1", "Service"),
 		toU(t, &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: "data-0", Namespace: "shop", UID: "claim-1", ResourceVersion: "1"},
+			Status:     corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound},
+		}, "v1", "PersistentVolumeClaim"),
+		toU(t, &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "data-1", Namespace: "shop", UID: "claim-2", ResourceVersion: "1"},
 			Status:     corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound},
 		}, "v1", "PersistentVolumeClaim"),
 	)
