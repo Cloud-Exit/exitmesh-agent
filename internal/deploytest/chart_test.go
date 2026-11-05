@@ -781,6 +781,94 @@ func TestNetworkPolicies(t *testing.T) {
 	}
 }
 
+func TestCiliumKubeletPolicy(t *testing.T) {
+	const ccnp = "CiliumClusterwideNetworkPolicy"
+	cilium := []string{"--api-versions", "cilium.io/v2/CiliumClusterwideNetworkPolicy"}
+	on := []string{"--set", "networkPolicy.cilium=true"}
+	// Without a cluster to read the CRD schema from, auto cannot prove enableDefaultDeny is honored.
+	for _, args := range [][]string{nil, cilium} {
+		if m := render(t, append(args, baseArgs...)...); len(m.all(ccnp)) != 0 {
+			t.Errorf("auto with %v rendered a Cilium policy without checking the CRD", args)
+		}
+	}
+	specsOf := func(m *manifest) []any {
+		specs, _ := get(m.find(t, ccnp, nodeDS+"-kubelet"), "specs").([]any)
+		if len(specs) != 2 {
+			t.Fatalf("specs = %v", specs)
+		}
+		return specs
+	}
+	rule := func(spec any, key string) any {
+		rules, _ := get(spec, key).([]any)
+		if len(rules) != 1 {
+			t.Fatalf("%s = %v", key, rules)
+		}
+		return rules[0]
+	}
+	agent := map[string]any{
+		"io.kubernetes.pod.namespace": "exitmesh-node",
+		"app.kubernetes.io/name":      "exitmesh-agent",
+		"app.kubernetes.io/instance":  "exitmesh-agent",
+		"app.kubernetes.io/component": "node",
+	}
+	kubelet := func(port string) []any {
+		return []any{map[string]any{"ports": []any{map[string]any{"port": port, "protocol": "TCP"}}}}
+	}
+	noDefaultDeny := map[string]any{"ingress": false, "egress": false}
+
+	specs := specsOf(render(t, append(on, baseArgs...)...))
+	host, egress := specs[0], specs[1]
+	if !reflect.DeepEqual(get(host, "nodeSelector"), map[string]any{}) {
+		t.Errorf("host rule must select every node: %v", get(host, "nodeSelector"))
+	}
+	in := rule(host, "ingress")
+	if !reflect.DeepEqual(get(in, "fromEndpoints"), []any{map[string]any{"matchLabels": agent}}) ||
+		!reflect.DeepEqual(get(in, "toPorts"), kubelet("10250")) {
+		t.Errorf("host ingress = %v", in)
+	}
+	if !reflect.DeepEqual(get(egress, "endpointSelector"), map[string]any{"matchLabels": agent}) {
+		t.Errorf("egress rule selects %v", get(egress, "endpointSelector"))
+	}
+	out := rule(egress, "egress")
+	if !reflect.DeepEqual(get(out, "toEntities"), []any{"host", "remote-node"}) ||
+		get(out, "toCIDR") != nil ||
+		!reflect.DeepEqual(get(out, "toPorts"), kubelet("10250")) {
+		t.Errorf("agent egress = %v", out)
+	}
+	// Selecting a host must never turn on default deny for it: the policy only adds allows.
+	for i, s := range specs {
+		if !reflect.DeepEqual(get(s, "enableDefaultDeny"), noDefaultDeny) {
+			t.Errorf("spec %d enableDefaultDeny = %v", i, get(s, "enableDefaultDeny"))
+		}
+	}
+
+	port := specsOf(render(t, append(on, append([]string{"--set", "node.kubeletPort=10255"}, baseArgs...)...)...))
+	if got := get(rule(port[0], "ingress"), "toPorts"); !reflect.DeepEqual(got, kubelet("10255")) {
+		t.Errorf("custom kubelet port not used: %v", got)
+	}
+
+	// Configured kubelet destinations stay the only ones agents may reach.
+	cidrs := []string{"--set-json", `networkPolicy.kubelet.cidrs=["192.0.2.0/24","2001:db8::/64"]`}
+	limited := rule(specsOf(render(t, append(on, append(cidrs, baseArgs...)...)...))[1], "egress")
+	if get(limited, "toEntities") != nil ||
+		!reflect.DeepEqual(get(limited, "toCIDR"), []any{"192.0.2.0/24", "2001:db8::/64"}) ||
+		!reflect.DeepEqual(get(limited, "toPorts"), kubelet("10250")) {
+		t.Errorf("egress with kubelet cidrs = %v", limited)
+	}
+
+	for _, off := range [][]string{
+		{"--set", "networkPolicy.cilium=false"},
+		{"--set", "networkPolicy.cilium=true", "--set", "capabilities.metrics=false"},
+	} {
+		if m := render(t, append(cilium, append(off, baseArgs...)...)...); len(m.all(ccnp)) != 0 {
+			t.Errorf("%v still renders the Cilium policy", off)
+		}
+	}
+	if _, err := helmTemplate(t, append([]string{"--set", "networkPolicy.cilium=maybe"}, baseArgs...)...); err == nil || !strings.Contains(err.Error(), "cilium") {
+		t.Errorf("networkPolicy.cilium=maybe: err = %v, want a schema rejection", err)
+	}
+}
+
 func TestNodeStateHostPath(t *testing.T) {
 	const dir = "/var/lib/exitmesh-second"
 	m := render(t, append([]string{"--set", "node.stateHostPath=" + dir}, baseArgs...)...)

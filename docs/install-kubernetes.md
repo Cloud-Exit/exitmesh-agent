@@ -125,6 +125,8 @@ Node agents call the coordinator Service (`exitmesh-agent-coordinator.exitmesh.s
 
 Destinations default to "any address on the listed ports". Restrict them with `networkPolicy.endpoint.cidrs`, `networkPolicy.apiServer.cidrs`, `networkPolicy.kubelet.cidrs`, and per lookback source with `lookback[].egress`.
 
+On Cilium, a host firewall policy that selects the nodes also drops pod traffic to the kubelet, so every kubelet and cAdvisor scrape fails. With the metrics capability, `networkPolicy.cilium=auto` (default) ships a CiliumClusterwideNetworkPolicy, `<release>-node-kubelet`, that lets node agent pods reach the kubelet port: host ingress on every node, and agent egress to the `host` and `remote-node` entities, or to `networkPolicy.kubelet.cidrs` when set. Both rules set `enableDefaultDeny` off, so they only add allows and never switch a node to default deny. Cilium before 1.16 does not know that field and would drop it, so `auto` reads the installed `ciliumclusterwidenetworkpolicies.cilium.io` CRD with `lookup` and renders only when its schema has `enableDefaultDeny`. Without cluster access (`helm template`, Argo CD) `auto` renders nothing; set `true` there on Cilium 1.16+ only. `false` leaves the rule to you. It does not depend on `networkPolicy.enabled`.
+
 ## GitOps
 
 All three tools below render the same chart; keep the values in Git and never commit the enrollment token in clear text (use `enrollment.existingSecret` with a sealed or externally managed Secret).

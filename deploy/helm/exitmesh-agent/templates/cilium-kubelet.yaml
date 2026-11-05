@@ -1,0 +1,47 @@
+{{- $v := .Values -}}
+{{- $mode := $v.networkPolicy.cilium -}}
+{{- $cilium := eq (toString $mode) "true" -}}
+{{- if eq (toString $mode) "auto" }}
+{{- $crd := lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" "ciliumclusterwidenetworkpolicies.cilium.io" -}}
+{{- $cilium = include "exitmesh.ciliumAllowOnly" $crd | eq "true" -}}
+{{- end }}
+{{- if and $v.capabilities.metrics $cilium }}
+{{- $agent := dict "io.kubernetes.pod.namespace" $v.namespaces.node -}}
+{{- $agent = merge $agent (include "exitmesh.selectorLabels" (dict "ctx" . "component" "node") | fromYaml) -}}
+{{- $ports := list (dict "ports" (list (dict "port" (toString (int $v.node.kubeletPort)) "protocol" "TCP"))) -}}
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: {{ include "exitmesh.nodeName" . }}-kubelet
+  labels:
+    {{- include "exitmesh.labels" (dict "ctx" . "component" "node") | nindent 4 }}
+specs:
+  - description: Node agents scrape the kubelet of their node through the host firewall.
+    nodeSelector: {}
+    # Allow only: selecting the hosts must not turn on default deny where no host policy did.
+    enableDefaultDeny:
+      ingress: false
+      egress: false
+    ingress:
+      - fromEndpoints:
+          - matchLabels:
+              {{- toYaml $agent | nindent 14 }}
+        toPorts:
+          {{- toYaml $ports | nindent 10 }}
+  - description: Node agents reach the kubelet port on node addresses.
+    endpointSelector:
+      matchLabels:
+        {{- toYaml $agent | nindent 8 }}
+    enableDefaultDeny:
+      ingress: false
+      egress: false
+    egress:
+      {{- with $v.networkPolicy.kubelet.cidrs }}
+      - toCIDR:
+          {{- toYaml . | nindent 10 }}
+      {{- else }}
+      - toEntities: [host, remote-node]
+      {{- end }}
+        toPorts:
+          {{- toYaml $ports | nindent 10 }}
+{{- end }}

@@ -169,3 +169,15 @@ logging:
     {{- end }}
   {{- end }}
 {{- end -}}
+
+{{/* "true" when the installed Cilium policy CRD knows enableDefaultDeny (Cilium 1.16+); older ones would prune it and default-deny the hosts. */}}
+{{- define "exitmesh.ciliumAllowOnly" -}}
+{{- $ok := false -}}
+{{- range ((.spec | default dict).versions | default list) -}}
+{{- if eq .name "v2" -}}
+{{- $specs := dig "schema" "openAPIV3Schema" "properties" "specs" "items" "properties" dict . -}}
+{{- if hasKey $specs "enableDefaultDeny" -}}{{- $ok = true -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $ok -}}
+{{- end -}}
