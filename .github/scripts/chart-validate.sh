@@ -8,6 +8,8 @@ versions=${KUBE_VERSIONS:-1.27.0 1.30.0 1.34.0 1.37.0}
 root="ci-root:$(printf '%032d' 0 | head -c 32 | base64 -w0)"
 base=(--namespace default --set endpoint=https://cp.example.com --set enrollment.token=emx1_c_t-ci_abcdefghijklmnop --set-json "trust.roots=[\"$root\"]")
 out=$(mktemp -d)
+# Pinned CRD schemas for the Cilium policy the chart renders by default.
+crds='https://raw.githubusercontent.com/datreeio/CRDs-catalog/ba71765ac1280e851d81914ec3b02ece96c39548/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
 declare -A sets=(
 	[default]=""
@@ -24,5 +26,5 @@ for v in $versions; do
 		helm template exitmesh-agent "$chart" "${base[@]}" --kube-version "$v" ${sets[$name]} >"$out/$v/$name.yaml"
 	done
 	echo "== Kubernetes $v"
-	kubeconform -strict -summary -kubernetes-version "$v" -schema-location default "$out/$v"/*.yaml
+	kubeconform -strict -summary -kubernetes-version "$v" -schema-location default -schema-location "$crds" "$out/$v"/*.yaml
 done

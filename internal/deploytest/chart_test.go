@@ -63,6 +63,11 @@ func TestEveryObjectMatchesAPISchema(t *testing.T) {
 						t.Fatalf("unexpected Certificate apiVersion %v", o["apiVersion"])
 					}
 					continue
+				case "CiliumClusterwideNetworkPolicy":
+					if o["apiVersion"] != "cilium.io/v2" {
+						t.Fatalf("unexpected CiliumClusterwideNetworkPolicy apiVersion %v", o["apiVersion"])
+					}
+					continue
 				default:
 					t.Fatalf("unexpected kind %v", o["kind"])
 				}
@@ -785,10 +790,15 @@ func TestCiliumKubeletPolicy(t *testing.T) {
 	const ccnp = "CiliumClusterwideNetworkPolicy"
 	cilium := []string{"--api-versions", "cilium.io/v2/CiliumClusterwideNetworkPolicy"}
 	on := []string{"--set", "networkPolicy.cilium=true"}
+	// Offline renders (Argo CD, helm template) cannot detect Cilium, so the default must not depend on detection.
+	if m := render(t, baseArgs...); len(m.all(ccnp)) != 1 {
+		t.Errorf("default render has %d Cilium policies, want 1", len(m.all(ccnp)))
+	}
 	// Without a cluster to read the CRD schema from, auto cannot prove enableDefaultDeny is honored.
-	for _, args := range [][]string{nil, cilium} {
+	auto := []string{"--set", "networkPolicy.cilium=auto"}
+	for _, args := range [][]string{auto, append(auto, cilium...)} {
 		if m := render(t, append(args, baseArgs...)...); len(m.all(ccnp)) != 0 {
-			t.Errorf("auto with %v rendered a Cilium policy without checking the CRD", args)
+			t.Errorf("%v rendered a Cilium policy without checking the CRD", args)
 		}
 	}
 	specsOf := func(m *manifest) []any {

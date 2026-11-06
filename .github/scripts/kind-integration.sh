@@ -64,7 +64,9 @@ common=(--namespace default
 	"${image[@]}"
 	--set coordinator.persistence.accessMode=ReadWriteOnce
 	# kind kubelets serve self-signed certificates that the cluster CA does not sign.
-	--set node.kubeletTLS=skip)
+	--set node.kubeletTLS=skip
+	# kind runs kindnet, so the Cilium policy kind does not exist.
+	--set networkPolicy.cilium=false)
 
 echo "== createNamespaces=false validation against the live cluster"
 kubectl create namespace "$nodens"
