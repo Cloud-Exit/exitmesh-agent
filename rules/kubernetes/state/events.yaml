@@ -20,13 +20,14 @@
   labels:
     reason: '=[r.fields.filter(k, k.startsWith("events.warning.") && r.fields[k] >= 10).map(k, k.substring(15))].map(l, l.filter(x, l.all(y, x <= y))[0])[0]'
 - id: event.new_reason
-  version: 1
+  version: 2
   target: kubernetes
   kinds: [Pod, Node, PersistentVolumeClaim, PersistentVolume, Service, apps/Deployment, apps/ReplicaSet, apps/StatefulSet, apps/DaemonSet, batch/Job, batch/CronJob, autoscaling/HorizontalPodAutoscaler, networking.k8s.io/Ingress, policy/PodDisruptionBudget]
   expr: >-
     r.fields.exists(k, k.startsWith("events.warning."))
   labels:
     reason_count: '=string(size(r.fields.filter(k, k.startsWith("events.warning."))))'
+    reasons: '=[r.fields.filter(k, k.startsWith("events.warning.")).map(k, k.substring(15))].map(l, [0, 1, 2, 3, 4, 5, 6, 7].filter(i, i < size(l)).map(i, l.filter(x, size(l.filter(y, y < x)) == i)[0]).join(", "))[0]'
 - id: event.backoff_loop
   version: 1
   target: kubernetes

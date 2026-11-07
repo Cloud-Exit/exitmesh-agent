@@ -405,12 +405,12 @@ func TestEventReasonsAreBounded(t *testing.T) {
 	f := h.tr.Snapshot().Resources["pod-1"].Fields
 	n := 0
 	for k := range f {
-		if strings.HasPrefix(k, eventFieldPrefix) {
+		if strings.HasPrefix(k, EventFieldPrefix) {
 			n++
 		}
 	}
-	if n != maxEventReasons+1 || f[eventFieldPrefix+otherReason] != int64(1+2+3+4) {
-		t.Fatalf("reason cap: %d fields, other=%v", n, f[eventFieldPrefix+otherReason])
+	if n != maxEventReasons+1 || f[EventFieldPrefix+otherReason] != int64(1+2+3+4) {
+		t.Fatalf("reason cap: %d fields, other=%v", n, f[EventFieldPrefix+otherReason])
 	}
 }
 

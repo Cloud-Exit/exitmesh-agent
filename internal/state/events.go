@@ -232,7 +232,7 @@ func (a *eventAgg) fields(uid string) map[string]any {
 	}
 	out := make(map[string]any, len(ob.published))
 	for r, n := range ob.published {
-		out[eventFieldPrefix+r] = n
+		out[EventFieldPrefix+r] = n
 	}
 	return out
 }

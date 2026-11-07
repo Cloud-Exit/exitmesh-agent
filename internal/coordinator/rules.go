@@ -88,6 +88,10 @@ func (c *Coordinator) observation(ev engine.AlertEvent) (findings.Observation, b
 		o.DedupLabels = m.DedupLabels()
 		o.MaxSamples, o.MaxBytes = m.Evidence.MaxSamples, m.Evidence.MaxBytes
 	}
+	// Only the first firing carries them: the finding tracker adds counts on every resend.
+	if ev.Class == bundle.ClassState && ev.Transition == engine.TransitionFiring {
+		o.Evidence = warningEvidence(c.stateView(), ev.ResourceUIDs, ev.EvalTime)
+	}
 	if ev.Incomplete {
 		o.Coverage = []string{incompleteCoverage}
 	}
@@ -432,4 +436,67 @@ func (k *kubeFeed) get(node string) (nodeapi.KubeUpdate, <-chan struct{}) {
 		}
 	}
 	return nodeapi.KubeUpdate{Revision: nk.rev, Series: nk.series}, nk.ch
+}
+
+// warningEvidence names every Warning event reason counted on a finding's resources, so a state
+// finding about events says which events it saw.
+func warningEvidence(st *protocol.State, uids []string, at time.Time) []protocol.Evidence {
+	if st == nil {
+		return nil
+	}
+	var out []protocol.Evidence
+	for _, uid := range uids {
+		r := st.Resources[uid]
+		if r == nil {
+			continue
+		}
+		var reasons []string
+		for field := range r.Fields {
+			if strings.HasPrefix(field, state.EventFieldPrefix) {
+				reasons = append(reasons, field)
+			}
+		}
+		sort.Strings(reasons)
+		object := r.Name
+		if r.Namespace != "" {
+			object = r.Namespace + "/" + r.Name
+		}
+		for _, field := range reasons {
+			n := eventCount(r.Fields[field])
+			if n == 0 {
+				continue
+			}
+			reason := strings.TrimPrefix(field, state.EventFieldPrefix)
+			out = append(out, protocol.Evidence{
+				Source: kubeSource,
+				Time:   uint64(at.UnixMilli()),
+				Text:   fmt.Sprintf("Warning event %s on %s %s: %d in the last %s", reason, r.Kind, object, n, eventWindowText(state.DefaultEventWindow)),
+				Count:  n,
+			})
+		}
+	}
+	return out
+}
+
+func eventCount(v any) uint64 {
+	switch n := v.(type) {
+	case int64:
+		return uint64(max(n, 0))
+	case uint64:
+		return n
+	case int:
+		return uint64(max(n, 0))
+	case float64:
+		if n > 0 {
+			return uint64(n)
+		}
+	}
+	return 0
+}
+
+func eventWindowText(d time.Duration) string {
+	if d == time.Hour {
+		return "hour"
+	}
+	return d.String()
 }
