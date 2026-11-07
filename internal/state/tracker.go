@@ -48,7 +48,7 @@ func NewTracker(o TrackerOptions) *Tracker {
 		o.Clock = time.Now
 	}
 	if o.EventWindow <= 0 {
-		o.EventWindow = time.Hour
+		o.EventWindow = DefaultEventWindow
 	}
 	if o.EventInterval <= 0 {
 		o.EventInterval = 5 * time.Minute
@@ -403,12 +403,16 @@ func (t *Tracker) publishEvents(tx *txn, uid string, now time.Time) {
 	}
 }
 
-const eventFieldPrefix = "events.warning."
+// EventFieldPrefix starts the field counting one Warning event reason on an object.
+const EventFieldPrefix = "events.warning."
+
+// DefaultEventWindow is the sliding window Warning event counts cover unless configured.
+const DefaultEventWindow = time.Hour
 
 func mergeEventFields(base, events map[string]any) map[string]any {
 	out := make(map[string]any, len(base)+len(events))
 	for k, v := range base {
-		if !strings.HasPrefix(k, eventFieldPrefix) {
+		if !strings.HasPrefix(k, EventFieldPrefix) {
 			out[k] = v
 		}
 	}

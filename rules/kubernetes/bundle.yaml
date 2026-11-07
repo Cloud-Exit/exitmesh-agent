@@ -1,4 +1,4 @@
-version: "2026.10.1"
+version: "2026.11.1"
 engine_version: 2
 schema_version: 1
 target_type: kubernetes
@@ -75,7 +75,7 @@ rules:
     budget: {max_samples: 5000000, max_complexity: 400}
     summary: "Warning event {{ $labels.reason }} repeats on {{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }}"
   - id: event.new_reason
-    version: 1
+    version: 2
     class: state
     target: kubernetes
     scope: cluster
@@ -84,7 +84,7 @@ rules:
     capabilities: [inventory]
     dedup_key: kind,namespace,name
     budget: {max_samples: 5000000, max_complexity: 400}
-    summary: "{{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }} has {{ $labels.reason_count }} Warning event reasons"
+    summary: "{{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }} has Warning events: {{ $labels.reasons }}"
   - id: event.backoff_loop
     version: 1
     class: state

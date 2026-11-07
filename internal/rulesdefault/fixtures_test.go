@@ -107,14 +107,14 @@ func stateFixtures() []fixture {
 		{
 			id: "event.new_reason", target: k8s,
 			bad: st(
-				res("c1", "PersistentVolumeClaim", "shop", "data", map[string]any{"phase": "Pending", "events.warning.ProvisioningFailed": int64(1)}),
+				res("c1", "PersistentVolumeClaim", "shop", "data", map[string]any{"phase": "Pending", "events.warning.ProvisioningFailed": int64(1), "events.warning.FailedBinding": int64(2)}),
 				res("d1", "apps/Deployment", "shop", "web", map[string]any{"replicas": int64(2)}),
 			),
 			good: st(
 				res("c1", "PersistentVolumeClaim", "shop", "data", map[string]any{"phase": "Bound"}),
 				res("d1", "apps/Deployment", "shop", "web", map[string]any{"replicas": int64(2)}),
 			),
-			labels: map[string]string{"kind": "PersistentVolumeClaim", "name": "data", "reason_count": "1"},
+			labels: map[string]string{"kind": "PersistentVolumeClaim", "name": "data", "reason_count": "2", "reasons": "FailedBinding, ProvisioningFailed"},
 		},
 		{
 			id: "event.backoff_loop", target: k8s,
