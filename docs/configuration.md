@@ -22,8 +22,8 @@ On Kubernetes the chart renders this file into ConfigMaps (`exitmesh-agent-coord
 |`kubernetes.scope`|`cluster`|`cluster` or `namespaces` (namespace-scoped profile). In the namespaces profile a node agent runs one `spec.nodeName` pod watch per listed namespace, which the chart's per-namespace Roles grant; the cluster profile uses one cluster-wide watch.|
 |`kubernetes.namespaces`|empty|Namespaces to collect; required when scope is `namespaces`. Node agents never tail, read on demand, or keep evidence from pods outside them.|
 |`kubernetes.excludeNamespaces`|empty|Namespaces to skip in either profile: not collected, and node agents never watch their pods, tail or read their logs on demand, or keep evidence from them.|
-|`kubernetes.labelAllowlist`|empty|Label keys recorded in state facts. Labels are never recorded without an allowlist.|
-|`kubernetes.annotationAllowlist`|empty|Annotation keys recorded in state facts.|
+|`kubernetes.labelAllowlist`|empty (agent defaults)|Label keys recorded in state facts; a trailing `*` matches a prefix. Empty selects the defaults in docs/field-catalog.md, which include every `projectsveltos.io/` key.|
+|`kubernetes.annotationAllowlist`|empty (agent defaults)|Annotation keys recorded in state facts; a trailing `*` matches a prefix. Empty selects the Helm release name and namespace and every `projectsveltos.io/` key. A configured list replaces the defaults.|
 |`kubernetes.resources`|empty (agent default set)|Built-in resource kinds to collect; does not disable custom-resource discovery.|
 |`kubernetes.customResources.enabled`|`true`|Discover custom kinds from the CRD informer and collect instances after initial built-in sync.|
 |`kubernetes.customResources.maxKinds`, `maxScopes`|`100`, `256`|Maximum custom kinds and kind/namespace collection scopes; exceeding either reports partial discovery coverage.|

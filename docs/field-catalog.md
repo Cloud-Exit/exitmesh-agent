@@ -31,8 +31,9 @@ Labels (`kubernetes.labelAllowlist`, a trailing `*` matches a prefix), default:
 - `topology.kubernetes.io/zone`
 - `topology.kubernetes.io/region`
 - `node-role.kubernetes.io/*`
+- `projectsveltos.io/*`
 
-Annotations (`kubernetes.annotationAllowlist`): Helm release name and namespace by default; Secret annotations are always omitted.
+Annotations (`kubernetes.annotationAllowlist`), default: Helm release name and namespace, and every `projectsveltos.io/` key (the Sveltos profile that deployed the object); Secret annotations are always omitted.
 
 Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references; Gateway API HTTPRoute and TLSRoute additionally export their parent, backend, and hostname references (below). Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret data and stringData keys are retained with constant redacted values before caching or export; Helm release payloads are never decoded.
 

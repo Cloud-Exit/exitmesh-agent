@@ -320,3 +320,40 @@ func TestOwnerEdgesAndErrors(t *testing.T) {
 		t.Fatal("kind strings")
 	}
 }
+
+func TestDefaultAllowlistsKeepSveltosOwnership(t *testing.T) {
+	n, err := NewNormalizer(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := fixtureByUID(t, "cm-1")
+	u.SetAnnotations(map[string]string{
+		"projectsveltos.io/owner-kind": "Profile",
+		"projectsveltos.io/owner-name": "deploy-alerts",
+		"projectsveltos.io/owner-tier": "100",
+		"projectsveltos.io/hash":       "sha256:abc",
+		"example.com/owner":            "alice",
+	})
+	u.SetLabels(map[string]string{
+		"projectsveltos.io/reference-kind":      "ConfigMap",
+		"projectsveltos.io/reference-name":      "alerting-rules",
+		"projectsveltos.io/reference-namespace": "managed-cloud-exit",
+	})
+	f := mustNormalize(t, n, u).Fields
+	for k, v := range map[string]string{
+		"annotations.projectsveltos.io/owner-kind":     "Profile",
+		"annotations.projectsveltos.io/owner-name":     "deploy-alerts",
+		"annotations.projectsveltos.io/owner-tier":     "100",
+		"annotations.projectsveltos.io/hash":           "sha256:abc",
+		"labels.projectsveltos.io/reference-kind":      "ConfigMap",
+		"labels.projectsveltos.io/reference-name":      "alerting-rules",
+		"labels.projectsveltos.io/reference-namespace": "managed-cloud-exit",
+	} {
+		if f[k] != v {
+			t.Fatalf("%s = %#v, want %q", k, f[k], v)
+		}
+	}
+	if _, ok := f["annotations.example.com/owner"]; ok {
+		t.Fatal("annotation outside the default allowlist exported")
+	}
+}

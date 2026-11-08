@@ -91,10 +91,14 @@ var DefaultLabelAllowlist = []string{
 	"app.kubernetes.io/managed-by", "helm.sh/chart",
 	"app.kubernetes.io/part-of", "app.kubernetes.io/version", "app", "k8s-app",
 	"topology.kubernetes.io/zone", "topology.kubernetes.io/region", "node-role.kubernetes.io/*",
+	SveltosMetadataPrefix,
 }
 
-// DefaultAnnotationAllowlist is used when no annotation allowlist is configured: Helm ownership references only.
-var DefaultAnnotationAllowlist = []string{"meta.helm.sh/release-name", "meta.helm.sh/release-namespace"}
+// SveltosMetadataPrefix matches the labels and annotations Sveltos writes on the objects it deploys, such as the owning profile.
+const SveltosMetadataPrefix = "projectsveltos.io/*"
+
+// DefaultAnnotationAllowlist is used when no annotation allowlist is configured: Helm and Sveltos ownership references.
+var DefaultAnnotationAllowlist = []string{"meta.helm.sh/release-name", "meta.helm.sh/release-namespace", SveltosMetadataPrefix}
 
 var (
 	podConditionTypes    = []string{"PodScheduled", "PodReadyToStartContainers", "Initialized", "ContainersReady", "Ready", "DisruptionTarget"}
@@ -514,7 +518,7 @@ func RenderFieldCatalog() string {
 	for _, l := range DefaultLabelAllowlist {
 		fmt.Fprintf(&b, "- `%s`\n", l)
 	}
-	b.WriteString("\nAnnotations (`kubernetes.annotationAllowlist`): Helm release name and namespace by default; Secret annotations are always omitted.\n\n")
+	b.WriteString("\nAnnotations (`kubernetes.annotationAllowlist`), default: Helm release name and namespace, and every `projectsveltos.io/` key (the Sveltos profile that deployed the object); Secret annotations are always omitted.\n\n")
 	b.WriteString("Custom resources discovered from CRDs use projection version 1: identity, allowlisted metadata, generation, observed generation, and bounded conditions (type, status, redacted reason, observed generation). Arbitrary spec/status fields are omitted. ExternalSecret additionally exports its target Secret and SecretStore references; Gateway API HTTPRoute and TLSRoute additionally export their parent, backend, and hostname references (below). Helm revisions are represented by Secret or ConfigMap storage objects with `helm.name`, `helm.revision`, and `helm.status`; the greatest revision for a namespace/name is the latest release. Secret data and stringData keys are retained with constant redacted values before caching or export; Helm release payloads are never decoded.\n\n")
 	b.WriteString("## Scopes\n\nScope keys are `<kind>|<namespace>`, with an empty namespace for cluster-wide collection. Permission loss and collection failure set the scope unavailable; they never delete resources. Scope removal deletes with reason scope removed.\n\n")
 	b.WriteString("## Edges\n\n|Type|From|To|Attributes|\n|---|---|---|---|\n")
