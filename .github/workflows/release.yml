@@ -72,7 +72,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.3
       - uses: imjasonh/setup-crane@v0.7
       - uses: azure/setup-helm@v5
         with:
@@ -231,7 +231,7 @@ jobs:
       CHART_DIGEST: ${{ needs.publish.outputs.chart_digest }}
     steps:
       - uses: actions/checkout@v7
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.3
       - uses: azure/setup-helm@v5
         with:
           version: ${{ env.HELM_VERSION }}
